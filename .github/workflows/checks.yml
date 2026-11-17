@@ -1,0 +1,38 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  text-policy:
+    name: Text policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check files, commit messages and pull request text
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            range="$BASE_SHA..HEAD"
+          elif [ -n "$BEFORE" ] && ! printf '%s' "$BEFORE" | grep -Eq '^0+$' \
+               && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..HEAD"
+          else
+            # A new branch or the first push: check every commit on it.
+            range="HEAD"
+          fi
+          python3 -I scripts/check-text-policy.py --commits "$range" \
+            --text-env PR_TITLE --text-env PR_BODY --text-env REF_NAME
