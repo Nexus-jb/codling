@@ -68,7 +68,17 @@ this repository:
 gh attestation verify com.nexusjb.codling_<version>_iphoneos-arm64.deb --repo Nexus-jb/codling
 ```
 
-Instructions for building locally will be added with the app skeleton.
+To build locally you need macOS with Xcode and Homebrew:
+
+```sh
+brew install xcodegen ldid dpkg
+xcodegen generate
+xcodebuild -project Codling.xcodeproj -target Codling -configuration Release \
+  -sdk iphoneos SYMROOT="$PWD/build" CODE_SIGNING_ALLOWED=NO
+scripts/package-deb.sh build/Release-iphoneos/Codling.app 0.1.0 dist
+```
+
+The packages are written to `dist/`.
 
 ## Contributing
 

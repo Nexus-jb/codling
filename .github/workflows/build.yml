@@ -1,0 +1,97 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    name: Build packages
+    # The free arm64 macOS runners for public repositories are often at
+    # capacity, and jobs there are dropped after waiting about 15 minutes.
+    # The Intel image builds the same arm64 iOS binaries.
+    runs-on: macos-15-intel
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: brew install xcodegen ldid dpkg
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      - name: Build the app
+        run: |
+          xcodebuild -project Codling.xcodeproj -target Codling \
+            -configuration Release -sdk iphoneos SYMROOT="$PWD/build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Work out the package version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          base=$(plutil -extract CFBundleShortVersionString raw build/Release-iphoneos/Codling.app/Info.plist)
+          if [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#v}"
+            if [ "$version" != "$base" ]; then
+              echo "Tag $REF_NAME does not match the app version $base" >&2
+              exit 1
+            fi
+          else
+            # Development builds sort before the release they lead up to.
+            version="$base~dev.$RUN_NUMBER"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Package
+        run: scripts/package-deb.sh build/Release-iphoneos/Codling.app "${{ steps.version.outputs.version }}" dist
+
+      - name: Inspect the packages
+        run: |
+          for deb in dist/*.deb; do
+            echo "== $deb"
+            dpkg-deb --info "$deb"
+            dpkg-deb --contents "$deb"
+          done
+          # The packaged binary must carry our entitlements.
+          check=$(mktemp -d)
+          dpkg-deb -x dist/*_iphoneos-arm64.deb "$check"
+          ldid -e "$check/var/jb/Applications/Codling.app/Codling" | tee "$check/entitlements.plist"
+          grep -q '<key>platform-application</key>' "$check/entitlements.plist"
+          cat dist/SHA256SUMS
+
+      - name: Attest build provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/*.deb
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: codling-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
