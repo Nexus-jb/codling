@@ -17,7 +17,10 @@ concurrency:
 jobs:
   packages:
     name: Build packages
-    runs-on: macos-15
+    # The free arm64 macOS runners for public repositories are often at
+    # capacity, and jobs there are dropped after waiting about 15 minutes.
+    # The Intel image builds the same arm64 iOS binaries.
+    runs-on: macos-15-intel
     permissions:
       contents: read
       id-token: write
