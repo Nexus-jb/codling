@@ -93,6 +93,9 @@ Depends: firmware (>= 15.0), uikittools
 Homepage: https://github.com/Nexus-jb/codling
 CONTROL
 
+  # Refuse chips older than the A12.
+  install -m 0755 "$repo/packaging/preinst" "$root/DEBIAN/preinst"
+
   # Register the app with the home screen, and forget it on removal.
   cat > "$root/DEBIAN/postinst" <<SCRIPT
 #!/bin/sh

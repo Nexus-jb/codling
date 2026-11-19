@@ -58,6 +58,9 @@ Codling without extra setup.
 
 iOS 15 and later. Rootful jailbreaks are not planned for 1.0.
 
+Devices with an Apple A12 chip or newer: iPhone XS, iPhone XR and later.
+The package refuses to install on older chips.
+
 ## Building
 
 Every push is built on GitHub Actions. Release packages are signed and carry
