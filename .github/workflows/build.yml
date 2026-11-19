@@ -81,6 +81,12 @@ jobs:
           dpkg-deb -x dist/*_iphoneos-arm64.deb "$check"
           ldid -e "$check/var/jb/Applications/Codling.app/Codling" | tee "$check/entitlements.plist"
           grep -q '<key>platform-application</key>' "$check/entitlements.plist"
+          grep -q '<key>com.apple.private.persona-mgmt</key>' "$check/entitlements.plist"
+          # The root helper is in the bundle, signed with its own entitlements.
+          ldid -e "$check/var/jb/Applications/Codling.app/codling-helper" | tee "$check/helper.plist"
+          grep -q '<key>platform-application</key>' "$check/helper.plist"
+          lipo -info "$check/var/jb/Applications/Codling.app/codling-helper"
+          plutil -extract CodlingPackageVersion raw "$check/var/jb/Applications/Codling.app/Info.plist"
           # Both packages carry the chip check as their preinst.
           for deb in dist/*.deb; do
             dpkg-deb --ctrl-tarfile "$deb" | tar -tf - | grep -Eq '^(\./)?preinst$'
