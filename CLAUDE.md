@@ -30,6 +30,7 @@ platform, and Nexus (nexusjb.com) is the default source.
 | Path | Contents |
 | --- | --- |
 | `App/` | The SwiftUI app |
+| `Helper/` | The root helper, a C program built into the app bundle |
 | `packaging/` | Entitlements and package metadata |
 | `project.yml` | XcodeGen project definition (the `.xcodeproj` is generated) |
 | `scripts/package-deb.sh` | Builds the rootless and roothide `.deb` packages |

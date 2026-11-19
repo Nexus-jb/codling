@@ -61,6 +61,15 @@ iOS 15 and later. Rootful jailbreaks are not planned for 1.0.
 Devices with an Apple A12 chip or newer: iPhone XS, iPhone XR and later.
 The package refuses to install on older chips.
 
+## How Codling gets root
+
+Installing packages needs root. Codling starts its helper, `codling-helper`
+inside the app bundle, as root through a spawn persona, which takes an
+entitlement only Codling holds. The helper has no setuid bit, so any other
+program that runs it gets nothing more than it had. The helper does only the
+commands it knows, takes no paths from its caller, and starts with a clean
+environment. Its source is [Helper/codling-helper.c](Helper/codling-helper.c).
+
 ## Building
 
 Every push is built on GitHub Actions. Release packages are signed and carry

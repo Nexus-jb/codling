@@ -8,5 +8,9 @@
 	<!-- Codling reads and writes the package database outside an app sandbox. -->
 	<key>com.apple.private.security.no-container</key>
 	<true/>
+	<!-- Lets Codling start its helper as root through a spawn persona, so
+	     the helper needs no setuid bit. -->
+	<key>com.apple.private.persona-mgmt</key>
+	<true/>
 </dict>
 </plist>

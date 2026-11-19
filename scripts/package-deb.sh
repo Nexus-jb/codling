@@ -57,17 +57,36 @@ if [[ $built_id != "$identifier" ]]; then
   exit 1
 fi
 
+# The root helper is built into the bundle with the app (project.yml).
+helper="$bundle/codling-helper"
+if [[ ! -f $helper ]]; then
+  echo "The build has no root helper: $helper" >&2
+  exit 1
+fi
+
+# The app shows the package version, which the build cannot know.
+if command -v plutil >/dev/null 2>&1; then
+  plutil -replace CodlingPackageVersion -string "$version" "$bundle/Info.plist"
+else
+  python3 -I -c 'import plistlib, sys
+path = sys.argv[1]
+info = plistlib.load(open(path, "rb"))
+info["CodlingPackageVersion"] = sys.argv[2]
+plistlib.dump(info, open(path, "wb"))' "$bundle/Info.plist" "$version"
+fi
+
 # Replace any signature Xcode left behind, then sign with our entitlements.
 find "$bundle" -name _CodeSignature -type d -prune -exec rm -rf {} +
 if [[ ${SKIP_SIGN:-0} != 1 ]]; then
   while IFS= read -r -d '' lib; do
     ldid -S "$lib"
   done < <(find "$bundle" -name '*.dylib' -type f -print0)
+  ldid -S"$repo/packaging/codling-helper.entitlements" "$helper"
   ldid -S"$entitlements" "$bundle/$executable"
 fi
 # The app runs as the mobile user, so everything must be readable by everyone.
 chmod -R u+rwX,go+rX,go-w "$bundle"
-chmod 0755 "$bundle/$executable"
+chmod 0755 "$bundle/$executable" "$helper"
 
 # make_deb ARCH PREFIX UICACHE
 #   ARCH     Debian architecture of the scheme
