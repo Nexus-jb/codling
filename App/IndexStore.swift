@@ -19,6 +19,8 @@ struct StoredSource: Equatable {
     var signature: String?
     var refreshed: Date?
     var packageCount: Int
+    /// The warnings of the refresh that read the packages, one per line.
+    var warnings: String?
 }
 
 enum IndexStoreError: Error {
@@ -45,12 +47,18 @@ actor IndexStore {
             throw IndexStoreError.sqlite(message)
         }
         database = handle
+        // The index is a cache of what the sources publish: an index from an
+        // older build is dropped and read again.
+        let version = try Self.integer(handle, "PRAGMA user_version")
+        if version < Self.schemaVersion {
+            try Self.execute(handle, "DROP TABLE IF EXISTS packages; DROP TABLE IF EXISTS sources;")
+        }
         try Self.execute(handle, """
             PRAGMA journal_mode = WAL;
             CREATE TABLE IF NOT EXISTS sources (
                 id TEXT PRIMARY KEY, label TEXT, release_etag TEXT, release_modified TEXT,
                 release_digest TEXT, index_digests TEXT, signature TEXT, refreshed REAL,
-                package_count INTEGER NOT NULL DEFAULT 0);
+                package_count INTEGER NOT NULL DEFAULT 0, warnings TEXT);
             CREATE TABLE IF NOT EXISTS packages (
                 source TEXT NOT NULL, package TEXT NOT NULL, version TEXT NOT NULL, architecture TEXT,
                 name TEXT, section TEXT, author TEXT, maintainer TEXT, summary TEXT, description TEXT,
@@ -58,7 +66,19 @@ actor IndexStore {
                 sha256 TEXT, depends TEXT, tag TEXT);
             CREATE INDEX IF NOT EXISTS packages_by_source ON packages(source);
             CREATE INDEX IF NOT EXISTS packages_by_package ON packages(package);
+            PRAGMA user_version = \(Self.schemaVersion);
             """)
+    }
+
+    private static let schemaVersion = 2
+
+    private static func integer(_ database: OpaquePointer?, _ sql: String) throws -> Int {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw IndexStoreError.sqlite(String(cString: sqlite3_errmsg(database)))
+        }
+        defer { sqlite3_finalize(statement) }
+        return sqlite3_step(statement) == SQLITE_ROW ? Int(sqlite3_column_int64(statement, 0)) : 0
     }
 
     deinit {
@@ -68,7 +88,7 @@ actor IndexStore {
     func source(id: String) throws -> StoredSource? {
         let statement = try prepare("""
             SELECT label, release_etag, release_modified, release_digest, index_digests, signature,
-                   refreshed, package_count FROM sources WHERE id = ?
+                   refreshed, package_count, warnings FROM sources WHERE id = ?
             """)
         defer { sqlite3_finalize(statement) }
         bind(statement, 1, id)
@@ -80,7 +100,7 @@ actor IndexStore {
                             indexDigests: column(statement, 4), signature: column(statement, 5),
                             refreshed: sqlite3_column_type(statement, 6) == SQLITE_NULL
                                 ? nil : Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
-                            packageCount: Int(sqlite3_column_int64(statement, 7)))
+                            packageCount: Int(sqlite3_column_int64(statement, 7)), warnings: column(statement, 8))
     }
 
     /// Saves a source's state and, when packages is not nil, replaces its
@@ -124,7 +144,7 @@ actor IndexStore {
             }
             let upsert = try prepare("""
                 INSERT OR REPLACE INTO sources (id, label, release_etag, release_modified, release_digest,
-                    index_digests, signature, refreshed, package_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    index_digests, signature, refreshed, package_count, warnings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """)
             defer { sqlite3_finalize(upsert) }
             let values: [String?] = [stored.id, stored.label, stored.releaseETag, stored.releaseModified,
@@ -138,6 +158,7 @@ actor IndexStore {
                 sqlite3_bind_null(upsert, 8)
             }
             sqlite3_bind_int64(upsert, 9, Int64(stored.packageCount))
+            bind(upsert, 10, stored.warnings)
             guard sqlite3_step(upsert) == SQLITE_DONE else { throw error() }
             try execute("COMMIT")
         } catch {

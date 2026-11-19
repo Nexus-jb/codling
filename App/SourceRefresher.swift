@@ -141,6 +141,8 @@ struct SourceRefresher {
         if !force, let stored, stored.packageCount > 0, release != nil, digestLines.count > 0,
            stored.indexDigests == digestLines {
             // The Release file changed, but not the indexes it lists.
+            stateToSave.warnings = (warnings + (stored.warnings ?? "").split(separator: "\n").map(String.init)
+                .filter { !warnings.contains($0) }).joined(separator: "\n")
             try await store.save(stateToSave, packages: nil)
             try saveLists(source: source, releaseFiles: releaseFiles, indexes: [])
             return RefreshOutcome(state: .unchanged, label: stateToSave.label, signature: signature,
@@ -182,6 +184,7 @@ struct SourceRefresher {
             records += PackageIndex.parse(text, architecture: architecture)
         }
 
+        stateToSave.warnings = warnings.joined(separator: "\n")
         try await store.save(stateToSave, packages: records)
         try saveLists(source: source, releaseFiles: releaseFiles, indexes: indexes)
         return RefreshOutcome(state: .updated, label: stateToSave.label, signature: signature,
@@ -191,7 +194,8 @@ struct SourceRefresher {
     private func unchanged(_ stored: StoredSource?, source: Source) -> RefreshOutcome {
         RefreshOutcome(state: .unchanged, label: stored?.label,
                        signature: stored?.signature.flatMap(Signature.init(stored:)),
-                       packageCount: stored?.packageCount)
+                       packageCount: stored?.packageCount,
+                       warnings: (stored?.warnings ?? "").split(separator: "\n").map(String.init))
     }
 
     /// Tries Packages.xz, .bz2, .gz and plain Packages in turn.

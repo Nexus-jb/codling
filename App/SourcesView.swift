@@ -73,8 +73,8 @@ private struct SourceRow: View {
                 .foregroundColor(.secondary)
                 .lineLimit(2)
             status
-            if let warnings = row.outcome?.warnings, !warnings.isEmpty {
-                ForEach(warnings, id: \.self) { warning in
+            if !row.warnings.isEmpty {
+                ForEach(row.warnings, id: \.self) { warning in
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundColor(.orange)
@@ -120,7 +120,7 @@ private struct SourceRow: View {
     private func summary(count: Int) -> String {
         var parts = [count == 1 ? "1 package" : "\(count.formatted()) packages"]
         switch row.signature {
-        case .signed(let name)?: parts.append("signed by \(name)")
+        case .signed(let name)?: parts.append("signed by \(Self.signer(name))")
         case .trustedWithoutSignature?: parts.append("trusted without a signature")
         case .untrustedKey?, .unsigned?: parts.append("not verified")
         case nil: break
@@ -131,13 +131,33 @@ private struct SourceRow: View {
         return parts.joined(separator: ", ")
     }
 
+    /// The name on a key, without its comment and email address:
+    /// "Chariz <chariz@hbang.ws>" becomes "Chariz".
+    static func signer(_ userID: String) -> String {
+        var name = userID
+        if let email = name.firstIndex(of: "<") {
+            name = String(name[..<email])
+        }
+        if let comment = name.firstIndex(of: "(") {
+            name = String(name[..<comment])
+        }
+        name = name.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? userID : name
+    }
+
     private var signatureSymbol: String {
-        if case .signed? = row.signature { return "checkmark.seal.fill" }
-        return "checkmark.circle"
+        switch row.signature {
+        case .signed?: return "checkmark.seal.fill"
+        case .trustedWithoutSignature?: return "checkmark.circle"
+        default: return "exclamationmark.shield"
+        }
     }
 
     private var signatureColor: Color {
-        if case .signed? = row.signature { return .green }
-        return .secondary
+        switch row.signature {
+        case .signed?: return .green
+        case .trustedWithoutSignature?: return .secondary
+        default: return .orange
+        }
     }
 }

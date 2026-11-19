@@ -30,6 +30,10 @@ final class SourcesModel: ObservableObject {
         var signature: Signature? {
             outcome?.signature ?? stored?.signature.flatMap(Signature.init(stored:))
         }
+
+        var warnings: [String] {
+            outcome?.warnings ?? (stored?.warnings ?? "").split(separator: "\n").map(String.init)
+        }
     }
 
     @Published private(set) var rows: [Row] = []
