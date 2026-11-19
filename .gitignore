@@ -22,3 +22,7 @@ dist/
 # Editors
 .vscode/
 .idea/
+
+# Swift Package Manager (Core)
+Core/.build/
+Core/Package.resolved

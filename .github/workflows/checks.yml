@@ -45,3 +45,15 @@ jobs:
 
       - name: Test the chip check in the preinst
         run: sh scripts/test-preinst.sh
+
+  core:
+    name: Core tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show the Swift toolchain
+        run: swift --version
+
+      - name: Test CodlingCore
+        run: swift test --package-path Core
