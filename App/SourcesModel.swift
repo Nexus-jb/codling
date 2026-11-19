@@ -117,24 +117,21 @@ final class SourcesModel: ObservableObject {
             rows[index].activity = .waiting
         }
         let sources = rows.map(\.source)
+        let parallelism = self.parallelism
         await withTaskGroup(of: (String, RefreshOutcome).self) { group in
             var next = 0
-            func startNext() {
-                guard next < sources.count else { return }
-                let source = sources[next]
-                next += 1
-                setActivity(.refreshing, for: source.id)
-                group.addTask { (source.id, await refresher.refresh(source, force: force)) }
-            }
-            for _ in 0..<min(parallelism, sources.count) {
-                startNext()
-            }
-            while let (id, outcome) = await group.next() {
-                if let index = rows.firstIndex(where: { $0.id == id }) {
-                    rows[index].outcome = outcome
-                    rows[index].activity = .idle
+            var running = 0
+            while next < sources.count || running > 0 {
+                while running < parallelism && next < sources.count {
+                    let source = sources[next]
+                    next += 1
+                    running += 1
+                    await self.setActivity(.refreshing, for: source.id)
+                    group.addTask { (source.id, await refresher.refresh(source, force: force)) }
                 }
-                startNext()
+                guard let (id, outcome) = await group.next() else { break }
+                running -= 1
+                await self.finish(id: id, outcome: outcome)
             }
         }
         try? await store.keepOnly(ids: Set(rows.map(\.id)))
@@ -144,6 +141,13 @@ final class SourcesModel: ObservableObject {
         let packages = (try? await store.packageCount()) ?? 0
         lastRefresh = (Date(), Date().timeIntervalSince(started), packages)
         isRefreshing = false
+    }
+
+    private func finish(id: String, outcome: RefreshOutcome) {
+        if let index = rows.firstIndex(where: { $0.id == id }) {
+            rows[index].outcome = outcome
+            rows[index].activity = .idle
+        }
     }
 
     private func setActivity(_ activity: Activity, for id: String) {
