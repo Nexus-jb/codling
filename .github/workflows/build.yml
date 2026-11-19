@@ -81,6 +81,10 @@ jobs:
           dpkg-deb -x dist/*_iphoneos-arm64.deb "$check"
           ldid -e "$check/var/jb/Applications/Codling.app/Codling" | tee "$check/entitlements.plist"
           grep -q '<key>platform-application</key>' "$check/entitlements.plist"
+          # Both packages carry the chip check as their preinst.
+          for deb in dist/*.deb; do
+            dpkg-deb --ctrl-tarfile "$deb" | tar -tf - | grep -Eq '^(\./)?preinst$'
+          done
           cat dist/SHA256SUMS
 
       - name: Attest build provenance

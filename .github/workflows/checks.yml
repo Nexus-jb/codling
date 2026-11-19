@@ -36,3 +36,12 @@ jobs:
           fi
           python3 -I scripts/check-text-policy.py --commits "$range" \
             --text-env PR_TITLE --text-env PR_BODY --text-env REF_NAME
+
+  packaging:
+    name: Packaging scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Test the chip check in the preinst
+        run: sh scripts/test-preinst.sh
