@@ -24,6 +24,8 @@ targets:
       - path: App
         excludes:
           - Info.plist
+      # Plain Foundation code, also tested on its own (Core/Package.swift).
+      - path: Core/Sources/CodlingCore
     settings:
       base:
         PRODUCT_NAME: Codling
@@ -32,6 +34,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ENABLE_PREVIEWS: "YES"
         SWIFT_OBJC_BRIDGING_HEADER: App/Codling-Bridging-Header.h
+        # zlib, bzip2 and the Compression library read the package indexes.
+        OTHER_LDFLAGS: "-lz -lbz2 -lcompression"
         ENABLE_USER_SCRIPT_SANDBOXING: "NO"
     # The root helper is a plain C program; it goes inside the app bundle,
     # and the packaging script signs it with its own entitlements.

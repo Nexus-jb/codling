@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Foundation
+import SQLite3
+
+/// What Codling remembers about a source between refreshes.
+struct StoredSource: Equatable {
+    var id: String
+    var label: String?
+    /// Validators of the last Release or InRelease download, for a
+    /// conditional request.
+    var releaseETag: String?
+    var releaseModified: String?
+    /// SHA-256 of the Release text the index was built from.
+    var releaseDigest: String?
+    /// The digest of each index file the packages came from, as the Release
+    /// file gave it ("path digest" lines).
+    var indexDigests: String?
+    var signature: String?
+    var refreshed: Date?
+    var packageCount: Int
+}
+
+enum IndexStoreError: Error {
+    case sqlite(String)
+
+    var message: String {
+        switch self {
+        case .sqlite(let detail): return "The package index could not be written: \(detail)"
+        }
+    }
+}
+
+/// The local package index, in SQLite: every source's packages, read once
+/// at refresh and then searched without reading the indexes again.
+actor IndexStore {
+    private var database: OpaquePointer?
+    private static let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+    init(path: String) throws {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
+            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "cannot open \(path)"
+            sqlite3_close(handle)
+            throw IndexStoreError.sqlite(message)
+        }
+        database = handle
+        try Self.execute(handle, """
+            PRAGMA journal_mode = WAL;
+            CREATE TABLE IF NOT EXISTS sources (
+                id TEXT PRIMARY KEY, label TEXT, release_etag TEXT, release_modified TEXT,
+                release_digest TEXT, index_digests TEXT, signature TEXT, refreshed REAL,
+                package_count INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS packages (
+                source TEXT NOT NULL, package TEXT NOT NULL, version TEXT NOT NULL, architecture TEXT,
+                name TEXT, section TEXT, author TEXT, maintainer TEXT, summary TEXT, description TEXT,
+                depiction TEXT, sileo_depiction TEXT, icon TEXT, filename TEXT, size INTEGER,
+                sha256 TEXT, depends TEXT, tag TEXT);
+            CREATE INDEX IF NOT EXISTS packages_by_source ON packages(source);
+            CREATE INDEX IF NOT EXISTS packages_by_package ON packages(package);
+            """)
+    }
+
+    deinit {
+        sqlite3_close(database)
+    }
+
+    func source(id: String) throws -> StoredSource? {
+        let statement = try prepare("""
+            SELECT label, release_etag, release_modified, release_digest, index_digests, signature,
+                   refreshed, package_count FROM sources WHERE id = ?
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            return nil
+        }
+        return StoredSource(id: id, label: column(statement, 0), releaseETag: column(statement, 1),
+                            releaseModified: column(statement, 2), releaseDigest: column(statement, 3),
+                            indexDigests: column(statement, 4), signature: column(statement, 5),
+                            refreshed: sqlite3_column_type(statement, 6) == SQLITE_NULL
+                                ? nil : Date(timeIntervalSince1970: sqlite3_column_double(statement, 6)),
+                            packageCount: Int(sqlite3_column_int64(statement, 7)))
+    }
+
+    /// Saves a source's state and, when packages is not nil, replaces its
+    /// packages, in one transaction.
+    func save(_ source: StoredSource, packages: [PackageRecord]?) throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            var stored = source
+            if let packages {
+                let delete = try prepare("DELETE FROM packages WHERE source = ?")
+                bind(delete, 1, source.id)
+                let deleted = sqlite3_step(delete)
+                sqlite3_finalize(delete)
+                guard deleted == SQLITE_DONE else { throw error() }
+                let insert = try prepare("""
+                    INSERT INTO packages (source, package, version, architecture, name, section, author,
+                        maintainer, summary, description, depiction, sileo_depiction, icon, filename, size,
+                        sha256, depends, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """)
+                defer { sqlite3_finalize(insert) }
+                for record in packages {
+                    sqlite3_reset(insert)
+                    let values: [String?] = [source.id, record.package, record.version, record.architecture,
+                                             record.name, record.section, record.author, record.maintainer,
+                                             record.summary, record.description, record.depiction,
+                                             record.sileoDepiction, record.icon, record.filename]
+                    for (index, value) in values.enumerated() {
+                        bind(insert, Int32(index + 1), value)
+                    }
+                    if let size = record.size {
+                        sqlite3_bind_int64(insert, 15, size)
+                    } else {
+                        sqlite3_bind_null(insert, 15)
+                    }
+                    bind(insert, 16, record.sha256)
+                    bind(insert, 17, record.depends)
+                    bind(insert, 18, record.tag)
+                    guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
+                }
+                stored.packageCount = packages.count
+            }
+            let upsert = try prepare("""
+                INSERT OR REPLACE INTO sources (id, label, release_etag, release_modified, release_digest,
+                    index_digests, signature, refreshed, package_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """)
+            defer { sqlite3_finalize(upsert) }
+            let values: [String?] = [stored.id, stored.label, stored.releaseETag, stored.releaseModified,
+                                     stored.releaseDigest, stored.indexDigests, stored.signature]
+            for (index, value) in values.enumerated() {
+                bind(upsert, Int32(index + 1), value)
+            }
+            if let refreshed = stored.refreshed {
+                sqlite3_bind_double(upsert, 8, refreshed.timeIntervalSince1970)
+            } else {
+                sqlite3_bind_null(upsert, 8)
+            }
+            sqlite3_bind_int64(upsert, 9, Int64(stored.packageCount))
+            guard sqlite3_step(upsert) == SQLITE_DONE else { throw error() }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
+    /// Forgets the sources that are no longer in apt's lists.
+    func keepOnly(ids: Set<String>) throws {
+        let statement = try prepare("SELECT id FROM sources")
+        var gone: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let id: String = column(statement, 0), !ids.contains(id) {
+                gone.append(id)
+            }
+        }
+        sqlite3_finalize(statement)
+        for id in gone {
+            for sql in ["DELETE FROM packages WHERE source = ?", "DELETE FROM sources WHERE id = ?"] {
+                let delete = try prepare(sql)
+                bind(delete, 1, id)
+                let result = sqlite3_step(delete)
+                sqlite3_finalize(delete)
+                guard result == SQLITE_DONE else { throw error() }
+            }
+        }
+    }
+
+    func packageCount() throws -> Int {
+        let statement = try prepare("SELECT COUNT(*) FROM packages")
+        defer { sqlite3_finalize(statement) }
+        return sqlite3_step(statement) == SQLITE_ROW ? Int(sqlite3_column_int64(statement, 0)) : 0
+    }
+
+    // MARK: SQLite
+
+    private static func execute(_ database: OpaquePointer?, _ sql: String) throws {
+        var message: UnsafeMutablePointer<CChar>?
+        guard sqlite3_exec(database, sql, nil, nil, &message) == SQLITE_OK else {
+            let text = message.map { String(cString: $0) } ?? "unknown error"
+            sqlite3_free(message)
+            throw IndexStoreError.sqlite(text)
+        }
+    }
+
+    private func execute(_ sql: String) throws {
+        try Self.execute(database, sql)
+    }
+
+    private func prepare(_ sql: String) throws -> OpaquePointer? {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw error()
+        }
+        return statement
+    }
+
+    private func bind(_ statement: OpaquePointer?, _ index: Int32, _ value: String?) {
+        if let value {
+            sqlite3_bind_text(statement, index, value, -1, Self.transient)
+        } else {
+            sqlite3_bind_null(statement, index)
+        }
+    }
+
+    private func column(_ statement: OpaquePointer?, _ index: Int32) -> String? {
+        guard let text = sqlite3_column_text(statement, index) else { return nil }
+        return String(cString: text)
+    }
+
+    private func error() -> IndexStoreError {
+        .sqlite(String(cString: sqlite3_errmsg(database)))
+    }
+}
