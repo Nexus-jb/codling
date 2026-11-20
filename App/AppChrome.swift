@@ -273,16 +273,56 @@ struct FloatingTabBar: View {
 
 extension View {
     /// Room at the bottom of a tab for the floating tab bar, before iOS 26,
-    /// so the last rows can scroll above it.
+    /// so the last rows of every page in the tab scroll above it.
     @ViewBuilder
     func floatingTabBarSpace() -> some View {
         if #available(iOS 26, *) {
             self
         } else {
-            safeAreaInset(edge: .bottom, spacing: 0) {
-                Color.clear
-                    .frame(height: FloatingTabBar.height + 6)
-                    .allowsHitTesting(false)
+            background(TabBarRoom())
+        }
+    }
+}
+
+/// Gives a tab's controller extra room at the bottom, in UIKit. Room made
+/// with SwiftUI around a NavigationView does not reach the pages it pushes;
+/// the safe area of the tab's own controller reaches all of them.
+private struct TabBarRoom: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Probe {
+        Probe()
+    }
+
+    func updateUIViewController(_ controller: Probe, context: Context) {
+        controller.apply()
+    }
+
+    final class Probe: UIViewController {
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            apply()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            apply()
+        }
+
+        /// The controller the tab bar controller holds for this tab.
+        func apply() {
+            var controller: UIViewController = self
+            while let parent = controller.parent, !(parent is UITabBarController) {
+                controller = parent
+            }
+            guard controller.parent is UITabBarController else { return }
+            let room = FloatingTabBar.height + 6
+            if controller.additionalSafeAreaInsets.bottom != room {
+                controller.additionalSafeAreaInsets.bottom = room
             }
         }
     }
