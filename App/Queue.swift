@@ -407,7 +407,8 @@ private struct PlanSummary: View {
         if let origin = change.origin {
             parts.append(origin)
         }
-        if names[change.package] != nil {
+        // The identifier, when the name shown is a different one.
+        if let name = names[change.package], name != change.package {
             parts.append(change.package)
         }
         return parts.joined(separator: " · ")
