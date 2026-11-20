@@ -19,16 +19,10 @@ struct PackageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if case .native(let depiction, _) = model.depiction, let headerImage = depiction.headerImage {
-                    RemoteImage(urls: [headerImage], maxPixels: 1600) {
-                        Color(.secondarySystemFill)
-                    }
-                    .frame(height: 170)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .accessibilityHidden(true)
-                }
                 VStack(alignment: .leading, spacing: 12) {
+                    if case .native(let depiction, _) = model.depiction, let headerImage = depiction.headerImage {
+                        HeaderBanner(url: headerImage)
+                    }
                     Card(padding: 14) {
                         header
                     }
@@ -198,8 +192,28 @@ struct PackageView: View {
         VStack(alignment: .leading, spacing: 12) {
             CardHeading(title: "Package Details", symbol: "info.circle")
                 .padding(.top, 8)
-            Card(padding: 14) {
+            Card(padding: 0) {
                 detailRows
+            }
+            if model.versions.count > 1 {
+                CardHeading(title: "Other Versions", symbol: "clock.arrow.circlepath")
+                    .padding(.top, 8)
+                Card(padding: 14) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], alignment: .leading, spacing: 8) {
+                        ForEach(model.versions.dropFirst().map(\.version), id: \.self) { version in
+                            Text(version)
+                                .font(.subheadline.monospacedDigit())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .frame(maxWidth: .infinity)
+                                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Other versions: \(model.versions.dropFirst().map(\.version).joined(separator: ", "))")
+                }
             }
         }
     }
@@ -207,7 +221,7 @@ struct PackageView: View {
     @ViewBuilder
     private var detailRows: some View {
         if let record {
-            InfoRow(name: "Version", value: record.version)
+            InfoRow(name: "Version", value: record.version, first: true)
             if let version = installed.version(of: identifier) {
                 InfoRow(name: "Installed", value: version)
             }
@@ -221,7 +235,7 @@ struct PackageView: View {
             if let size = record.size {
                 InfoRow(name: "Download Size", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
             }
-            InfoRow(name: "Identifier", value: record.package)
+            InfoRow(name: "Identifier", value: record.package, monospaced: true)
             InfoRow(name: "Source", value: source.title)
             if let depends = record.depends, !depends.isEmpty {
                 InfoRow(name: "Depends", value: depends)
@@ -233,6 +247,7 @@ struct PackageView: View {
             Text("This source no longer lists this package. Refresh your sources to update the list.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+                .padding(14)
         }
     }
 }
@@ -317,23 +332,58 @@ private struct PackageActions: View {
     }
 }
 
+/// A name and its value on one line, as a row of the details card; rows
+/// after the first draw a line above them.
 private struct InfoRow: View {
     let name: String
     let value: String
+    var monospaced = false
+    var first = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(name)
-                .font(.caption)
+                .font(.subheadline.weight(.semibold))
                 .foregroundColor(.secondary)
+            Spacer(minLength: 8)
             Text(value)
-                .font(.subheadline)
+                .font(monospaced ? .subheadline.monospaced() : .subheadline)
+                .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .overlay(alignment: .top) {
+            if !first {
+                Divider()
+                    .padding(.leading, 16)
+            }
+        }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A native depiction's header image, framed as a card at the top of the
+/// package's page.
+private struct HeaderBanner: View {
+    let url: URL
+
+    var body: some View {
+        RemoteImage(urls: [url], maxPixels: 1600) {
+            Color(.secondarySystemFill)
+        }
+        .frame(height: 150)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(8)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1.5)
+        )
+        .accessibilityHidden(true)
     }
 }
 
