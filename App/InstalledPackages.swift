@@ -94,6 +94,12 @@ final class InstalledPackagesModel: ObservableObject {
     }
 
     @Published private(set) var state: State = .loading
+    /// The installed version of each package, by identifier.
+    @Published private(set) var versions: [String: String] = [:]
+
+    func version(of identifier: String) -> String? {
+        versions[identifier]
+    }
 
     func load(statusPath: String?) async {
         guard let statusPath else {
@@ -109,6 +115,7 @@ final class InstalledPackagesModel: ObservableObject {
         switch result {
         case .success(let packages):
             state = .loaded(packages)
+            versions = Dictionary(packages.map { ($0.identifier, $0.version) }, uniquingKeysWith: { first, _ in first })
         case .failure(let error):
             state = .failed("Codling could not read \(statusPath): \(error.localizedDescription)")
         }

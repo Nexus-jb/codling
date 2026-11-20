@@ -40,10 +40,13 @@ final class SourcesModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var setupError: String?
     @Published private(set) var lastRefresh: (date: Date, seconds: Double, packages: Int)?
+    /// Goes up after every refresh, so that lists read the index again.
+    @Published private(set) var indexGeneration = 0
 
     private let environment: RuntimeEnvironment
     private var refresher: SourceRefresher?
-    private var store: IndexStore?
+    /// The package index, once the sources have been read.
+    private(set) var store: IndexStore?
     private var refreshedThisLaunch = false
 
     /// How many sources download at once.
@@ -144,7 +147,13 @@ final class SourcesModel: ObservableObject {
         }
         let packages = (try? await store.packageCount()) ?? 0
         lastRefresh = (Date(), Date().timeIntervalSince(started), packages)
+        indexGeneration += 1
         isRefreshing = false
+    }
+
+    /// What package pages need to know about a source.
+    func info(for id: String) -> SourceInfo? {
+        rows.first { $0.id == id }.map { SourceInfo(id: $0.id, title: $0.title, source: $0.source) }
     }
 
     private func finish(id: String, outcome: RefreshOutcome) {

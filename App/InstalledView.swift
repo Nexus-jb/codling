@@ -5,7 +5,7 @@ import SwiftUI
 /// The packages dpkg has installed, read from its status file.
 struct InstalledView: View {
     let environment: RuntimeEnvironment
-    @StateObject private var model = InstalledPackagesModel()
+    @ObservedObject var model: InstalledPackagesModel
     @State private var query = ""
 
     var body: some View {

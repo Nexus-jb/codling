@@ -194,6 +194,104 @@ actor IndexStore {
         return sqlite3_step(statement) == SQLITE_ROW ? Int(sqlite3_column_int64(statement, 0)) : 0
     }
 
+    // MARK: Browsing
+
+    private static let summaryColumns = "source, package, version, name, section, author, maintainer, summary, icon, tag"
+
+    private func summary(_ statement: OpaquePointer?) -> PackageSummary {
+        PackageSummary(source: column(statement, 0) ?? "", package: column(statement, 1) ?? "",
+                       version: column(statement, 2) ?? "", name: column(statement, 3), section: column(statement, 4),
+                       author: column(statement, 5), maintainer: column(statement, 6), summary: column(statement, 7),
+                       icon: column(statement, 8), tag: column(statement, 9))
+    }
+
+    /// The newest version of each package of a source, sorted by name.
+    func packages(source: String) throws -> [PackageSummary] {
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE source = ?")
+        defer { sqlite3_finalize(statement) }
+        bind(statement, 1, source)
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return PackageCatalog.newest(rows)
+    }
+
+    /// Packages whose name, identifier, author or summary hold every word of
+    /// the query, best matches first. truncated is true when there were more.
+    func search(_ query: String, limit: Int) throws -> (results: [PackageSummary], truncated: Bool) {
+        let words = PackageCatalog.searchWords(query)
+        guard !words.isEmpty else { return ([], false) }
+        let condition = words.map { _ in
+            "(name LIKE ? ESCAPE '\\' OR package LIKE ? ESCAPE '\\' OR author LIKE ? ESCAPE '\\'"
+                + " OR maintainer LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')"
+        }.joined(separator: " AND ")
+        // Enough rows for every version of the best matches.
+        let rowLimit = limit * 10
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE \(condition) LIMIT \(rowLimit)")
+        defer { sqlite3_finalize(statement) }
+        var index: Int32 = 1
+        for word in words {
+            let pattern = PackageCatalog.likePattern(word)
+            for _ in 0..<5 {
+                bind(statement, index, pattern)
+                index += 1
+            }
+        }
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        let ranked = PackageCatalog.rank(PackageCatalog.newest(rows), query: query)
+        return (Array(ranked.prefix(limit)), ranked.count > limit || rows.count == rowLimit)
+    }
+
+    /// The newest version of a package in each source that has it.
+    func offers(of package: String) throws -> [PackageSummary] {
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE package = ?")
+        defer { sqlite3_finalize(statement) }
+        bind(statement, 1, package)
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return PackageCatalog.newest(rows)
+    }
+
+    /// Every version of a package in one source, newest first.
+    func versions(of package: String, source: String) throws -> [PackageRecord] {
+        let statement = try prepare("""
+            SELECT package, version, architecture, name, section, author, maintainer, description, depiction,
+                   sileo_depiction, icon, filename, size, sha256, depends, tag
+            FROM packages WHERE source = ? AND package = ?
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(statement, 1, source)
+        bind(statement, 2, package)
+        var records: [PackageRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var record = PackageRecord()
+            record.package = column(statement, 0) ?? ""
+            record.version = column(statement, 1) ?? ""
+            record.architecture = column(statement, 2) ?? ""
+            record.name = column(statement, 3)
+            record.section = column(statement, 4)
+            record.author = column(statement, 5)
+            record.maintainer = column(statement, 6)
+            record.description = column(statement, 7)
+            record.depiction = column(statement, 8)
+            record.sileoDepiction = column(statement, 9)
+            record.icon = column(statement, 10)
+            record.filename = column(statement, 11)
+            record.size = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 12)
+            record.sha256 = column(statement, 13)
+            record.depends = column(statement, 14)
+            record.tag = column(statement, 15)
+            records.append(record)
+        }
+        return records.sorted { DebianVersion($0.version) > DebianVersion($1.version) }
+    }
+
     // MARK: SQLite
 
     private static func execute(_ database: OpaquePointer?, _ sql: String) throws {
