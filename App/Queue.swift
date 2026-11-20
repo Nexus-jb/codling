@@ -281,6 +281,7 @@ struct QueueView: View {
         NavigationView {
             content
                 .navigationTitle("Queue")
+                .systemButton()
         }
         .navigationViewStyle(.stack)
     }

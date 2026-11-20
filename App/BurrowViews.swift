@@ -214,6 +214,8 @@ private struct BurrowStateSections: View {
     @ObservedObject var model: BurrowModel
     let state: BurrowState
     @State private var confirmingLoader = false
+    @State private var showsSafeMode = false
+    @State private var showsTweaks = false
 
     var body: some View {
         Section {
@@ -268,25 +270,31 @@ private struct BurrowStateSections: View {
         let events = state.safeModeEvents.filter(state.isStillOff)
         if !events.isEmpty {
             Section {
-                ForEach(Array(events.prefix(10).enumerated()), id: \.offset) { _, event in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(eventTitle(event))
-                        Text(event.text)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                        Button(event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
-                            Task { await model.setTweak(event.tweak, on: true, in: event.process, origin: Self.origin) }
+                if showsSafeMode {
+                    ForEach(Array(events.prefix(10).enumerated()), id: \.offset) { _, event in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(eventTitle(event))
+                            Text(event.text)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                            Button(event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
+                                Task { await model.setTweak(event.tweak, on: true, in: event.process, origin: Self.origin) }
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!state.canChangeSettings || model.working != nil)
                         }
-                        .buttonStyle(.borderless)
-                        .disabled(!state.canChangeSettings || model.working != nil)
+                        .padding(.vertical, 2)
                     }
-                    .padding(.vertical, 2)
                 }
             } header: {
-                Text("Turned Off by Safe Mode")
+                CollapsibleHeader(title: "Turned Off by Safe Mode", count: events.count, expanded: $showsSafeMode)
             } footer: {
-                Text("Safe Mode turns a tweak off in the app it crashed, and nowhere else.")
+                if showsSafeMode {
+                    Text(events.count > 10
+                         ? "The latest 10 are shown. Safe Mode turns a tweak off in the app it crashed, and nowhere else."
+                         : "Safe Mode turns a tweak off in the app it crashed, and nowhere else.")
+                }
             }
         }
 
@@ -297,23 +305,29 @@ private struct BurrowStateSections: View {
             }
             // A package's tweaks, such as one for SpringBoard and one for an
             // app, are one row.
-            ForEach(state.tweakGroups) { group in
-                NavigationLink {
-                    PackageTweaksView(model: model, groupID: group.id)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.title)
-                        // One line for each of the package's tweaks.
-                        ForEach(group.tweaks) { tweak in
-                            Text(line(for: tweak, alone: group.tweaks.count == 1))
-                                .font(.footnote)
-                                .foregroundColor(isOffSomewhere(tweak) ? .orange : .secondary)
+            if showsTweaks {
+                ForEach(state.tweakGroups) { group in
+                    NavigationLink {
+                        PackageTweaksView(model: model, groupID: group.id)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.title)
+                            // One line for each of the package's tweaks.
+                            ForEach(group.tweaks) { tweak in
+                                Text(line(for: tweak, alone: group.tweaks.count == 1))
+                                    .font(.footnote)
+                                    .foregroundColor(isOffSomewhere(tweak) ? .orange : .secondary)
+                            }
                         }
                     }
                 }
             }
         } header: {
-            Text("Tweaks")
+            if state.tweaks.isEmpty {
+                Text("Tweaks")
+            } else {
+                CollapsibleHeader(title: "Tweaks", count: state.tweakGroups.count, expanded: $showsTweaks)
+            }
         }
     }
 

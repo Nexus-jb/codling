@@ -49,6 +49,8 @@ actor IndexStore {
         database = handle
         // The index is a cache of what the sources publish: an index from an
         // older build is dropped and read again.
+        // The seen table is not a cache: it is kept, so that packages a
+        // source already had are not shown as new after the index is read again.
         let version = try Self.integer(handle, "PRAGMA user_version")
         if version < Self.schemaVersion {
             try Self.execute(handle, "DROP TABLE IF EXISTS packages; DROP TABLE IF EXISTS sources;")
@@ -66,12 +68,19 @@ actor IndexStore {
                 sha256 TEXT, depends TEXT, tag TEXT);
             CREATE INDEX IF NOT EXISTS packages_by_source ON packages(source);
             CREATE INDEX IF NOT EXISTS packages_by_package ON packages(package);
+            CREATE INDEX IF NOT EXISTS packages_by_version ON packages(source, package, version);
+            CREATE TABLE IF NOT EXISTS seen (
+                source TEXT NOT NULL, package TEXT NOT NULL, version TEXT NOT NULL,
+                first_seen REAL NOT NULL, updated INTEGER NOT NULL,
+                PRIMARY KEY (source, package, version));
+            CREATE INDEX IF NOT EXISTS seen_by_time ON seen(first_seen);
             PRAGMA user_version = \(Self.schemaVersion);
             """)
     }
 
     /// 3: package_count counts packages rather than versions.
-    private static let schemaVersion = 3
+    /// 4: the seen table, for new and updated packages.
+    private static let schemaVersion = 4
 
     private static func integer(_ database: OpaquePointer?, _ sql: String) throws -> Int {
         var statement: OpaquePointer?
@@ -141,6 +150,7 @@ actor IndexStore {
                     bind(insert, 18, record.tag)
                     guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
                 }
+                try markSeen(source: source.id)
                 // Packages, not versions: an index can list several versions of one.
                 stored.packageCount = Set(packages.map(\.package)).count
             }
@@ -180,7 +190,8 @@ actor IndexStore {
         }
         sqlite3_finalize(statement)
         for id in gone {
-            for sql in ["DELETE FROM packages WHERE source = ?", "DELETE FROM sources WHERE id = ?"] {
+            for sql in ["DELETE FROM packages WHERE source = ?", "DELETE FROM sources WHERE id = ?",
+                        "DELETE FROM seen WHERE source = ?"] {
                 let delete = try prepare(sql)
                 bind(delete, 1, id)
                 let result = sqlite3_step(delete)
@@ -188,6 +199,86 @@ actor IndexStore {
                 guard result == SQLITE_DONE else { throw error() }
             }
         }
+    }
+
+    /// Records when each version of a source's packages first appeared.
+    /// The first time Codling reads a source, nothing in it is new: its
+    /// versions are recorded at time 0, so that only what the source adds or
+    /// updates later shows as new.
+    private func markSeen(source: String) throws {
+        let known = try prepare("SELECT EXISTS (SELECT 1 FROM seen WHERE source = ?)")
+        bind(known, 1, source)
+        let hasHistory = sqlite3_step(known) == SQLITE_ROW && sqlite3_column_int64(known, 0) != 0
+        sqlite3_finalize(known)
+
+        let insert = try prepare("""
+            INSERT OR IGNORE INTO seen (source, package, version, first_seen, updated)
+            SELECT p.source, p.package, p.version, ?,
+                   EXISTS (SELECT 1 FROM seen o WHERE o.source = p.source AND o.package = p.package)
+            FROM packages p WHERE p.source = ?
+            """)
+        sqlite3_bind_double(insert, 1, hasHistory ? Date().timeIntervalSince1970 : 0)
+        bind(insert, 2, source)
+        let inserted = sqlite3_step(insert)
+        sqlite3_finalize(insert)
+        guard inserted == SQLITE_DONE else { throw error() }
+
+        // Forget versions the source no longer lists.
+        let prune = try prepare("""
+            DELETE FROM seen WHERE source = ? AND NOT EXISTS (
+                SELECT 1 FROM packages p
+                WHERE p.source = seen.source AND p.package = seen.package AND p.version = seen.version)
+            """)
+        bind(prune, 1, source)
+        let pruned = sqlite3_step(prune)
+        sqlite3_finalize(prune)
+        guard pruned == SQLITE_DONE else { throw error() }
+    }
+
+    /// A package version that appeared after Codling first read its source.
+    struct Arrival: Identifiable, Equatable {
+        let package: PackageSummary
+        let date: Date
+        /// True when the source had an earlier version of the package.
+        let updated: Bool
+
+        var id: String { "\(package.source) \(package.package) \(package.version)" }
+    }
+
+    /// The packages that sources added or updated, newest first, one entry
+    /// for each package in each source.
+    func arrivals(limit: Int) throws -> [Arrival] {
+        let columns = Self.summaryColumns.split(separator: ",")
+            .map { "p." + $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ", ")
+        let statement = try prepare("""
+            SELECT \(columns), s.first_seen, s.updated FROM seen s
+            JOIN packages p ON p.source = s.source AND p.package = s.package AND p.version = s.version
+            WHERE s.first_seen > 0 ORDER BY s.first_seen DESC LIMIT \(limit * 3)
+            """)
+        defer { sqlite3_finalize(statement) }
+        var found: [Arrival] = []
+        var shown = Set<String>()
+        while sqlite3_step(statement) == SQLITE_ROW, found.count < limit {
+            let package = summary(statement)
+            guard shown.insert("\(package.source) \(package.package)").inserted else { continue }
+            found.append(Arrival(package: package,
+                                 date: Date(timeIntervalSince1970: sqlite3_column_double(statement, 11)),
+                                 updated: sqlite3_column_int64(statement, 12) != 0))
+        }
+        return found
+    }
+
+    /// The newest version of a package in one source, if the source has it.
+    func newest(of package: String, source: String) throws -> PackageSummary? {
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE source = ? AND package = ?")
+        defer { sqlite3_finalize(statement) }
+        bind(statement, 1, source)
+        bind(statement, 2, package)
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return PackageCatalog.newest(rows).first
     }
 
     func packageCount() throws -> Int {

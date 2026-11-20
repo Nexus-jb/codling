@@ -155,6 +155,7 @@ struct SourcesView: View {
                     Label("Add Source", systemImage: "plus")
                 }
                 .disabled(model.setupError != nil || adder.working != nil)
+                SystemButton()
             }
         }
     }

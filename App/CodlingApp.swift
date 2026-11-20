@@ -10,6 +10,7 @@ struct CodlingApp: App {
     @StateObject private var health = PackageHealthModel()
     @StateObject private var queue = QueueModel()
     @StateObject private var burrow: BurrowModel
+    @StateObject private var systemSheet = SystemSheet()
 
     init() {
         let environment = RuntimeEnvironment.current()
@@ -22,18 +23,25 @@ struct CodlingApp: App {
     var body: some Scene {
         WindowGroup {
             TabView {
+                FeaturedView()
+                    .tabItem { Label("Featured", systemImage: "star") }
                 SourcesView(model: sources)
                     .tabItem { Label("Sources", systemImage: "tray.full") }
                 SearchView()
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                InstalledView(environment: environment, model: installed)
-                    .tabItem { Label("Installed", systemImage: "shippingbox") }
                 QueueView(environment: environment, queue: queue)
                     .tabItem { Label("Queue", systemImage: "tray.and.arrow.down") }
                     .badge(queue.items.count)
-                SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
-                    .tabItem { Label("System", systemImage: "gearshape") }
+                InstalledView(environment: environment, model: installed)
+                    .tabItem { Label("Installed", systemImage: "shippingbox") }
             }
+            .sheet(isPresented: $systemSheet.shown) {
+                SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
+                    .environmentObject(sources)
+                    .environmentObject(installed)
+                    .environmentObject(queue)
+            }
+            .environmentObject(systemSheet)
             .environmentObject(sources)
             .environmentObject(installed)
             .environmentObject(queue)

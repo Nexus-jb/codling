@@ -194,7 +194,7 @@ private struct BannerCarousel: View {
     }
 }
 
-private struct BannerView: View {
+struct BannerView: View {
     let banner: FeaturedBanners.Banner
     let size: CGSize
     let cornerRadius: Double
@@ -351,6 +351,7 @@ struct SearchView: View {
             .disableAutocorrection(true)
             .textInputAutocapitalization(.never)
             .navigationTitle("Search")
+            .systemButton()
             .task(id: "\(sources.indexGeneration) \(query)") {
                 await model.search(query, store: sources.store)
             }

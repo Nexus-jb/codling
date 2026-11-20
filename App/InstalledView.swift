@@ -12,6 +12,7 @@ struct InstalledView: View {
         NavigationView {
             content
                 .navigationTitle("Installed")
+                .systemButton()
         }
         .navigationViewStyle(.stack)
         .task { await model.load(statusPath: environment.dpkgStatusPath) }

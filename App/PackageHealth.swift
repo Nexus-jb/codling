@@ -77,33 +77,31 @@ final class PackageHealthModel: ObservableObject {
 }
 
 /// The Package System section of the System tab.
-struct PackageHealthSection: View {
+/// The package system's state, for the System screen's Tools section: what
+/// dpkg and apt report, a fix where there is one, and a button to check
+/// again with what it does.
+struct PackageHealthRows: View {
     @ObservedObject var model: PackageHealthModel
     @State private var confirming: AptDiagnosis.Fix?
 
     var body: some View {
-        Section {
-            content
-            if let lastFix = model.lastFix {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(lastFix.title) did not finish")
-                        .font(.headline)
-                        .foregroundColor(.red)
-                    ForEach(lastFix.diagnoses, id: \.id) { diagnosis in
-                        DiagnosisView(diagnosis: diagnosis, showsFix: false, onFix: { _ in })
-                    }
-                    OutputDisclosure(output: lastFix.output)
+        content
+        if let lastFix = model.lastFix {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(lastFix.title) did not finish")
+                    .font(.headline)
+                    .foregroundColor(.red)
+                ForEach(lastFix.diagnoses, id: \.id) { diagnosis in
+                    DiagnosisView(diagnosis: diagnosis, showsFix: false, onFix: { _ in })
                 }
+                OutputDisclosure(output: lastFix.output)
             }
-            Button("Check Again") {
-                Task { await model.check() }
-            }
-            .disabled(isBusy)
-        } header: {
-            Text("Package System")
-        } footer: {
-            Text("Codling asks dpkg and apt whether any package is left half installed or has missing dependencies. The check changes nothing.")
         }
+        ExplainedButton(title: "Check the Packages",
+                        explanation: "Asks dpkg and apt whether any package is half installed or missing a dependency. It changes nothing.") {
+            Task { await model.check() }
+        }
+        .disabled(isBusy)
         .confirmationDialog("Finish setting up the packages?", isPresented: Binding(
             get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible) {
             Button("Finish Setting Up") {
@@ -198,7 +196,7 @@ struct DiagnosisView: View {
     }
 }
 
-private struct HealthLine: View {
+struct HealthLine: View {
     let symbol: String
     let color: Color
     let title: String
@@ -236,5 +234,27 @@ private struct OutputDisclosure: View {
             }
             .font(.subheadline)
         }
+    }
+}
+
+/// A button in a list, with a line under it that says what it does.
+struct ExplainedButton: View {
+    let title: String
+    let explanation: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                Text(explanation)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint(explanation)
     }
 }
