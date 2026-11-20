@@ -301,7 +301,9 @@ private struct BurrowStateSections: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(tweak.displayName)
-                        Text(summary(of: tweak))
+                        // A package can install more than one tweak, such as
+                        // one for SpringBoard and one for an app.
+                        Text(tweak.displayName == tweak.name ? summary(of: tweak) : "\(tweak.name) · \(summary(of: tweak))")
                             .font(.footnote)
                             .foregroundColor(state.isOffEverywhere(tweak.name) || !state.placesOff(tweak.name).isEmpty
                                              ? .orange : .secondary)
