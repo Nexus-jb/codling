@@ -20,8 +20,31 @@ struct CodlingApp: App {
         _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
     }
 
-    var body: some Scene {
-        WindowGroup {
+    /// Featured, Sources, Search, Queue and Installed. On iOS 26 the tab
+    /// bar is the system's Liquid Glass bar, which keeps Search apart as a
+    /// round button at its end.
+    @ViewBuilder
+    private var tabs: some View {
+        if #available(iOS 26, *) {
+            TabView {
+                Tab("Featured", systemImage: "star") {
+                    FeaturedView()
+                }
+                Tab("Sources", systemImage: "tray.full") {
+                    SourcesView(model: sources)
+                }
+                Tab("Queue", systemImage: "tray.and.arrow.down") {
+                    QueueView(environment: environment, queue: queue)
+                }
+                .badge(queue.items.count)
+                Tab("Installed", systemImage: "shippingbox") {
+                    InstalledView(environment: environment, model: installed)
+                }
+                Tab("Search", systemImage: "magnifyingglass", role: .search) {
+                    SearchView()
+                }
+            }
+        } else {
             TabView {
                 FeaturedView()
                     .tabItem { Label("Featured", systemImage: "star") }
@@ -35,18 +58,24 @@ struct CodlingApp: App {
                 InstalledView(environment: environment, model: installed)
                     .tabItem { Label("Installed", systemImage: "shippingbox") }
             }
-            .sheet(isPresented: $systemSheet.shown) {
-                SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
-                    .environmentObject(sources)
-                    .environmentObject(installed)
-                    .environmentObject(queue)
-            }
-            .environmentObject(systemSheet)
-            .environmentObject(sources)
-            .environmentObject(installed)
-            .environmentObject(queue)
-            .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
-            .task { await installed.load(statusPath: environment.dpkgStatusPath) }
+        }
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            tabs
+                .sheet(isPresented: $systemSheet.shown) {
+                    SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
+                        .environmentObject(sources)
+                        .environmentObject(installed)
+                        .environmentObject(queue)
+                }
+                .environmentObject(systemSheet)
+                .environmentObject(sources)
+                .environmentObject(installed)
+                .environmentObject(queue)
+                .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                .task { await installed.load(statusPath: environment.dpkgStatusPath) }
         }
     }
 }

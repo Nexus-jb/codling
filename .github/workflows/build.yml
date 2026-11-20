@@ -31,6 +31,18 @@ jobs:
       - name: Install tools
         run: brew install xcodegen ldid dpkg
 
+      - name: Use Xcode 26
+        # Built with the iOS 26 SDK, the app takes the Liquid Glass look on
+        # iOS 26 and keeps its usual look on earlier iOS.
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -iv beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then
+            echo "Xcode 26 is not installed on this runner. Installed:" >&2
+            ls -d /Applications/Xcode*.app >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+
       - name: Show toolchain
         run: |
           xcodebuild -version
