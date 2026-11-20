@@ -30,13 +30,25 @@ enum RootHelper {
             case .couldNotStart(let reason):
                 return "The helper could not start: \(reason)."
             case .timedOut:
-                return "The helper did not answer within 10 seconds."
+                return "The helper did not answer in time."
             case .failed(let status, let message):
                 return message.isEmpty ? "The helper stopped with status \(status)." : message
             case .unreadable(let output):
                 return "The helper's answer could not be read: \(output)"
             }
         }
+    }
+
+    /// What a program the helper ran printed, and how it ended.
+    struct CommandResult: Decodable, Equatable {
+        let status: Int32
+        let output: String
+    }
+
+    /// What `codling-helper audit` reports: dpkg --audit and apt-get check.
+    struct Audit: Decodable, Equatable {
+        let dpkgAudit: CommandResult
+        let aptCheck: CommandResult
     }
 
     static var path: String? {
@@ -57,6 +69,27 @@ enum RootHelper {
             }
             return .failure(.unreadable(text))
         }
+    }
+
+    /// Runs dpkg --audit and apt-get check as root; they only read.
+    static func audit() -> Result<Audit, Failure> {
+        run(["audit"], timeoutMilliseconds: 120_000).flatMap { decode(Audit.self, from: $0) }
+    }
+
+    /// Runs dpkg --configure -a as root. It can take a while: a package's
+    /// setup script may do real work.
+    static func configurePending() -> Result<CommandResult, Failure> {
+        run(["configure-pending"], timeoutMilliseconds: 900_000).flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, from output: Data) -> Result<T, Failure> {
+        if let value = try? JSONDecoder().decode(type, from: output) {
+            return .success(value)
+        }
+        if let reported = try? JSONDecoder().decode([String: String].self, from: output), let error = reported["error"] {
+            return .failure(.failed(status: 0, message: error))
+        }
+        return .failure(.unreadable(String(decoding: output, as: UTF8.self)))
     }
 
     private static func run(_ arguments: [String], timeoutMilliseconds: Int32 = 10_000) -> Result<Data, Failure> {
