@@ -2,22 +2,45 @@
 
 import Foundation
 
-/// A change the user asked for: install (or upgrade) a package, or remove it.
+/// A change the user asked for: install (or upgrade) a package, remove it,
+/// or put back a version Codling backed up before an earlier change.
 public enum PackageOperation: Hashable {
     case install(String)
     case remove(String)
+    case restore(String, version: String)
 
     public var package: String {
         switch self {
-        case .install(let name), .remove(let name): return name
+        case .install(let name), .remove(let name), .restore(let name, _): return name
         }
     }
 
-    /// The form the root helper takes: +name or -name.
+    /// The form the root helper takes: +name, -name or @name=version.
     public var helperArgument: String {
         switch self {
         case .install(let name): return "+" + name
         case .remove(let name): return "-" + name
+        case .restore(let name, let version): return "@" + name + "=" + version
+        }
+    }
+
+    /// Whether the helper accepts it: a valid name, and for a restore a
+    /// valid version.
+    public var isValid: Bool {
+        if case .restore(_, let version) = self, !Self.isValidVersion(version) {
+            return false
+        }
+        return Self.isValidName(package)
+    }
+
+    /// A Debian version as the helper accepts it: a digit first, then
+    /// letters, digits and ".+~:-", at most 128 characters.
+    public static func isValidVersion(_ version: String) -> Bool {
+        let scalars = Array(version.unicodeScalars)
+        guard let first = scalars.first, scalars.count <= 128, ("0"..."9").contains(first) else { return false }
+        return scalars.allSatisfy { scalar in
+            ("a"..."z").contains(scalar) || ("A"..."Z").contains(scalar) || ("0"..."9").contains(scalar)
+                || ".+~:-".unicodeScalars.contains(scalar)
         }
     }
 
@@ -158,5 +181,36 @@ public struct AptPlan: Equatable {
             version = String(parts[1][parts[1].index(after: parts[1].startIndex)..<close])
         }
         return Change(kind: .remove, package: String(package), version: version)
+    }
+}
+
+/// How to take the device back from the packages after a change to the
+/// packages before it.
+public enum UndoPlanner {
+    public struct Plan: Equatable {
+        public var operations: [PackageOperation]
+        /// Packages the change removed or replaced that have no backup, so
+        /// they cannot be put back as they were.
+        public var missing: [String]
+    }
+
+    /// Packages the change added are removed; packages it removed or whose
+    /// version it changed come back from their backups. before, after and
+    /// backups map package names to versions.
+    public static func plan(before: [String: String], after: [String: String], backups: [String: String]) -> Plan {
+        var removals: [PackageOperation] = []
+        var restores: [PackageOperation] = []
+        var missing: [String] = []
+        for name in after.keys.sorted() where before[name] == nil {
+            removals.append(.remove(name))
+        }
+        for (name, version) in before.sorted(by: { $0.key < $1.key }) where after[name] != version {
+            if backups[name] == version {
+                restores.append(.restore(name, version: version))
+            } else {
+                missing.append(name)
+            }
+        }
+        return Plan(operations: removals + restores, missing: missing)
     }
 }

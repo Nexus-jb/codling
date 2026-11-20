@@ -46,6 +46,9 @@ jobs:
       - name: Test the chip check in the preinst
         run: sh scripts/test-preinst.sh
 
+      - name: Test rebuilding installed packages for undo
+        run: sh scripts/test-repack.sh
+
   core:
     name: Core tests
     runs-on: ubuntu-latest

@@ -43,6 +43,8 @@ targets:
       - name: Build the root helper
         inputFiles:
           - $(SRCROOT)/Helper/codling-helper.c
+          - $(SRCROOT)/Helper/repack.c
+          - $(SRCROOT)/Helper/repack.h
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(WRAPPER_NAME)/codling-helper
         script: |
@@ -52,5 +54,5 @@ targets:
           xcrun --sdk "$PLATFORM_NAME" clang $arch_flags -isysroot "$SDKROOT" \
             -m${PLATFORM_NAME}-version-min="$IPHONEOS_DEPLOYMENT_TARGET" \
             -Os -Wall -Wextra -Werror \
-            "$SRCROOT/Helper/codling-helper.c" \
+            "$SRCROOT/Helper/codling-helper.c" "$SRCROOT/Helper/repack.c" \
             -o "$TARGET_BUILD_DIR/$WRAPPER_NAME/codling-helper"

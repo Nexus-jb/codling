@@ -291,6 +291,7 @@ private struct PackageActions: View {
         switch operation {
         case .install: return installed ? "Queued to upgrade" : "Queued to install"
         case .remove: return "Queued to remove"
+        case .restore: return "Queued to restore"
         }
     }
 }
