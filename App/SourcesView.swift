@@ -18,7 +18,9 @@ struct SourcesView: View {
                     List {
                         Section {
                             ForEach(model.rows) { row in
-                                SourceRow(row: row)
+                                NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
+                                    SourceRow(row: row)
+                                }
                             }
                         } footer: {
                             Text(footer)
@@ -61,22 +63,28 @@ struct SourcesView: View {
     }
 }
 
-private struct SourceRow: View {
+/// A source: its icon, name and address, how its last refresh went, and
+/// what the user should know about it.
+struct SourceRow: View {
     let row: SourcesModel.Row
+    var iconSize: CGFloat = 40
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(row.title)
-                .font(.headline)
-            Text(row.source.uri + (row.source.isFlat ? "" : " \(row.source.suite) \(row.source.components.joined(separator: " "))"))
-                .font(.caption.monospaced())
-                .foregroundColor(.secondary)
-                .lineLimit(2)
-            status
-            ForEach(row.warnings, id: \.self) { warning in
-                IconLine(symbol: "exclamationmark.triangle", text: warning)
-                    .font(.footnote)
-                    .foregroundColor(.orange)
+        HStack(alignment: .top, spacing: 12) {
+            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: iconSize)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(row.title)
+                    .font(.headline)
+                Text(row.source.uri + (row.source.isFlat ? "" : " \(row.source.suite) \(row.source.components.joined(separator: " "))"))
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                status
+                ForEach(row.warnings, id: \.self) { warning in
+                    IconLine(symbol: "exclamationmark.triangle", text: warning)
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                }
             }
         }
         .padding(.vertical, 2)
