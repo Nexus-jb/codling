@@ -310,16 +310,27 @@ struct CardRows<Item: Identifiable, Row: View>: View {
 
     var body: some View {
         Card(padding: 0) {
-            LazyVStack(spacing: 0) {
-                ForEach(items) { item in
-                    row(item)
-                        .overlay(alignment: .top) {
-                            if item.id != items.first?.id {
-                                Divider()
-                                    .padding(.leading, dividerInset)
-                            }
+            DividedRows(items: items, dividerInset: dividerInset, row: row)
+        }
+    }
+}
+
+/// Rows with a line between them, made as they scroll into view.
+struct DividedRows<Item: Identifiable, Row: View>: View {
+    let items: [Item]
+    var dividerInset: CGFloat = 70
+    @ViewBuilder let row: (Item) -> Row
+
+    var body: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(items) { item in
+                row(item)
+                    .overlay(alignment: .top) {
+                        if item.id != items.first?.id {
+                            Divider()
+                                .padding(.leading, dividerInset)
                         }
-                }
+                    }
             }
         }
     }
@@ -390,47 +401,52 @@ extension View {
     }
 }
 
-/// A heading over a card that folds the card away: an icon, the title, how
-/// many it holds, and an arrow that turns when it opens.
-struct CollapsibleCardHeading: View {
+/// A card whose first row opens and folds the rest, as a source's sections
+/// look: an icon, the title, how many it holds, and a chevron that turns
+/// down when it opens.
+struct CollapsibleCard<Content: View>: View {
     let title: String
-    var symbol: String?
+    let symbol: String
+    var color: Color = .accentColor
     let count: Int
     @Binding var expanded: Bool
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                expanded.toggle()
-            }
-        } label: {
-            HStack(spacing: 8) {
-                if let symbol {
-                    Image(systemName: symbol)
+        Card(padding: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    expanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 14) {
+                    IconTile(symbol: symbol, color: color, size: 36)
+                    Text(title)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(count.formatted())
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Color(.tertiaryLabel))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
                         .accessibilityHidden(true)
                 }
-                Text(title)
-                Text(count.formatted())
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Color(.tertiarySystemFill), in: Capsule())
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.subheadline.weight(.semibold))
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
-                    .accessibilityHidden(true)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
-            .font(.title3.weight(.semibold))
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 6)
-            .contentShape(Rectangle())
+            .buttonStyle(CardRowButtonStyle())
+            .accessibilityLabel("\(title), \(count)")
+            .accessibilityValue(expanded ? "Shown" : "Hidden")
+            .accessibilityHint(expanded ? "Hides the list." : "Shows the list.")
+            if expanded {
+                Divider()
+                    .padding(.leading, 66)
+                content()
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(count)")
-        .accessibilityValue(expanded ? "Shown" : "Hidden")
-        .accessibilityHint(expanded ? "Hides the list." : "Shows the list.")
-        .accessibilityAddTraits(.isHeader)
     }
 }
 

@@ -249,27 +249,32 @@ private struct BurrowStateSections: View {
 
         let events = state.safeModeEvents.filter(state.isStillOff)
         if !events.isEmpty {
-            CollapsibleCardHeading(title: "Turned Off by Safe Mode", symbol: "shield.lefthalf.filled",
-                                   count: events.count, expanded: $showsSafeMode)
-                .padding(.top, 8)
-            if showsSafeMode {
-                ForEach(Array(events.prefix(10).enumerated()), id: \.offset) { _, event in
-                    Card(padding: 14) {
-                        ToolHeader(symbol: "exclamationmark.shield", color: .orange, title: eventTitle(event)) {
-                            Text(event.text)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
+            CollapsibleCard(title: "Turned Off by Safe Mode", symbol: "shield.lefthalf.filled", color: .red,
+                            count: events.count, expanded: $showsSafeMode) {
+                DividedRows(items: events.prefix(10).enumerated().map { EventRow(index: $0.offset, event: $0.element) },
+                            dividerInset: 16) { row in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(eventTitle(row.event))
+                            .font(.subheadline.weight(.semibold))
+                        Text(row.event.text)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(row.event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
+                            Task { await model.setTweak(row.event.tweak, on: true, in: row.event.process, origin: Self.origin) }
                         }
-                        Button(event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
-                            Task { await model.setTweak(event.tweak, on: true, in: event.process, origin: Self.origin) }
-                        }
-                        .buttonStyle(TintedButtonStyle())
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.borderless)
                         .disabled(!state.canChangeSettings || model.working != nil)
-                        .padding(.top, 12)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                 }
+            }
+            .padding(.top, 8)
+            if showsSafeMode {
                 CardFooter(text: events.count > 10
                            ? "The latest 10 are shown. Safe Mode turns a tweak off in the app it crashed, and nowhere else."
                            : "Safe Mode turns a tweak off in the app it crashed, and nowhere else.")
@@ -277,26 +282,26 @@ private struct BurrowStateSections: View {
         }
 
         if state.tweaks.isEmpty {
-            CardHeading(title: "Tweaks", symbol: "puzzlepiece.extension")
-                .padding(.top, 8)
             Card(padding: 14) {
-                Text("No tweaks are installed.")
-                    .foregroundColor(.secondary)
+                ToolHeader(symbol: SectionSymbol.name(for: "Tweaks"), color: SectionSymbol.color(for: "Tweaks"),
+                           title: "Tweaks") {
+                    ToolNote(text: "No tweaks are installed.")
+                }
             }
+            .padding(.top, 8)
         } else {
-            CollapsibleCardHeading(title: "Tweaks", symbol: "puzzlepiece.extension",
-                                   count: state.tweakGroups.count, expanded: $showsTweaks)
-                .padding(.top, 8)
-            if showsTweaks {
+            CollapsibleCard(title: "Tweaks", symbol: SectionSymbol.name(for: "Tweaks"),
+                            color: SectionSymbol.color(for: "Tweaks"),
+                            count: state.tweakGroups.count, expanded: $showsTweaks) {
                 // A package's tweaks, such as one for SpringBoard and one for
                 // an app, are one row.
-                CardRows(items: state.tweakGroups, dividerInset: 66) { group in
+                DividedRows(items: state.tweakGroups, dividerInset: 66) { group in
                     NavigationLink {
                         PackageTweaksView(model: model, groupID: group.id)
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 14) {
                             IconTile(symbol: "puzzlepiece.extension.fill",
-                                     color: group.tweaks.contains(where: isOffSomewhere) ? .orange : .blue, size: 38)
+                                     color: group.tweaks.contains(where: isOffSomewhere) ? .orange : .blue, size: 36)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(group.title)
                                     .font(.body.weight(.semibold))
@@ -312,13 +317,21 @@ private struct BurrowStateSections: View {
                             Spacer(minLength: 6)
                             Chevron()
                         }
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                     }
                     .buttonStyle(CardRowButtonStyle())
                 }
             }
+            .padding(.top, 8)
         }
+    }
+
+    private struct EventRow: Identifiable {
+        let index: Int
+        let event: BurrowState.Event
+
+        var id: Int { index }
     }
 
     private var loaderCard: some View {
