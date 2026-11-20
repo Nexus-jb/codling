@@ -78,6 +78,9 @@ struct WebDepictionView: UIViewRepresentable {
         /// The page has started to show: later failures of its parts leave
         /// it in place.
         private var committed = false
+        /// How far the load got, to say where a page that never shows stopped.
+        private var started = false
+        private var answer: Int?
 
         init(_ parent: WebDepictionView) {
             self.parent = parent
@@ -87,16 +90,26 @@ struct WebDepictionView: UIViewRepresentable {
         func load(_ webView: WKWebView) {
             loadedReload = parent.reload
             committed = false
+            started = false
+            answer = nil
             setState(.loading)
             webView.load(WebDepictionView.request(parent.url))
             deadline?.cancel()
             let deadline = DispatchWorkItem { [weak self, weak webView] in
                 guard let self, !self.committed else { return }
                 webView?.stopLoading()
-                self.setState(.failed("The description page did not answer in time."))
+                self.setState(.failed("The description page did not answer in time: \(self.stage)."))
             }
             self.deadline = deadline
             DispatchQueue.main.asyncAfter(deadline: .now() + WebDepictionView.timeout, execute: deadline)
+        }
+
+        /// Where a load that never showed stopped.
+        private var stage: String {
+            if let answer {
+                return "the server answered (\(answer)), but the page did not start to draw"
+            }
+            return started ? "the server did not answer" : "the web view did not start loading it"
         }
 
         func observe(_ webView: WKWebView) {
@@ -137,8 +150,15 @@ struct WebDepictionView: UIViewRepresentable {
             decisionHandler(.allow)
         }
 
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            started = true
+        }
+
         func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
                      decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            if response.isForMainFrame {
+                answer = (response.response as? HTTPURLResponse)?.statusCode ?? 0
+            }
             if response.isForMainFrame, let http = response.response as? HTTPURLResponse, http.statusCode >= 400 {
                 decisionHandler(.cancel)
                 deadline?.cancel()
@@ -180,6 +200,14 @@ struct WebDepictionView: UIViewRepresentable {
             }
             deadline?.cancel()
             setState(.failed("The description page could not be loaded. \(RefreshError.describe(error))"))
+        }
+
+        /// The process that draws the page stopped, as when it runs out of
+        /// memory.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            deadline?.cancel()
+            committed = false
+            setState(.failed("The description page stopped unexpectedly."))
         }
 
         /// Links that open a new window open outside the page.
