@@ -15,6 +15,7 @@ struct SourcesView: View {
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<String>()
     @State private var copied: String?
+    @State private var exporting = false
 
     private var isEditing: Bool { editMode.isEditing }
 
@@ -31,6 +32,32 @@ struct SourcesView: View {
                             ForEach(model.rows) { row in
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
                                     SourceRow(row: row)
+                                }
+                                .contextMenu {
+                                    Button {
+                                        Presenter.share(address: row.source.uri)
+                                    } label: {
+                                        Label("Share", systemImage: "square.and.arrow.up")
+                                    }
+                                    Button {
+                                        UIPasteboard.general.string = row.source.uri
+                                        flash("Copied \(row.source.host)")
+                                    } label: {
+                                        Label("Copy Address", systemImage: "doc.on.doc")
+                                    }
+                                    Button {
+                                        Task { await model.refresh(id: row.id) }
+                                    } label: {
+                                        Label("Refresh", systemImage: "arrow.clockwise")
+                                    }
+                                    .disabled(model.isRefreshing || row.activity != .idle)
+                                    if model.isCodlingSource(row.source) {
+                                        Button(role: .destructive) {
+                                            removing = row.source
+                                        } label: {
+                                            Label("Remove", systemImage: "trash")
+                                        }
+                                    }
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if !isEditing {
@@ -79,6 +106,13 @@ struct SourcesView: View {
         } message: { _ in
             Text("Its packages stay installed. Codling stops showing its packages and their updates.")
         }
+        .alert("Export All Sources?", isPresented: $exporting) {
+            Button("Copy") { export(share: false) }
+            Button("Share") { export(share: true) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The addresses of all \(model.rows.count) sources, one per line, to paste into another device or package manager.")
+        }
         .alert("The source was not removed", isPresented: Binding(
             get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) {}
@@ -105,6 +139,7 @@ struct SourcesView: View {
         }
         ToolbarItemGroup(placement: .navigationBarTrailing) {
             if isEditing {
+                Button("Export") { exporting = true }
                 Button(selection.isEmpty ? "Copy" : "Copy (\(selection.count))", action: copySelection)
                     .disabled(selection.isEmpty)
             } else {
@@ -132,14 +167,37 @@ struct SourcesView: View {
     private func copySelection() {
         let addresses = model.rows.filter { selection.contains($0.id) }.map(\.source.uri)
         UIPasteboard.general.string = addresses.joined(separator: "\n")
-        copied = addresses.count == 1 ? "Copied 1 source" : "Copied \(addresses.count) sources"
+        flash(addresses.count == 1 ? "Copied 1 source" : "Copied \(addresses.count) sources")
+        leaveEditing()
+    }
+
+    /// Every source's address, copied or shared.
+    private func export(share: Bool) {
+        let text = model.rows.map(\.source.uri).joined(separator: "\n")
+        if share {
+            Presenter.share([text])
+        } else {
+            UIPasteboard.general.string = text
+            flash(model.rows.count == 1 ? "Copied 1 source" : "Copied \(model.rows.count) sources")
+        }
+        leaveEditing()
+    }
+
+    private func leaveEditing() {
         withAnimation {
             editMode = .inactive
             selection = []
         }
+    }
+
+    /// A short note at the bottom of the screen.
+    private func flash(_ text: String) {
+        copied = text
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            copied = nil
+            if copied == text {
+                copied = nil
+            }
         }
     }
 
@@ -597,9 +655,22 @@ final class AddSourceFlow: ObservableObject {
         Task { await present(alert) }
     }
 
-    /// Presents a prompt over whatever is on screen, and returns once it is
-    /// up.
     private func present(_ alert: UIViewController) async {
+        await Presenter.present(alert)
+    }
+
+    private static func once(_ start: (@escaping () -> Void) -> Void) async {
+        await Presenter.once(start)
+    }
+}
+
+/// Presents UIKit screens, such as prompts and the share sheet, over
+/// whatever SwiftUI shows.
+@MainActor
+enum Presenter {
+    /// Presents a view controller over whatever is on screen, and returns
+    /// once it is up.
+    static func present(_ controller: UIViewController) async {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard var top = scenes.flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController else {
             return
@@ -608,15 +679,36 @@ final class AddSourceFlow: ObservableObject {
         while let presented = top.presentedViewController, !presented.isBeingDismissed {
             top = presented
         }
-        await Self.once { finish in
-            top.present(alert, animated: true, completion: finish)
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        await once { finish in
+            top.present(controller, animated: true, completion: finish)
+        }
+    }
+
+    /// The share sheet, to send source addresses by Messages, Telegram or
+    /// any other app.
+    static func share(_ items: [Any]) {
+        Task { await present(UIActivityViewController(activityItems: items, applicationActivities: nil)) }
+    }
+
+    /// Shares one source's address as a link, which Messages and the other
+    /// apps show as one.
+    static func share(address: String) {
+        if let url = URL(string: address) {
+            share([url])
+        } else {
+            share([address])
         }
     }
 
     /// Waits for a UIKit completion, but no more than two seconds: one that
     /// is not called, as when a presentation is refused, must not stop the
     /// flow.
-    private static func once(_ start: (@escaping () -> Void) -> Void) async {
+    static func once(_ start: (@escaping () -> Void) -> Void) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             var finished = false
             let finish = {
