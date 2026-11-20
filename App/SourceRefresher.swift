@@ -223,6 +223,26 @@ struct SourceRefresher {
         }
     }
 
+    /// Whether a flat repository answers at uri, with an InRelease or a
+    /// Release file; the reason when it does not.
+    func probe(uri: String) async -> String? {
+        guard let directory = Source(uri: uri, suite: "./", components: []).releaseDirectoryURL else {
+            return "\(uri) is not an address Codling can fetch."
+        }
+        for name in ["InRelease", "Release"] {
+            do {
+                if case .found = try await fetch(directory.appendingPathComponent(name), validators: nil) {
+                    return nil
+                }
+            } catch let error as RefreshError {
+                return error.message
+            } catch {
+                return RefreshError.describe(error)
+            }
+        }
+        return "No repository answered at \(uri): it has no Release file there."
+    }
+
     // MARK: Downloads
 
     enum Fetched {

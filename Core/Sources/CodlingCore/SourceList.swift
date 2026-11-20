@@ -73,6 +73,48 @@ public struct Source: Hashable, Identifiable {
 }
 
 public enum SourceList {
+    /// The file Codling adds sources to, in sources.list.d. Codling removes
+    /// only the sources in it; the others belong to the jailbreak or to
+    /// another package manager.
+    public static let codlingFileName = "codling.sources"
+
+    /// A repository address as people type it, as apt's URI: https:// when no
+    /// scheme is given, the scheme and host in lower case, and a trailing
+    /// "/". nil when it is not an http or https address of a host, or holds
+    /// characters the root helper does not write: the helper checks the same.
+    public static func repositoryURI(from text: String) -> String? {
+        var address = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !address.contains("://") {
+            address = "https://" + address
+        }
+        guard let separator = address.range(of: "://") else {
+            return nil
+        }
+        let scheme = address[..<separator.lowerBound].lowercased()
+        guard scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        let rest = address[separator.upperBound...]
+        let hostEnd = rest.firstIndex(of: "/") ?? rest.endIndex
+        let host = rest[..<hostEnd].lowercased()
+        var path = String(rest[hostEnd...])
+        let hostCharacters = Set("abcdefghijklmnopqrstuvwxyz0123456789.-")
+        guard !host.isEmpty, host.count <= 253, host.allSatisfy(hostCharacters.contains),
+              !host.hasPrefix("."), !host.hasPrefix("-"), !host.hasSuffix("."), host.contains(".") else {
+            return nil
+        }
+        if !path.hasSuffix("/") {
+            path += "/"
+        }
+        let pathCharacters = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~/%+-")
+        guard path.allSatisfy(pathCharacters.contains),
+              !path.split(separator: "/").contains(where: { $0 == ".." || $0 == "." }) else {
+            return nil
+        }
+        let uri = scheme + "://" + host + path
+        return uri.count <= 512 ? uri : nil
+    }
+
     /// The sources in a .sources file (deb822). Stanzas with "Enabled: no",
     /// and types other than deb, are left out.
     public static func parseDeb822(_ text: String, file: String = "") -> [Source] {

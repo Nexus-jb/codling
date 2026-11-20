@@ -6,6 +6,9 @@ import SwiftUI
 /// soon as it finishes.
 struct SourcesView: View {
     @ObservedObject var model: SourcesModel
+    @State private var adding = false
+    @State private var removing: Source?
+    @State private var problem: String?
 
     var body: some View {
         NavigationView {
@@ -21,6 +24,13 @@ struct SourcesView: View {
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
                                     SourceRow(row: row)
                                 }
+                                .swipeActions {
+                                    if model.isCodlingSource(row.source) {
+                                        Button("Remove", role: .destructive) {
+                                            removing = row.source
+                                        }
+                                    }
+                                }
                             }
                         } footer: {
                             Text(footer)
@@ -32,6 +42,14 @@ struct SourcesView: View {
             }
             .navigationTitle("Sources")
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        adding = true
+                    } label: {
+                        Label("Add Source", systemImage: "plus")
+                    }
+                    .disabled(model.setupError != nil)
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if model.isRefreshing {
                         ProgressView()
@@ -47,6 +65,24 @@ struct SourcesView: View {
         }
         .navigationViewStyle(.stack)
         .task { await model.start() }
+        .sheet(isPresented: $adding) {
+            AddSourceView(model: model)
+        }
+        .confirmationDialog("Remove this source?", isPresented: Binding(
+            get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible,
+            presenting: removing) { source in
+            Button("Remove \(source.host)", role: .destructive) {
+                Task { problem = await model.remove(source) }
+            }
+        } message: { _ in
+            Text("Its packages stay installed. Codling stops showing its packages and their updates.")
+        }
+        .alert("The source was not removed", isPresented: Binding(
+            get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(problem ?? "")
+        }
     }
 
     private var footer: String {
@@ -80,6 +116,11 @@ struct SourceRow: View {
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                 status
+                if PiracySources.entry(for: row.source.uri) != nil {
+                    IconLine(symbol: "exclamationmark.shield.fill", text: "Known for piracy")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(.red)
+                }
                 ForEach(row.warnings, id: \.self) { warning in
                     IconLine(symbol: "exclamationmark.triangle", text: warning)
                         .font(.footnote)
@@ -182,5 +223,108 @@ private struct IconLine: View {
             Text(text)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+/// Adds a repository by its address. A source known for piracy gets a clear
+/// warning first, and is added only if the person chooses to.
+struct AddSourceView: View {
+    @ObservedObject var model: SourcesModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var address = ""
+    @State private var problem: String?
+    @State private var working = false
+    @State private var warning: PiracyWarning?
+
+    struct PiracyWarning: Identifiable {
+        let id = UUID()
+        let entry: PiracySources.Entry
+        let uri: String
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section {
+                    TextField("https://repo.example.com/", text: $address)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .submitLabel(.done)
+                        .onSubmit(start)
+                } footer: {
+                    Text("The address of an APT repository, as its developer gives it.")
+                }
+                if let problem {
+                    Section {
+                        Label(problem, systemImage: "xmark.octagon.fill")
+                            .foregroundColor(.red)
+                    }
+                }
+                Section {
+                    Button(action: start) {
+                        HStack {
+                            Text(working ? "Checking the Repository" : "Add Source")
+                            if working {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(working || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("Add Source")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(working)
+                }
+            }
+            .alert(item: $warning) { warning in
+                Alert(title: Text("Known for Piracy"),
+                      message: Text("\(warning.entry.name) is known for handing out paid tweaks and apps without their developers' permission. Cracked packages are often outdated or unstable and can carry malware, and they take income from the people who make tweaks.\n\nCodling does not block any source. Add this one only if you trust it."),
+                      primaryButton: .cancel(Text("Don't Add")),
+                      secondaryButton: .destructive(Text("Add Anyway")) {
+                          Task { await add(warning.uri) }
+                      })
+            }
+        }
+        .interactiveDismissDisabled(working)
+    }
+
+    private func start() {
+        guard !working else {
+            return
+        }
+        problem = nil
+        guard let uri = SourceList.repositoryURI(from: address) else {
+            problem = "This is not the address of a repository. It looks like https://repo.example.com/."
+            return
+        }
+        if let existing = model.existing(uri: uri) {
+            problem = "\(existing.uri) is already in apt's lists."
+            return
+        }
+        if let entry = PiracySources.entry(for: uri) {
+            warning = PiracyWarning(entry: entry, uri: uri)
+            return
+        }
+        Task { await add(uri) }
+    }
+
+    private func add(_ uri: String) async {
+        working = true
+        defer { working = false }
+        if let reason = await model.probe(uri: uri) {
+            problem = reason
+            return
+        }
+        if let reason = await model.add(uri: uri) {
+            problem = reason
+            return
+        }
+        dismiss()
     }
 }

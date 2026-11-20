@@ -49,6 +49,9 @@ jobs:
       - name: Test rebuilding installed packages for undo
         run: sh scripts/test-repack.sh
 
+      - name: Test the helper's editing of codling.sources
+        run: sh scripts/test-sources.sh
+
   core:
     name: Core tests
     runs-on: ubuntu-latest

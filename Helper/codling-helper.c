@@ -44,6 +44,17 @@
 //                          into JAILBREAK/var/lib/codling/backups, which only
 //                          root can write, so that undo can put it back. The
 //                          newest backups are kept; older ones are deleted.
+//   codling-helper add-source URI
+//                          adds a flat repository to JAILBREAK/etc/apt/
+//                          sources.list.d/codling.sources, the only sources
+//                          file Codling writes. URI is http:// or https://, a
+//                          host in lower case and a path ending in "/", with
+//                          nothing in it that apt or a shell could read
+//                          another way.
+//   codling-helper remove-source URI
+//                          takes that repository out of codling.sources. The
+//                          sources the jailbreak or another package manager
+//                          added are left alone.
 //   codling-helper burrow-state
 //                          runs Burrow's burrowctl json, which prints the
 //                          tweak loader in use, the loader settings, every
@@ -74,7 +85,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdint.h>
+#ifdef __APPLE__
 #include <mach-o/dyld.h>
+#else
+// Linux, where scripts/test-sources.sh tests parts of the helper; its driver
+// provides this.
+int _NSGetExecutablePath(char *buffer, uint32_t *size);
+#endif
 #include <spawn.h>
 #include <sys/wait.h>
 #include <stdint.h>
@@ -602,6 +620,212 @@ static int valid_burrow_name(const char *name) {
     return 1;
 }
 
+// A repository URI as SourceList.repositoryURI writes it: http or https, a
+// lower-case host with a dot, and a path ending in "/" without "." or ".."
+// segments, from a short list of characters.
+static int valid_repository_uri(const char *uri) {
+    size_t length = strlen(uri);
+    if (length == 0 || length > 512) {
+        return 0;
+    }
+    const char *host;
+    if (strncmp(uri, "https://", 8) == 0) {
+        host = uri + 8;
+    } else if (strncmp(uri, "http://", 7) == 0) {
+        host = uri + 7;
+    } else {
+        return 0;
+    }
+    const char *path = strchr(host, '/');
+    if (!path || path == host || host[0] == '.' || host[0] == '-' || path[-1] == '.') {
+        return 0;
+    }
+    int dot = 0;
+    for (const char *c = host; c < path; c++) {
+        if (*c == '.') {
+            dot = 1;
+        } else if (!((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '-')) {
+            return 0;
+        }
+    }
+    if (!dot || uri[length - 1] != '/') {
+        return 0;
+    }
+    for (const char *c = path; *c; c++) {
+        if (!isalnum((unsigned char)*c) && !strchr("._~/%+-", *c)) {
+            return 0;
+        }
+    }
+    // No "." or ".." segment.
+    for (const char *segment = path; segment && *segment; segment = strchr(segment + 1, '/')) {
+        const char *start = segment + 1;
+        size_t size = strcspn(start, "/");
+        if ((size == 1 && start[0] == '.') || (size == 2 && start[0] == '.' && start[1] == '.')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char codling_sources[] = "/etc/apt/sources.list.d/codling.sources";
+
+// Reads codling.sources, at most output_limit bytes; an empty buffer when it
+// does not exist. Returns NULL on another error.
+static char *read_codling_sources(const char *path, size_t *length) {
+    *length = 0;
+    char *text = calloc(1, output_limit + 1);
+    if (!text) {
+        return NULL;
+    }
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        if (errno == ENOENT) {
+            return text;
+        }
+        free(text);
+        return NULL;
+    }
+    for (;;) {
+        ssize_t got = read(fd, text + *length, output_limit - *length);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        if (got <= 0) {
+            break;
+        }
+        *length += (size_t)got;
+        if (*length == output_limit) {
+            break;
+        }
+    }
+    close(fd);
+    return text;
+}
+
+// Writes text to path through a temporary file beside it, so that apt never
+// reads half a file. An empty text removes the file.
+static int write_codling_sources(const char *path, const char *text, size_t length) {
+    if (length == 0) {
+        return unlink(path) == 0 || errno == ENOENT ? 0 : -1;
+    }
+    char temporary[PATH_MAX];
+    if (snprintf(temporary, sizeof temporary, "%s.part", path) >= (int)sizeof temporary) {
+        return -1;
+    }
+    int fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+    if (fd < 0) {
+        return -1;
+    }
+    size_t written = 0;
+    while (written < length) {
+        ssize_t put = write(fd, text + written, length - written);
+        if (put < 0 && errno == EINTR) {
+            continue;
+        }
+        if (put <= 0) {
+            close(fd);
+            unlink(temporary);
+            return -1;
+        }
+        written += (size_t)put;
+    }
+    if (fchmod(fd, 0644) != 0 || fsync(fd) != 0 || close(fd) != 0 || rename(temporary, path) != 0) {
+        unlink(temporary);
+        return -1;
+    }
+    return 0;
+}
+
+// Whether a stanza (text up to a blank line) has the line "URIs: uri".
+static int stanza_has_uri(const char *stanza, size_t size, const char *uri) {
+    size_t uri_length = strlen(uri);
+    const char *end = stanza + size;
+    for (const char *line = stanza; line < end;) {
+        const char *next = memchr(line, '\n', (size_t)(end - line));
+        size_t line_length = (size_t)((next ? next : end) - line);
+        if (line_length == 6 + uri_length && strncmp(line, "URIs: ", 6) == 0 && strncmp(line + 6, uri, uri_length) == 0) {
+            return 1;
+        }
+        line = next ? next + 1 : end;
+    }
+    return 0;
+}
+
+// Copies the stanzas of text into out, leaving out those with uri; returns
+// how many were left out. Blank lines between stanzas become one.
+static int filter_stanzas(const char *text, size_t length, const char *uri, char *out, size_t *out_length) {
+    int dropped = 0;
+    *out_length = 0;
+    const char *end = text + length;
+    const char *position = text;
+    while (position < end) {
+        // Skip blank lines.
+        while (position < end && *position == '\n') {
+            position++;
+        }
+        if (position >= end) {
+            break;
+        }
+        const char *stanza_end = position;
+        while (stanza_end < end && !(stanza_end[0] == '\n' && (stanza_end + 1 == end || stanza_end[1] == '\n'))) {
+            stanza_end++;
+        }
+        size_t size = (size_t)(stanza_end - position);
+        if (stanza_has_uri(position, size, uri)) {
+            dropped++;
+        } else {
+            memcpy(out + *out_length, position, size);
+            *out_length += size;
+            memcpy(out + *out_length, "\n\n", 2);
+            *out_length += 2;
+        }
+        position = stanza_end;
+    }
+    return dropped;
+}
+
+static int change_source(const char *uri, int add) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (!valid_repository_uri(uri)) {
+        usage_error("The address is not a repository address Codling writes.");
+    }
+    char path[PATH_MAX];
+    if (snprintf(path, sizeof path, "%s%s", root, codling_sources) >= (int)sizeof path) {
+        usage_error("The jailbreak root is too long.");
+    }
+    size_t length = 0;
+    char *text = read_codling_sources(path, &length);
+    char *out = text && length < output_limit ? malloc(length + 512 + 64) : NULL;
+    if (!text || !out) {
+        free(text);
+        puts("{\"error\":\"codling.sources cannot be read.\"}");
+        return 74;
+    }
+    size_t out_length = 0;
+    int dropped = filter_stanzas(text, length, uri, out, &out_length);
+    int changed = add ? !dropped : dropped > 0;
+    if (add && !dropped) {
+        out_length += (size_t)sprintf(out + out_length, "Types: deb\nURIs: %s\nSuites: ./\n\n", uri);
+    } else if (add) {
+        // Already there: keep the file as it was.
+        memcpy(out, text, length);
+        out_length = length;
+    }
+    int failed = changed && write_codling_sources(path, out, out_length) != 0;
+    free(text);
+    free(out);
+    if (failed) {
+        printf("{\"error\":");
+        const char *reason = strerror(errno);
+        print_json_string(reason, strlen(reason));
+        puts("}");
+        return 74;
+    }
+    printf("{\"changed\":%s}\n", changed ? "true" : "false");
+    return 0;
+}
+
 static const char burrowctl[] = "/usr/bin/burrowctl";
 
 static int burrow_state(void) {
@@ -671,6 +895,12 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "backup") == 0) {
         return backup(argc - 2, argv + 2);
     }
+    if (argc == 3 && strcmp(argv[1], "add-source") == 0) {
+        return change_source(argv[2], 1);
+    }
+    if (argc == 3 && strcmp(argv[1], "remove-source") == 0) {
+        return change_source(argv[2], 0);
+    }
     if (argc == 2 && strcmp(argv[1], "burrow-state") == 0) {
         return burrow_state();
     }
@@ -682,6 +912,7 @@ int main(int argc, char **argv) {
     }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
           "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
+          "       add-source URI | remove-source URI |\n"
           "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
     return 64;
 }

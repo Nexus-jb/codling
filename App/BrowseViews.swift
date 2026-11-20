@@ -7,6 +7,9 @@ struct SourceDetailView: View {
     let sourceID: String
     @EnvironmentObject private var sources: SourcesModel
     @StateObject private var model = SourceDetailModel()
+    @State private var confirmingRemoval = false
+    @State private var problem: String?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         if let row = sources.rows.first(where: { $0.id == sourceID }), let info = sources.info(for: sourceID) {
@@ -22,6 +25,17 @@ struct SourceDetailView: View {
         List {
             Section {
                 SourceRow(row: row, iconSize: 56)
+            }
+            if let entry = PiracySources.entry(for: row.source.uri) {
+                Section {
+                    Label("\(entry.name) is known for handing out paid tweaks and apps without their developers' permission. Cracked packages are often outdated or unstable and can carry malware.",
+                          systemImage: "exclamationmark.shield.fill")
+                        .foregroundColor(.red)
+                } footer: {
+                    Text(sources.isCodlingSource(row.source)
+                         ? "Codling does not block any source. You can remove this one below."
+                         : "Codling does not block any source. This one was added outside Codling; remove it in the app that added it.")
+                }
             }
             if let featured = model.featured {
                 Section {
@@ -53,6 +67,15 @@ struct SourceDetailView: View {
             } header: {
                 Text("Sections")
             }
+            if sources.isCodlingSource(row.source) {
+                Section {
+                    Button("Remove Source", role: .destructive) {
+                        confirmingRemoval = true
+                    }
+                } footer: {
+                    Text("Added with Codling.")
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(row.title)
@@ -62,6 +85,25 @@ struct SourceDetailView: View {
         }
         .refreshable {
             await model.load(store: sources.store, source: row.source, reloadBanners: true)
+        }
+        .confirmationDialog("Remove this source?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
+            Button("Remove \(row.source.host)", role: .destructive) {
+                Task {
+                    if let reason = await sources.remove(row.source) {
+                        problem = reason
+                    } else {
+                        dismiss()
+                    }
+                }
+            }
+        } message: {
+            Text("Its packages stay installed. Codling stops showing its packages and their updates.")
+        }
+        .alert("The source was not removed", isPresented: Binding(
+            get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(problem ?? "")
         }
     }
 }
