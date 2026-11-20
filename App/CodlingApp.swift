@@ -8,6 +8,7 @@ struct CodlingApp: App {
     @StateObject private var sources: SourcesModel
     @StateObject private var installed = InstalledPackagesModel()
     @StateObject private var health = PackageHealthModel()
+    @StateObject private var queue = QueueModel()
 
     init() {
         let environment = RuntimeEnvironment.current()
@@ -25,11 +26,15 @@ struct CodlingApp: App {
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 InstalledView(environment: environment, model: installed)
                     .tabItem { Label("Installed", systemImage: "shippingbox") }
+                QueueView(environment: environment, queue: queue)
+                    .tabItem { Label("Queue", systemImage: "tray.and.arrow.down") }
+                    .badge(queue.items.count)
                 SystemCheckView(environment: environment, health: health, sources: sources)
                     .tabItem { Label("System", systemImage: "gearshape") }
             }
             .environmentObject(sources)
             .environmentObject(installed)
+            .environmentObject(queue)
             .task { await installed.load(statusPath: environment.dpkgStatusPath) }
         }
     }

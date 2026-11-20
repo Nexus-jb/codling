@@ -82,6 +82,49 @@ enum RootHelper {
         run(["configure-pending"], timeoutMilliseconds: 900_000).flatMap { decode(CommandResult.self, from: $0) }
     }
 
+    /// Runs apt-get update as root, so that apt knows what Codling shows.
+    static func updateLists() -> Result<CommandResult, Failure> {
+        run(["update-lists"], timeoutMilliseconds: 600_000).flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    /// Asks apt what the operations would do; changes nothing.
+    static func simulate(_ operations: [PackageOperation]) -> Result<CommandResult, Failure> {
+        guard let arguments = arguments(for: operations) else {
+            return .failure(.failed(status: 64, message: "A package name is not one apt accepts."))
+        }
+        return run(["simulate"] + arguments, timeoutMilliseconds: 120_000).flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    /// Makes the change. trustUnsigned allows packages from sources that are
+    /// not signed; allowRemovals allows apt to remove packages the operations
+    /// do not name, as the reviewed plan showed.
+    static func apply(_ operations: [PackageOperation], trustUnsigned: Bool, allowRemovals: Bool) -> Result<CommandResult, Failure> {
+        guard let arguments = arguments(for: operations) else {
+            return .failure(.failed(status: 64, message: "A package name is not one apt accepts."))
+        }
+        var options: [String] = []
+        if trustUnsigned {
+            options.append("--trust-unsigned")
+        }
+        if allowRemovals {
+            options.append("--allow-removals")
+        }
+        return run(["apply"] + options + arguments, timeoutMilliseconds: 1_800_000)
+            .flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    /// Restarts SpringBoard.
+    static func respring() -> Result<CommandResult, Failure> {
+        run(["respring"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    private static func arguments(for operations: [PackageOperation]) -> [String]? {
+        guard !operations.isEmpty, operations.allSatisfy({ PackageOperation.isValidName($0.package) }) else {
+            return nil
+        }
+        return operations.map(\.helperArgument)
+    }
+
     private static func decode<T: Decodable>(_ type: T.Type, from output: Data) -> Result<T, Failure> {
         if let value = try? JSONDecoder().decode(type, from: output) {
             return .success(value)
