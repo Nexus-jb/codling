@@ -6,6 +6,7 @@ import SwiftUI
 struct CodlingApp: App {
     private let environment: RuntimeEnvironment
     @StateObject private var sources: SourcesModel
+    @StateObject private var health = PackageHealthModel()
 
     init() {
         let environment = RuntimeEnvironment.current()
@@ -20,7 +21,7 @@ struct CodlingApp: App {
                     .tabItem { Label("Sources", systemImage: "tray.full") }
                 InstalledView(environment: environment)
                     .tabItem { Label("Installed", systemImage: "shippingbox") }
-                SystemCheckView(environment: environment)
+                SystemCheckView(environment: environment, health: health, sources: sources)
                     .tabItem { Label("System", systemImage: "gearshape") }
             }
         }

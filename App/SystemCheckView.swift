@@ -6,6 +6,8 @@ import SwiftUI
 /// tester can confirm the package installed correctly.
 struct SystemCheckView: View {
     let environment: RuntimeEnvironment
+    @ObservedObject var health: PackageHealthModel
+    let sources: SourcesModel
     @State private var helper: HelperState = .checking
 
     enum HelperState {
@@ -49,11 +51,17 @@ struct SystemCheckView: View {
                 } footer: {
                     Text("Codling runs its helper as root to install and remove packages. The helper accepts only the commands Codling sends, and this check changes nothing.")
                 }
+
+                PackageHealthSection(model: health)
             }
             .navigationTitle("System")
         }
         .navigationViewStyle(.stack)
-        .task { await checkHelper() }
+        .task {
+            health.refreshSources = { [weak sources] in await sources?.refresh(force: false) }
+            await checkHelper()
+            await health.check()
+        }
     }
 
     private var isChecking: Bool {

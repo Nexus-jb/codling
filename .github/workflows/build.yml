@@ -69,6 +69,11 @@ jobs:
       - name: Package
         run: scripts/package-deb.sh build/Release-iphoneos/Codling.app "${{ steps.version.outputs.version }}" dist
 
+      # A test package for trying Codling's repairs on a device. It is kept
+      # apart from the packages Codling ships, and is not attested.
+      - name: Build the setup test package
+        run: scripts/make-test-package.sh dist/test
+
       - name: Inspect the packages
         run: |
           for deb in dist/*.deb; do
