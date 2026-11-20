@@ -29,13 +29,15 @@ final class PackageHealthModel: ObservableObject {
         case .failure(let failure):
             state = .failed(failure.message)
         case .success(let audit):
-            let output = [audit.dpkgAudit.output, audit.aptCheck.output]
+            // apt-get check prints its progress lines even when all is well.
+            let auditProblems = AptDiagnostics.significantAudit(audit.dpkgAudit.output)
+            let aptProblems = audit.aptCheck.status == 0 ? "" : audit.aptCheck.output
+            let output = [auditProblems, aptProblems]
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }
-                .joined(separator: "\n")
+                .joined(separator: "\n\n")
             let diagnoses = AptDiagnostics.diagnose(output)
-            let auditClean = audit.dpkgAudit.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if auditClean && audit.aptCheck.status == 0 && diagnoses.isEmpty {
+            if output.isEmpty {
                 state = .healthy
             } else {
                 state = .problems(diagnoses, output: output)

@@ -53,6 +53,34 @@ public enum AptDiagnostics {
         return found
     }
 
+    /// The parts of dpkg --audit output that are real problems.
+    ///
+    /// dpkg --audit prints sections: a header, which may wrap, then the
+    /// packages, indented, one per line. The section on packages "missing the
+    /// md5sums control file" is left out: it lists the packages the jailbreak
+    /// makes to describe the device (cy+cpu.arm64, gsc.64-bit, firmware), and
+    /// packages built without checksums of their files. Nothing is broken, and
+    /// reinstalling them would not change it.
+    public static func significantAudit(_ output: String) -> String {
+        var sections: [[String]] = [[]]
+        for line in output.components(separatedBy: "\n") {
+            if line.trimmingCharacters(in: .whitespaces).isEmpty {
+                if !(sections.last ?? []).isEmpty {
+                    sections.append([])
+                }
+            } else {
+                sections[sections.count - 1].append(line)
+            }
+        }
+        return sections.filter { section in
+            guard !section.isEmpty else { return false }
+            let header = section.prefix { $0.first != " " && $0.first != "\t" }.joined(separator: " ")
+            return !header.contains("missing the md5sums control file")
+        }
+        .map { $0.joined(separator: "\n") }
+        .joined(separator: "\n\n")
+    }
+
     struct Rule {
         let id: String
         let pattern: NSRegularExpression

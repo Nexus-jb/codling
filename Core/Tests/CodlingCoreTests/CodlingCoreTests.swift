@@ -241,4 +241,29 @@ final class AptDiagnosticsTests: XCTestCase {
     func testCleanOutput() {
         XCTAssertEqual(ids("Reading package lists...\nBuilding dependency tree...\nReading state information..."), [])
     }
+
+    // As dpkg --audit printed it on a Dopamine device with nothing wrong.
+    func testAuditIgnoresMissingChecksums() {
+        let healthy = """
+            The following packages are missing the md5sums control file in the
+            database, they need to be reinstalled:
+             cy+cpu.arm64         virtual CPU dependency
+             cy+kernel.darwin     virtual kernel dependency
+             firmware             almost impressive Apple frameworks
+             gsc.64-bit           virtual GraphicsServices dependency
+
+            """
+        XCTAssertEqual(AptDiagnostics.significantAudit(healthy), "")
+
+        let broken = healthy + """
+            The following packages are only half configured, probably due to problems
+            configuring them the first time.  The configuration should be retried using
+            dpkg --configure <package> or the configure menu option in dselect:
+             com.nexusjb.codling-test-setup Fails its first setup on purpose
+            """
+        let significant = AptDiagnostics.significantAudit(broken)
+        XCTAssertTrue(significant.hasPrefix("The following packages are only half configured"))
+        XCTAssertFalse(significant.contains("md5sums"))
+        XCTAssertEqual(AptDiagnostics.diagnose(significant).map(\.id), ["half-configured"])
+    }
 }
