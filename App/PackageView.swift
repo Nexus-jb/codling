@@ -16,26 +16,33 @@ struct PackageView: View {
     @StateObject private var model = PackageModel()
     @StateObject private var router = DepictionRouter()
 
+    /// The tab of the content card: a native depiction's tabs in order,
+    /// or Details, and then Full Description.
+    @State private var tab = 0
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 12) {
-                    if case .native(let depiction, _) = model.depiction, let headerImage = depiction.headerImage {
-                        HeaderBanner(url: headerImage)
-                    }
-                    Card(padding: 14) {
-                        header
-                    }
-                    depictionSection
-                    if model.loaded {
-                        details
-                    }
+            VStack(alignment: .leading, spacing: 12) {
+                if case .native(let depiction, _) = model.depiction, let headerImage = depiction.headerImage {
+                    FramedPackageBanner(url: headerImage)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                identityCard
+                contentCard
+                if model.loaded && tab == 0 {
+                    details
+                }
             }
+            .frame(maxWidth: 560)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .foregroundColor(PackagePalette.text)
+        .background(
+            LinearGradient(colors: [PackagePalette.wallTop, PackagePalette.wallBottom],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+        )
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -68,34 +75,43 @@ struct PackageView: View {
 
     // MARK: Header
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
+    private var isPaid: Bool {
+        PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial")
+    }
+
+    private var identityCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
                 PackageIcon(urls: source.url(record?.icon ?? summary?.icon).map { [$0] } ?? [],
-                            section: record?.section ?? summary?.section, size: 72)
+                            section: record?.section ?? summary?.section, size: 62)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(name)
                         .font(.title2.bold())
                         .fixedSize(horizontal: false, vertical: true)
                     if let author = author {
                         Text(author)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(PackagePalette.muted)
                     }
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         Text(record?.version ?? summary?.version ?? "")
-                            .font(.footnote.monospacedDigit())
-                            .foregroundColor(.secondary)
-                        if PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial") {
-                            PaidBadge()
+                            .foregroundColor(PackagePalette.muted)
+                        if isPaid {
+                            Text("Paid")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(PackagePalette.paid, in: Capsule())
                         }
                     }
+                    .font(.subheadline)
                 }
                 .accessibilityElement(children: .combine)
             }
             if let installedVersion = installed.version(of: identifier) {
                 Label(installedText(installedVersion), systemImage: "checkmark.circle.fill")
                     .font(.subheadline)
-                    .foregroundColor(.green)
+                    .foregroundColor(PackagePalette.green)
             }
             if let record {
                 CompatibilityCard(report: Compatibility.check(depends: record.depends, tag: record.tag, name: record.name,
@@ -103,14 +119,12 @@ struct PackageView: View {
                                   architecture: record.architecture)
             }
             if model.loaded {
-                PackageActions(identifier: identifier, name: name, available: record?.version,
-                               isPaid: PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial"))
-            }
-            if let summaryText = record?.summary ?? summary?.summary, !summaryText.isEmpty {
-                Text(summaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                PackageActions(identifier: identifier, name: name, available: record?.version, isPaid: isPaid)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var author: String? {
@@ -128,34 +142,111 @@ struct PackageView: View {
 
     // MARK: Depiction
 
+    /// The names of the content card's tabs.
+    private var tabNames: [String] {
+        var names: [String]
+        if case .native(let depiction, _) = model.depiction {
+            names = depiction.tabs.map(\.name)
+        } else {
+            names = ["Details"]
+        }
+        if hasFullDescription {
+            names.append("Full Description")
+        }
+        return names
+    }
+
+    private var hasFullDescription: Bool {
+        webPage != nil || !(record?.details ?? "").isEmpty || !(summaryText ?? "").isEmpty
+    }
+
+    private var summaryText: String? {
+        record?.summary ?? summary?.summary
+    }
+
     @ViewBuilder
-    private var depictionSection: some View {
+    private var contentCard: some View {
         switch model.depiction {
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(24)
-        case .native(let depiction, _):
-            Card(padding: 0) {
-                NativeDepictionContent(depiction: depiction, fullDescription: webPage.map { url in
-                    { router.perform(.web(url)) }
-                })
-                .padding(.vertical, 8)
-            }
-        case .web(let url):
-            // Pages in a web view inside Codling stop before they draw on a
-            // jailbroken device, so the page opens in the browser sheet, as
-            // in Sileo.
-            DescriptionTabs(details: record?.details ?? summary?.summary ?? "") {
-                router.perform(.web(url))
-            }
+                .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         case .failed(let message):
             problem(message) {
                 Task { await model.reloadDepiction(source: source) }
             }
-            descriptionText
-        case .absent:
-            descriptionText
+            tabbedContent
+        default:
+            tabbedContent
+        }
+    }
+
+    private var tabbedContent: some View {
+        let names = tabNames
+        let selected = min(tab, names.count - 1)
+        return VStack(alignment: .leading, spacing: 10) {
+            if names.count > 1 {
+                Picker("Package information", selection: $tab) {
+                    ForEach(names.indices, id: \.self) { index in
+                        Text(names[index]).tag(index)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+            }
+            if hasFullDescription && selected == names.count - 1 && names.count > 1 {
+                fullDescription
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
+            } else if case .native(let depiction, _) = model.depiction, selected < depiction.tabs.count {
+                DepictionViews(views: depiction.tabs[selected].views)
+                    .environment(\.depictionTint, depiction.tintColor.map(\.color))
+                    .tint(depiction.tintColor.map(\.color))
+                    .padding(.bottom, 8)
+            } else if let summaryText, !summaryText.isEmpty {
+                Text(summaryText)
+                    .font(.subheadline)
+                    .foregroundColor(PackagePalette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
+                    .padding(.top, names.count > 1 ? 0 : 14)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    /// The package's summary and description, and its web page when it has
+    /// one. Pages in a web view inside Codling stop before they draw on a
+    /// jailbroken device, so the page opens in the browser sheet, as in
+    /// Sileo.
+    private var fullDescription: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let summaryText, !summaryText.isEmpty {
+                Text(summaryText)
+                    .font(.body.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let details = record?.details, !details.isEmpty {
+                Text(details)
+                    .font(.subheadline)
+                    .foregroundColor(PackagePalette.muted)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let webPage {
+                Button {
+                    router.perform(.web(webPage))
+                } label: {
+                    Label("Open the Full Page", systemImage: "safari")
+                }
+                .buttonStyle(TintedButtonStyle())
+                .padding(.top, 4)
+            }
         }
     }
 
@@ -173,46 +264,45 @@ struct PackageView: View {
         }
     }
 
-    @ViewBuilder
-    private var descriptionText: some View {
-        if let details = record?.details, !details.isEmpty {
-            Card(padding: 14) {
-                Text(details)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
     // MARK: Details
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 12) {
-            CardHeading(title: "Package Details", symbol: "info.circle")
-                .padding(.top, 8)
-            Card(padding: 0) {
-                detailRows
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Package Details", systemImage: "info.circle")
+                    .font(.headline)
+                    .foregroundColor(PackagePalette.heading)
+                    .padding(.leading, 4)
+                    .accessibilityAddTraits(.isHeader)
+                VStack(spacing: 0) {
+                    detailRows
+                }
+                .padding(.vertical, 4)
+                .background(PackagePalette.metadataCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
             }
             if model.versions.count > 1 {
-                CardHeading(title: "Other Versions", symbol: "clock.arrow.circlepath")
-                    .padding(.top, 8)
-                Card(padding: 14) {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], alignment: .leading, spacing: 8) {
-                        ForEach(model.versions.dropFirst().map(\.version), id: \.self) { version in
+                let others = model.versions.dropFirst().map(\.version)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Other Versions", systemImage: "clock.arrow.circlepath")
+                        .font(.headline)
+                        .foregroundColor(PackagePalette.heading)
+                        .padding(.leading, 4)
+                        .accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 52), spacing: 6)], spacing: 6) {
+                        ForEach(others, id: \.self) { version in
                             Text(version)
-                                .font(.subheadline.monospacedDigit())
+                                .font(.footnote.weight(.medium).monospacedDigit())
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 6)
+                                .minimumScaleFactor(0.85)
                                 .frame(maxWidth: .infinity)
-                                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .padding(.vertical, 7)
+                                .background(PackagePalette.versionChip, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Other versions: \(model.versions.dropFirst().map(\.version).joined(separator: ", "))")
+                    .padding(12)
+                    .background(PackagePalette.versionsCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Other versions: \(others.joined(separator: ", "))")
                 }
             }
         }
@@ -240,14 +330,11 @@ struct PackageView: View {
             if let depends = record.depends, !depends.isEmpty {
                 InfoRow(name: "Depends", value: depends)
             }
-            if model.versions.count > 1 {
-                InfoRow(name: "Other Versions", value: model.versions.dropFirst().map(\.version).joined(separator: ", "))
-            }
         } else {
             Text("This source no longer lists this package. Refresh your sources to update the list.")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
-                .padding(14)
+                .foregroundColor(PackagePalette.muted)
+                .padding(13)
         }
     }
 }
@@ -344,7 +431,7 @@ private struct InfoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(name)
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(.secondary)
+                .foregroundColor(PackagePalette.muted)
             Spacer(minLength: 8)
             Text(value)
                 .font(monospaced ? .subheadline.monospaced() : .subheadline)
@@ -352,73 +439,17 @@ private struct InfoRow: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 11)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 8)
         .overlay(alignment: .top) {
             if !first {
-                Divider()
-                    .padding(.leading, 16)
+                Rectangle()
+                    .fill(PackagePalette.metadataDivider)
+                    .frame(height: 1)
+                    .padding(.horizontal, 13)
             }
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// A native depiction's header image, framed as a card at the top of the
-/// package's page.
-private struct HeaderBanner: View {
-    let url: URL
-
-    var body: some View {
-        RemoteImage(urls: [url], maxPixels: 1600) {
-            Color(.secondarySystemFill)
-        }
-        .frame(height: 150)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .padding(8)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.accentColor.opacity(0.25), lineWidth: 1.5)
-        )
-        .accessibilityHidden(true)
-    }
-}
-
-/// A package's description with a Full Description tab that opens its web
-/// page, as a native depiction's tabs do.
-private struct DescriptionTabs: View {
-    let details: String
-    let openPage: () -> Void
-    @State private var tab = 0
-
-    var body: some View {
-        Card(padding: 0) {
-            Picker("Section", selection: Binding(get: { tab }, set: { chosen in
-                if chosen == 1 {
-                    openPage()
-                } else {
-                    tab = chosen
-                }
-            })) {
-                Text("Details").tag(0)
-                Text("Full Description").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            if !details.isEmpty {
-                Text(details)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
-            }
-        }
     }
 }
 

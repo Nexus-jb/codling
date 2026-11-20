@@ -173,14 +173,16 @@ struct CompatibilityCard: View {
     var body: some View {
         VStack(spacing: 0) {
             line(symbol: iosSymbol, color: iosColor, title: "iOS versions", value: iosValue, detail: iosDetail)
-            Divider()
-                .padding(.leading, 46)
+            Rectangle()
+                .fill(PackagePalette.separator)
+                .frame(height: 1)
             line(symbol: jailbreakFits ? "checkmark.seal.fill" : "xmark.octagon.fill",
-                 color: jailbreakFits ? .green : .red, title: "Jailbreak",
+                 color: jailbreakFits ? PackagePalette.green : .red, title: "Jailbreak",
                  value: kind == .any ? "Any" : kind.title.capitalizedFirst, detail: jailbreakDetail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(.tertiarySystemFill)))
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(PackagePalette.inset))
     }
 
     private func line(symbol: String, color: Color, title: String, value: String, detail: String?) -> some View {
@@ -196,19 +198,18 @@ struct CompatibilityCard: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(value)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(color == .secondary ? .secondary : color)
+                    .foregroundColor(color == .secondary ? PackagePalette.muted : color)
                     .multilineTextAlignment(.trailing)
                 if let detail {
                     Text(detail)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(PackagePalette.muted)
                         .multilineTextAlignment(.trailing)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
     }
 
@@ -234,7 +235,7 @@ struct CompatibilityCard: View {
 
     private var iosColor: Color {
         switch report.verdict {
-        case .supported: return .green
+        case .supported: return PackagePalette.green
         case .unsupported: return .red
         case .unknown: return .secondary
         }

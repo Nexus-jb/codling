@@ -7,30 +7,15 @@ import SwiftUI
 /// system's text size, colors and VoiceOver.
 struct NativeDepictionContent: View {
     let depiction: NativeDepiction
-    /// Opens the package's web page, as a last tab, when it has one.
-    var fullDescription: (() -> Void)?
     @State private var tab = 0
-
-    /// The tag of the Full Description tab, which opens the page and goes
-    /// back to the tab that was shown.
-    private static let webTab = -1
 
     var body: some View {
         let index = min(tab, depiction.tabs.count - 1)
         VStack(alignment: .leading, spacing: 0) {
-            if depiction.tabs.count > 1 || fullDescription != nil {
-                Picker("Section", selection: Binding(get: { tab }, set: { chosen in
-                    if chosen == Self.webTab {
-                        fullDescription?()
-                    } else {
-                        tab = chosen
-                    }
-                })) {
+            if depiction.tabs.count > 1 {
+                Picker("Section", selection: $tab) {
                     ForEach(depiction.tabs.indices, id: \.self) { index in
                         Text(depiction.tabs[index].name).tag(index)
-                    }
-                    if fullDescription != nil {
-                        Text("Full Description").tag(Self.webTab)
                     }
                 }
                 .pickerStyle(.segmented)
