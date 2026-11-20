@@ -11,6 +11,7 @@ struct CodlingApp: App {
     @StateObject private var queue = QueueModel()
     @StateObject private var burrow: BurrowModel
     @StateObject private var systemSheet = SystemSheet()
+    @StateObject private var devicePanel = DeviceInfoPanel()
     @State private var tab: AppTab = .featured
     /// The floating tab bar steps aside while the keyboard is up.
     @State private var keyboardShown = false
@@ -88,6 +89,7 @@ struct CodlingApp: App {
     var body: some Scene {
         WindowGroup {
             tabs
+                .overlay { DeviceInfoOverlay(panel: devicePanel) }
                 .sheet(isPresented: $systemSheet.shown) {
                     SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
                         .environmentObject(sources)
@@ -95,6 +97,7 @@ struct CodlingApp: App {
                         .environmentObject(queue)
                 }
                 .environmentObject(systemSheet)
+                .environmentObject(devicePanel)
                 .environmentObject(sources)
                 .environmentObject(installed)
                 .environmentObject(queue)

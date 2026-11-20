@@ -55,52 +55,122 @@ struct DeviceDetails {
     }
 }
 
-/// The Device Info sheet: the device, iOS, Codling, the jailbreak, and the
-/// UDID, hidden until tapped.
-struct DeviceInfoView: View {
-    let details: DeviceDetails
-    @State private var showsUDID = false
-    @Environment(\.dismiss) private var dismiss
+/// Whether the Device Info panel is up, and what it shows. The panel is
+/// drawn over the whole app, the tab bar included.
+@MainActor
+final class DeviceInfoPanel: ObservableObject {
+    @Published private(set) var details: DeviceDetails?
+
+    func show(_ details: DeviceDetails) {
+        self.details = details
+    }
+
+    func close() {
+        details = nil
+    }
+}
+
+/// The Device Info panel: a card that rises from the bottom over a dimmed
+/// app, and goes away with its close button, a tap outside it, or a swipe
+/// down.
+struct DeviceInfoOverlay: View {
+    @ObservedObject var panel: DeviceInfoPanel
+    @State private var drag: CGFloat = 0
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 12) {
-                    Card(padding: 0) {
-                        VStack(spacing: 0) {
-                            line("Device", details.name)
-                            Divider().padding(.leading, 16)
-                            line("Model", details.model)
-                            Divider().padding(.leading, 16)
-                            line("iOS", details.systemVersion)
-                            Divider().padding(.leading, 16)
-                            line("Codling", details.codlingVersion)
-                            Divider().padding(.leading, 16)
-                            line("Jailbreak", details.jailbreak)
-                            if let bootstrap = details.bootstrap {
-                                Divider().padding(.leading, 16)
-                                line("Bootstrap", bootstrap)
+        ZStack(alignment: .bottom) {
+            if let details = panel.details {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .onTapGesture { panel.close() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+                DeviceInfoCard(details: details, close: { panel.close() })
+                    .offset(y: max(drag, 0))
+                    .gesture(DragGesture()
+                        .onChanged { drag = $0.translation.height }
+                        .onEnded { value in
+                            if value.translation.height > 90 {
+                                panel.close()
                             }
-                            Divider().padding(.leading, 16)
-                            udidLine
-                        }
-                    }
-                    if details.udid != nil {
-                        CardFooter(text: "Tap the UDID to show it, and hold it to copy it. It stays on this device.")
-                    }
-                }
-                .padding(16)
-            }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Device Info")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
+                            drag = 0
+                        })
+                    .transition(.move(edge: .bottom))
             }
         }
-        .navigationViewStyle(.stack)
+        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: panel.details == nil)
+    }
+}
+
+/// The device, iOS, Codling, the jailbreak, and the UDID, hidden until
+/// tapped.
+private struct DeviceInfoCard: View {
+    let details: DeviceDetails
+    let close: () -> Void
+    @State private var showsUDID = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Capsule()
+                .fill(Color(.tertiaryLabel))
+                .frame(width: 40, height: 5)
+                .padding(.top, 8)
+                .accessibilityHidden(true)
+            ZStack {
+                Text("Device Info")
+                    .font(.title3.bold())
+                    .accessibilityAddTraits(.isHeader)
+                HStack {
+                    Spacer()
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundColor(.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(Color(.tertiarySystemFill), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
+                }
+            }
+            VStack(spacing: 0) {
+                line("Device", details.name)
+                Divider().padding(.leading, 16)
+                line("Model", details.model)
+                Divider().padding(.leading, 16)
+                line("iOS", details.systemVersion)
+                Divider().padding(.leading, 16)
+                line("Codling", details.codlingVersion)
+                Divider().padding(.leading, 16)
+                line("Jailbreak", details.jailbreak)
+                if let bootstrap = details.bootstrap {
+                    Divider().padding(.leading, 16)
+                    line("Bootstrap", bootstrap)
+                }
+                Divider().padding(.leading, 16)
+                udidLine
+            }
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if details.udid != nil {
+                Text("Tap the UDID to show it, and hold it to copy it. It stays on this device.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 6)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+        .frame(maxWidth: 500)
+        .background(
+            CornerRoundedRectangle(radius: 32, corners: [.topLeft, .topRight])
+                .fill(Color(.systemGroupedBackground))
+                .ignoresSafeArea(edges: .bottom)
+                .shadow(color: .black.opacity(0.15), radius: 20, y: -4)
+        )
+        .accessibilityAddTraits(.isModal)
     }
 
     private func line(_ title: String, _ value: String) -> some View {
@@ -113,7 +183,7 @@ struct DeviceInfoView: View {
                 .textSelection(.enabled)
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 11)
         .accessibilityElement(children: .combine)
     }
 
@@ -129,13 +199,12 @@ struct DeviceInfoView: View {
                     Spacer(minLength: 12)
                     Text(showsUDID ? udid : String(repeating: "•", count: 12))
                         .font(showsUDID ? .footnote.monospaced() : .body)
-                        .foregroundColor(.primary)
                         .multilineTextAlignment(.trailing)
                         .lineLimit(2)
                         .minimumScaleFactor(0.7)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 11)
             }
             .buttonStyle(CardRowButtonStyle())
             .contextMenu {

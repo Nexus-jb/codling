@@ -24,8 +24,15 @@ final class FeaturedModel: ObservableObject {
 
     func load(sources: SourcesModel, installed: [String: String], reloadBanners: Bool) async {
         guard let store = sources.store else { return }
-        let infos = sources.rows.compactMap { sources.info(for: $0.id) }
 
+        // What the index holds shows at once; the banners come from the
+        // sources over the network, and follow.
+        arrivals = (try? await store.arrivals(limit: Self.arrivalLimit)) ?? []
+        let offers = (try? await store.offers(ofAny: Array(installed.keys))) ?? []
+        updates = AvailableUpdates.find(installed: installed, offers: offers)
+        loaded = true
+
+        let infos = sources.rows.compactMap { sources.info(for: $0.id) }
         // Every source's banners, read at the same time.
         let fetched = await withTaskGroup(of: (Int, FeaturedBanners?).self) { group in
             for (index, info) in infos.enumerated() {
@@ -37,6 +44,7 @@ final class FeaturedModel: ObservableObject {
             }
             return results
         }
+        guard !Task.isCancelled else { return }
 
         // A random order of sources each time, then one banner from each in
         // turn: no source is always first.
@@ -54,14 +62,9 @@ final class FeaturedModel: ObservableObject {
             items.append(Item(id: offset, banner: entry.0, source: entry.1, package: package))
         }
         banners = items
-        arrivals = (try? await store.arrivals(limit: Self.arrivalLimit)) ?? []
-        let offers = (try? await store.offers(ofAny: Array(installed.keys))) ?? []
-        updates = AvailableUpdates.find(installed: installed, offers: offers)
-        loaded = true
     }
 }
 
-/// The categories of Browse Categories, by the words their sections hold.
 struct PackageCategory: Identifiable {
     let name: String
     let words: [String]
@@ -80,7 +83,7 @@ struct FeaturedView: View {
     @EnvironmentObject private var sources: SourcesModel
     @EnvironmentObject private var installed: InstalledPackagesModel
     @StateObject private var model = FeaturedModel()
-    @State private var showsDevice = false
+    @EnvironmentObject private var devicePanel: DeviceInfoPanel
 
     var body: some View {
         NavigationView {
@@ -132,7 +135,7 @@ struct FeaturedView: View {
 
                     Card(padding: 0) {
                         Button {
-                            showsDevice = true
+                            devicePanel.show(DeviceDetails.read(environment: environment, installed: installed))
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "iphone")
@@ -175,9 +178,6 @@ struct FeaturedView: View {
             .task(id: "\(sources.indexGeneration) \(installed.versions.count)") {
                 await model.load(sources: sources, installed: installed.versions, reloadBanners: false)
             }
-            .sheet(isPresented: $showsDevice) {
-                DeviceInfoView(details: DeviceDetails.read(environment: environment, installed: installed))
-            }
         }
         .navigationViewStyle(.stack)
     }
@@ -196,20 +196,10 @@ struct FeaturedView: View {
         } else {
             CardRows(items: rows, dividerInset: 72) { row in
                 NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package, summary: row.package)) {
-                    HStack(spacing: 8) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            CatalogRow(package: row.package, source: row.info, showSource: true)
-                            if let current = installed.version(of: row.package.package) {
-                                Text("Installed \(current), \(row.package.version) available")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundColor(.blue)
-                                    .padding(.leading, 56)
-                            }
-                        }
-                        Chevron()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    CompactPackageRow(package: row.package, source: row.info,
+                                      status: installed.version(of: row.package.package)
+                                          .map { "Installed \($0), \(row.package.version) available" } ?? "",
+                                      statusColor: .blue)
                 }
                 .buttonStyle(CardRowButtonStyle())
             }
@@ -243,20 +233,11 @@ struct FeaturedView: View {
                     DividedRows(items: day.rows, dividerInset: 72) { row in
                         NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
                                                                 summary: row.arrival.package)) {
-                            HStack(spacing: 8) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    CatalogRow(package: row.arrival.package, source: row.info, showSource: true)
-                                    Text(row.arrival.updated
-                                         ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
-                                         : "New")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundColor(row.arrival.updated ? .blue : .green)
-                                        .padding(.leading, 56)
-                                }
-                                Chevron()
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            CompactPackageRow(package: row.arrival.package, source: row.info,
+                                              status: row.arrival.updated
+                                                  ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
+                                                  : "New",
+                                              statusColor: row.arrival.updated ? .blue : .green)
                         }
                         .buttonStyle(CardRowButtonStyle())
                     }
@@ -267,6 +248,51 @@ struct FeaturedView: View {
 
     private var emptyText: String {
         "Packages your sources add or update show here, from the next refresh on. Pull down to refresh."
+    }
+}
+
+/// A package in a short row: its icon, name and version, one line of its
+/// summary, and a status line.
+private struct CompactPackageRow: View {
+    let package: PackageSummary
+    let source: SourceInfo
+    let status: String
+    let statusColor: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PackageIcon(urls: source.url(package.icon).map { [$0] } ?? [], section: package.section, size: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(package.displayName)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                    if package.isPaid {
+                        PaidBadge()
+                    }
+                    Spacer(minLength: 4)
+                    Text(package.version)
+                        .font(.caption.monospacedDigit())
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                if let summary = package.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                if !status.isEmpty {
+                    Text(status)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(statusColor)
+                }
+            }
+            Chevron()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 }
 
