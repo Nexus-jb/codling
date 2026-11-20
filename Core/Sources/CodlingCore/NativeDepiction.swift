@@ -318,6 +318,21 @@ public struct DepictionMedia: Equatable {
     public var cornerRadius: Double
     public var alignment: DepictionAlignment
 
+    /// The video's own page for an embedded player's address:
+    /// youtube.com/embed/ID is youtube.com/watch?v=ID, and
+    /// player.vimeo.com/video/ID is vimeo.com/ID.
+    public var watchURL: URL {
+        let host = url.host?.lowercased() ?? ""
+        let parts = url.path.split(separator: "/").map(String.init)
+        if host.contains("youtube"), parts.count >= 2, parts[0] == "embed" {
+            return URL(string: "https://www.youtube.com/watch?v=" + parts[1]) ?? url
+        }
+        if host == "player.vimeo.com", parts.count >= 2, parts[0] == "video" {
+            return URL(string: "https://vimeo.com/" + parts[1]) ?? url
+        }
+        return url
+    }
+
     /// As in Sileo, embedded pages come from YouTube or Vimeo only.
     public static func isEmbeddable(_ url: URL) -> Bool {
         guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else { return false }

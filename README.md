@@ -40,8 +40,7 @@ works on real devices.
 - Errors are explained in plain language, with a **Fix** button where one
   exists, instead of raw APT output.
 - A native iOS design with full VoiceOver and Dynamic Type support. Sileo
-  native depictions are drawn with the system's own fonts and colors, and web
-  depictions open without keeping cookies or site data.
+  native depictions are drawn with the system's own fonts and colors.
 
 ## Neutral by design
 

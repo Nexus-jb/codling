@@ -117,9 +117,7 @@ struct DepictionElement: View {
                 VideoTile(url: media.url)
             }
         case .web(let media):
-            MediaFrame(media: media) {
-                EmbedWebView(url: media.url)
-            }
+            VideoLinkElement(url: media.watchURL)
         case .separator:
             Divider()
                 .padding(.horizontal, 16)
@@ -378,6 +376,45 @@ private struct ScreenshotGallery: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+}
+
+/// A YouTube or Vimeo video, opened in the browser sheet: a player inside
+/// Codling would need a web view, which does not run there.
+private struct VideoLinkElement: View {
+    let url: URL
+    @EnvironmentObject private var router: DepictionRouter
+    @Environment(\.depictionTint) private var tint
+
+    var body: some View {
+        Button {
+            router.perform(.web(url))
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "play.rectangle.fill")
+                    .font(.title2)
+                    .foregroundColor(tint ?? .accentColor)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Watch Video")
+                        .font(.body.weight(.semibold))
+                    Text(url.host ?? url.absoluteString)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     }
 }
 

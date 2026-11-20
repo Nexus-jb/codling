@@ -14,9 +14,6 @@ struct PackageView: View {
     @EnvironmentObject private var installed: InstalledPackagesModel
     @StateObject private var model = PackageModel()
     @StateObject private var router = DepictionRouter()
-    @State private var webHeight: CGFloat = 1
-    @State private var webState: WebLoadState = .loading
-    @State private var webReload = 0
 
     var body: some View {
         ScrollView {
@@ -129,15 +126,13 @@ struct PackageView: View {
             NativeDepictionContent(depiction: depiction)
                 .padding(.vertical, 8)
         case .web(let url):
-            Divider()
-                .padding(.horizontal, 16)
-            if case .failed(let message) = webState {
-                problem(message, open: url) {
-                    webReload += 1
-                }
-                descriptionText
+            // Pages in a web view inside Codling stop before they draw on a
+            // jailbroken device, so the page opens in the browser sheet, as
+            // in Sileo.
+            descriptionText
+            WebDepictionLink(title: "Full Description") {
+                router.perform(.web(url))
             }
-            webDepiction(url)
         case .failed(let message):
             problem(message) {
                 Task { await model.reloadDepiction(source: source) }
@@ -148,45 +143,13 @@ struct PackageView: View {
         }
     }
 
-    /// The page, as tall as its content once it shows; while it loads, room
-    /// for a spinner; when it fails, nothing, as the message stands above it.
-    private func webDepiction(_ url: URL) -> some View {
-        WebDepictionView(url: url, height: $webHeight, state: $webState, reload: webReload) { link in
-            router.open(link, base: url)
-        }
-        .frame(height: webFrameHeight)
-        .opacity(webState == .loaded ? 1 : 0)
-        .overlay {
-            if webState == .loading {
-                ProgressView()
-            }
-        }
-    }
-
-    private var webFrameHeight: CGFloat {
-        switch webState {
-        case .loading: return 200
-        case .loaded: return max(webHeight, 1)
-        case .failed: return 0
-        }
-    }
-
-    /// A problem, with Try Again, and Open in Browser when there is a page
-    /// to open.
-    private func problem(_ message: String, open url: URL? = nil, retry: @escaping () -> Void) -> some View {
+    private func problem(_ message: String, retry: @escaping () -> Void) -> some View {
         VStack(spacing: 10) {
             Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            HStack(spacing: 20) {
-                Button("Try Again", action: retry)
-                if let url {
-                    Button("Open in Browser") {
-                        router.perform(.web(url))
-                    }
-                }
-            }
+            Button("Try Again", action: retry)
         }
         .frame(maxWidth: .infinity)
         .padding(16)
@@ -246,6 +209,32 @@ struct PackageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
         .padding(16)
+    }
+}
+
+/// A row that opens a web page in the browser sheet.
+struct WebDepictionLink: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Label(title, systemImage: "safari")
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.accentColor)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
     }
 }
 

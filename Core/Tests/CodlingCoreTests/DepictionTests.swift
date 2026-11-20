@@ -254,6 +254,10 @@ final class NativeDepictionTests: XCTestCase {
             return XCTFail("expected an embedded player, got \(views[9])")
         }
         XCTAssertEqual(embed.url.host, "www.youtube.com")
+        XCTAssertEqual(embed.watchURL, URL(string: "https://www.youtube.com/watch?v=abc"))
+        let vimeo = DepictionMedia(url: URL(string: "https://player.vimeo.com/video/42")!, width: nil, height: nil,
+                                   cornerRadius: 0, alignment: .leading)
+        XCTAssertEqual(vimeo.watchURL, URL(string: "https://vimeo.com/42"))
         XCTAssertEqual(views[10], .rating(value: 5, alignment: .trailing))
     }
 
