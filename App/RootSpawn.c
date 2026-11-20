@@ -73,6 +73,11 @@ static void close_pair(int pair[2]) {
 
 int codling_run_as_root(const char *path, const char *const *arguments, int timeout_ms,
                         struct codling_result *result) {
+    return codling_run(path, arguments, NULL, true, timeout_ms, result);
+}
+
+int codling_run(const char *path, const char *const *arguments, const char *const *environment, bool as_root,
+                int timeout_ms, struct codling_result *result) {
     memset(result, 0, sizeof *result);
     int out[2] = { -1, -1 }, err[2] = { -1, -1 };
     if (pipe(out) != 0 || pipe(err) != 0) {
@@ -91,13 +96,16 @@ int codling_run_as_root(const char *path, const char *const *arguments, int time
     posix_spawn_file_actions_adddup2(&actions, err[1], STDERR_FILENO);
     // Every other descriptor is closed in the helper.
     posix_spawnattr_setflags(&attributes, POSIX_SPAWN_CLOEXEC_DEFAULT);
-    posix_spawnattr_set_persona_np(&attributes, CODLING_PERSONA_SYSTEM, CODLING_PERSONA_FLAGS_OVERRIDE);
-    posix_spawnattr_set_persona_uid_np(&attributes, 0);
-    posix_spawnattr_set_persona_gid_np(&attributes, 0);
+    if (as_root) {
+        posix_spawnattr_set_persona_np(&attributes, CODLING_PERSONA_SYSTEM, CODLING_PERSONA_FLAGS_OVERRIDE);
+        posix_spawnattr_set_persona_uid_np(&attributes, 0);
+        posix_spawnattr_set_persona_gid_np(&attributes, 0);
+    }
 
-    char *const environment[] = { "PATH=/usr/bin:/bin:/usr/sbin:/sbin", NULL };
+    char *const fixed[] = { "PATH=/usr/bin:/bin:/usr/sbin:/sbin", NULL };
     pid_t pid;
-    int spawned = posix_spawn(&pid, path, &actions, &attributes, (char *const *)arguments, environment);
+    int spawned = posix_spawn(&pid, path, &actions, &attributes, (char *const *)arguments,
+                              environment ? (char *const *)environment : fixed);
     posix_spawn_file_actions_destroy(&actions);
     posix_spawnattr_destroy(&attributes);
     close(out[1]);

@@ -63,6 +63,11 @@ struct RuntimeEnvironment {
         return bundlePath
     }
 
+    /// The package architecture of this jailbreak's scheme.
+    var architecture: String {
+        scheme == .roothide ? "iphoneos-arm64e" : "iphoneos-arm64"
+    }
+
     /// The dpkg status file of this jailbreak.
     var dpkgStatusPath: String? {
         jailbreakRoot.map { $0 + "/var/lib/dpkg/status" }
