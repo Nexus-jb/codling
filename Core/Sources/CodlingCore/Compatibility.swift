@@ -35,22 +35,54 @@ public struct CompatibilityReport: Equatable {
 
 public enum Compatibility {
     /// Checks what a package declares against an iOS version such as
-    /// "16.3.1". A firmware dependency comes first, then tags, then the
-    /// package's name and summary.
+    /// "16.3.1". A firmware dependency comes first, because apt enforces it;
+    /// then tags, then the package's name and summary.
+    ///
+    /// Developers often state only a minimum in the dependency and write the
+    /// last version they tested in the name, as in "Glow (iOS 12-17)" with
+    /// "firmware (>= 12.0)". On a newer iOS the declared maximum still counts,
+    /// unless the dependency sets a maximum of its own or the two contradict
+    /// each other.
     public static func check(depends: String?, tag: String?, name: String?, summary: String?,
                              systemVersion: String) -> CompatibilityReport {
-        if let report = fromDependencies(depends, systemVersion: systemVersion) {
-            return report
+        let declared = declaration(tag: tag, name: name, summary: summary, systemVersion: systemVersion)
+        guard let groups = firmwareGroups(depends) else {
+            return declared?.report ?? CompatibilityReport(verdict: .unknown)
         }
-        if let report = fromTags(tag, systemVersion: systemVersion) {
-            return report
+        let dependency = report(for: groups, systemVersion: systemVersion)
+        guard dependency.verdict == .supported, let declared, let maximum = declared.maximum,
+              !matches(systemVersion, upTo: maximum) else {
+            return dependency
+        }
+        let constraints = groups.flatMap { $0 }
+        guard groups.allSatisfy({ $0.count == 1 }), !constraints.contains(where: \.isUpperBound) else {
+            return dependency
+        }
+        let minimum = constraints.filter(\.isLowerBound).map(\.version)
+            .max { DebianVersion($0) < DebianVersion($1) }
+        if let minimum, !matches(minimum, upTo: maximum) {
+            return dependency
+        }
+        return declared.report
+    }
+
+    /// What the tags, or else the name or summary, say, with the highest
+    /// version they name.
+    struct Declaration {
+        let report: CompatibilityReport
+        let maximum: String?
+    }
+
+    static func declaration(tag: String?, name: String?, summary: String?, systemVersion: String) -> Declaration? {
+        if let declaration = fromTags(tag, systemVersion: systemVersion) {
+            return declaration
         }
         for text in [name, summary].compactMap({ $0 }) {
-            if let report = fromWords(text, systemVersion: systemVersion) {
-                return report
+            if let declaration = fromWords(text, systemVersion: systemVersion) {
+                return declaration
             }
         }
-        return CompatibilityReport(verdict: .unknown)
+        return nil
     }
 
     // MARK: Dependencies
@@ -71,6 +103,9 @@ public enum Compatibility {
             }
         }
 
+        var isLowerBound: Bool { [">=", ">", ">>"].contains(relation) }
+        var isUpperBound: Bool { ["<=", "<", "<<", "="].contains(relation) }
+
         var words: String {
             switch relation {
             case ">=", ">": return "iOS \(version) or later"
@@ -83,10 +118,10 @@ public enum Compatibility {
         }
     }
 
-    /// The firmware constraints of a Depends field. A group of alternatives
-    /// counts only when every alternative is a firmware constraint; it is
-    /// met when one of them is.
-    static func fromDependencies(_ depends: String?, systemVersion: String) -> CompatibilityReport? {
+    /// The firmware constraints of a Depends field, nil when it has none. A
+    /// group of alternatives counts only when every alternative is a firmware
+    /// constraint; it is met when one of them is.
+    static func firmwareGroups(_ depends: String?) -> [[Constraint]]? {
         guard let depends, depends.lowercased().contains("firmware") else { return nil }
         var groups: [[Constraint]] = []
         for group in depends.split(separator: ",") {
@@ -112,7 +147,10 @@ public enum Compatibility {
                 groups.append(alternatives)
             }
         }
-        guard !groups.isEmpty else { return nil }
+        return groups.isEmpty ? nil : groups
+    }
+
+    static func report(for groups: [[Constraint]], systemVersion: String) -> CompatibilityReport {
         let supported = groups.allSatisfy { group in group.contains { $0.allows(systemVersion) } }
         let range = groups.map { $0.map(\.words).joined(separator: " or ") }.joined(separator: ", ")
         return CompatibilityReport(verdict: supported ? .supported : .unsupported, range: range, source: .dependency)
@@ -120,7 +158,7 @@ public enum Compatibility {
 
     // MARK: Tags
 
-    static func fromTags(_ field: String?, systemVersion: String) -> CompatibilityReport? {
+    static func fromTags(_ field: String?, systemVersion: String) -> Declaration? {
         let tags = PackageCatalog.tags(field)
         var majors: [String] = []
         var minimum: String?
@@ -135,13 +173,17 @@ public enum Compatibility {
             }
         }
         if minimum != nil || maximum != nil {
-            return bounded(minimum: minimum, maximum: maximum, systemVersion: systemVersion, source: .tags)
+            return Declaration(report: bounded(minimum: minimum, maximum: maximum, systemVersion: systemVersion,
+                                               source: .tags),
+                               maximum: maximum)
         }
         guard !majors.isEmpty else { return nil }
         let supported = majors.contains { major in Self.matches(systemVersion, upTo: major) && Self.matches(major, upTo: systemVersion, inclusive: true) }
         let sorted = majors.sorted { DebianVersion($0) < DebianVersion($1) }
         let range = sorted.count == 1 ? "iOS \(sorted[0])" : "iOS " + sorted.joined(separator: ", ")
-        return CompatibilityReport(verdict: supported ? .supported : .unsupported, range: range, source: .tags)
+        return Declaration(report: CompatibilityReport(verdict: supported ? .supported : .unsupported,
+                                                       range: range, source: .tags),
+                           maximum: sorted.last)
     }
 
     /// "16" from "compatible::ios16", "16.5" from "compatible_max::ios16.5",
@@ -164,17 +206,21 @@ public enum Compatibility {
     private static let openPattern = try! NSRegularExpression(
         pattern: #"\biOS\s*(\d+(?:\.\d+)*)\s*(?:\+|and (?:up|later|newer|above)|or (?:later|newer|above))"#, options: [.caseInsensitive])
 
-    static func fromWords(_ text: String, systemVersion: String) -> CompatibilityReport? {
+    static func fromWords(_ text: String, systemVersion: String) -> Declaration? {
         let range = NSRange(text.startIndex..., in: text)
         func group(_ match: NSTextCheckingResult, _ index: Int) -> String? {
             Range(match.range(at: index), in: text).map { String(text[$0]) }
         }
         if let match = rangePattern.firstMatch(in: text, range: range),
            let low = group(match, 1), let high = group(match, 2) {
-            return bounded(minimum: low, maximum: high, systemVersion: systemVersion, source: .name)
+            return Declaration(report: bounded(minimum: low, maximum: high, systemVersion: systemVersion,
+                                               source: .name),
+                               maximum: high)
         }
         if let match = openPattern.firstMatch(in: text, range: range), let low = group(match, 1) {
-            return bounded(minimum: low, maximum: nil, systemVersion: systemVersion, source: .name)
+            return Declaration(report: bounded(minimum: low, maximum: nil, systemVersion: systemVersion,
+                                               source: .name),
+                               maximum: nil)
         }
         return nil
     }

@@ -44,8 +44,67 @@ final class CompatibilityTests: XCTestCase {
         XCTAssertEqual(check(summary: "For iOS 15+ devices").verdict, .supported)
         XCTAssertEqual(check(summary: "Needs iOS 16.4 or later").verdict, .unsupported)
         XCTAssertEqual(check(name: "Aemulo", summary: "NFC Frickery").verdict, .unknown)
-        // The dependency wins over the name.
+        // A name that contradicts the dependency does not count.
         XCTAssertEqual(check(depends: "firmware (>= 15.0)", name: "Old (iOS 11 to 14)").verdict, .supported)
+    }
+
+    /// The same packages on other iOS versions, including ones no test
+    /// device runs.
+    func testAcrossVersions() {
+        func verdict(_ version: String, depends: String? = nil, tag: String? = nil, name: String? = nil,
+                     summary: String? = nil) -> CompatibilityReport.Verdict {
+            Compatibility.check(depends: depends, tag: tag, name: name, summary: summary, systemVersion: version).verdict
+        }
+
+        // A minimum in the dependency only.
+        let ios17 = "firmware (>= 17.0)"
+        for version in ["14.8", "15.8.3", "16.3.1", "16.7.10"] {
+            XCTAssertEqual(verdict(version, depends: ios17), .unsupported, version)
+        }
+        for version in ["17.0", "17.3.1", "18.7.1", "26.0.1"] {
+            XCTAssertEqual(verdict(version, depends: ios17), .supported, version)
+        }
+
+        // A minimum in the dependency and a maximum in the name.
+        let glowDepends = "firmware (>= 12.0), mobilesubstrate"
+        let glow = "Glow (rootless iOS 12-17)"
+        XCTAssertEqual(verdict("11.4", depends: glowDepends, name: glow), .unsupported)
+        for version in ["12.0", "15.4", "16.3.1", "17.0", "17.3.1", "17.7"] {
+            XCTAssertEqual(verdict(version, depends: glowDepends, name: glow), .supported, version)
+        }
+        XCTAssertEqual(Compatibility.check(depends: glowDepends, tag: nil, name: glow, summary: nil,
+                                           systemVersion: "18.7.1"),
+                       .init(verdict: .unsupported, range: "iOS 12 to 17", source: .name))
+        XCTAssertEqual(verdict("26.0.1", depends: glowDepends, name: glow), .unsupported)
+
+        // A range in the name only.
+        let autoAnswer = "AutoAnswer XS (rootless) (iOS 11 to 16)"
+        for version in ["15.0", "15.8.3", "16.3.1", "16.7.10"] {
+            XCTAssertEqual(verdict(version, name: autoAnswer), .supported, version)
+        }
+        for version in ["14.8", "17.0", "18.7.1", "26.0.1"] {
+            XCTAssertEqual(verdict(version, name: autoAnswer), .unsupported, version)
+        }
+
+        // A maximum in the tags beside a minimum-only dependency.
+        let tags = "compatible_min::ios15.0, compatible_max::ios17.x"
+        XCTAssertEqual(verdict("17.3.1", depends: "firmware (>= 15.0)", tag: tags), .supported)
+        XCTAssertEqual(verdict("18.7.1", depends: "firmware (>= 15.0)", tag: tags), .unsupported)
+        XCTAssertEqual(verdict("18.7.1", tag: "compatible::ios17, compatible::ios18"), .supported)
+        XCTAssertEqual(verdict("26.0.1", tag: "compatible::ios17, compatible::ios18"), .unsupported)
+
+        // A dependency with a maximum of its own stands.
+        XCTAssertEqual(verdict("17.3.1", depends: "firmware (>= 15.0), firmware (<< 18.0)",
+                               name: "Old (iOS 15 to 16)"), .supported)
+        XCTAssertEqual(verdict("18.7.1", depends: "firmware (>= 15.0), firmware (<< 18.0)"), .unsupported)
+        // A minimum in the words does not overrule the dependency's.
+        XCTAssertEqual(verdict("15.8.3", depends: "firmware (>= 14.0)",
+                               summary: "The iOS 17+ lock screen on older iOS"), .supported)
+
+        // Open ranges reach iOS 26.
+        XCTAssertEqual(verdict("26.0.1", summary: "For iOS 15+ devices"), .supported)
+        XCTAssertEqual(verdict("26.0.1", name: "Tweak (iOS 15 to 18)"), .unsupported)
+        XCTAssertEqual(verdict("26.0.1", depends: "mobilesubstrate"), .unknown)
     }
 
     func testJailbreakKind() {
