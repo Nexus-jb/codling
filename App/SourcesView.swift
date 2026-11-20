@@ -32,11 +32,22 @@ struct SourcesView: View {
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
                                     SourceRow(row: row)
                                 }
-                                .swipeActions {
-                                    if model.isCodlingSource(row.source) && !isEditing {
-                                        Button("Remove", role: .destructive) {
-                                            removing = row.source
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if !isEditing {
+                                        if model.isCodlingSource(row.source) {
+                                            Button(role: .destructive) {
+                                                removing = row.source
+                                            } label: {
+                                                Label("Remove", systemImage: "trash")
+                                            }
                                         }
+                                        Button {
+                                            Task { await model.refresh(id: row.id) }
+                                        } label: {
+                                            Label("Refresh", systemImage: "arrow.clockwise")
+                                        }
+                                        .tint(.blue)
+                                        .disabled(model.isRefreshing || row.activity != .idle)
                                     }
                                 }
                             }

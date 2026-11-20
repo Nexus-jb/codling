@@ -237,11 +237,14 @@ final class SourcesModel: ObservableObject {
         }
     }
 
-    /// Refreshes one source.
-    private func refresh(id: String) async {
-        guard let refresher, let store, let source = rows.first(where: { $0.id == id })?.source else {
+    /// Refreshes one source, as when it was just added or the person asked
+    /// for it alone.
+    func refresh(id: String) async {
+        guard !isRefreshing, let refresher, let store,
+              let row = rows.first(where: { $0.id == id }), row.activity == .idle else {
             return
         }
+        let source = row.source
         setActivity(.refreshing, for: id)
         let outcome = await refresher.refresh(source, force: true)
         finish(id: id, outcome: outcome)
