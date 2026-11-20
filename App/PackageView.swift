@@ -189,7 +189,7 @@ struct PackageView: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Information")
+            Text("Package Details")
                 .font(.headline)
                 .padding(.bottom, 6)
                 .accessibilityAddTraits(.isHeader)
