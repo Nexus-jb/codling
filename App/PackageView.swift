@@ -131,6 +131,12 @@ struct PackageView: View {
         case .web(let url):
             Divider()
                 .padding(.horizontal, 16)
+            if case .failed(let message) = webState {
+                problem(message, open: url) {
+                    webReload += 1
+                }
+                descriptionText
+            }
             webDepiction(url)
         case .failed(let message):
             problem(message) {
@@ -142,31 +148,45 @@ struct PackageView: View {
         }
     }
 
+    /// The page, as tall as its content once it shows; while it loads, room
+    /// for a spinner; when it fails, nothing, as the message stands above it.
     private func webDepiction(_ url: URL) -> some View {
         WebDepictionView(url: url, height: $webHeight, state: $webState, reload: webReload) { link in
             router.open(link, base: url)
         }
-        .frame(height: webState == .loading ? max(webHeight, 200) : max(webHeight, 1))
+        .frame(height: webFrameHeight)
+        .opacity(webState == .loaded ? 1 : 0)
         .overlay {
-            switch webState {
-            case .loading:
+            if webState == .loading {
                 ProgressView()
-            case .failed(let message):
-                Color(.systemBackground)
-                    .overlay(problem(message) { webReload += 1 })
-            case .loaded:
-                EmptyView()
             }
         }
     }
 
-    private func problem(_ message: String, retry: @escaping () -> Void) -> some View {
+    private var webFrameHeight: CGFloat {
+        switch webState {
+        case .loading: return 200
+        case .loaded: return max(webHeight, 1)
+        case .failed: return 0
+        }
+    }
+
+    /// A problem, with Try Again, and Open in Browser when there is a page
+    /// to open.
+    private func problem(_ message: String, open url: URL? = nil, retry: @escaping () -> Void) -> some View {
         VStack(spacing: 10) {
             Text(message)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Try Again", action: retry)
+            HStack(spacing: 20) {
+                Button("Try Again", action: retry)
+                if let url {
+                    Button("Open in Browser") {
+                        router.perform(.web(url))
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(16)

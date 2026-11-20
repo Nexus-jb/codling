@@ -22,6 +22,8 @@ struct WebDepictionView: UIViewRepresentable {
 
     /// The tallest a page is shown, against pages that keep growing.
     static let heightLimit: CGFloat = 40_000
+    /// How long a page may take to start showing.
+    static let timeout: TimeInterval = 30
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -47,6 +49,7 @@ struct WebDepictionView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.deadline?.cancel()
         webView.stopLoading()
         coordinator.observation = nil
     }
@@ -71,6 +74,10 @@ struct WebDepictionView: UIViewRepresentable {
         var parent: WebDepictionView
         var observation: NSKeyValueObservation?
         var loadedReload: Int
+        var deadline: DispatchWorkItem?
+        /// The page has started to show: later failures of its parts leave
+        /// it in place.
+        private var committed = false
 
         init(_ parent: WebDepictionView) {
             self.parent = parent
@@ -79,8 +86,17 @@ struct WebDepictionView: UIViewRepresentable {
 
         func load(_ webView: WKWebView) {
             loadedReload = parent.reload
+            committed = false
             setState(.loading)
             webView.load(WebDepictionView.request(parent.url))
+            deadline?.cancel()
+            let deadline = DispatchWorkItem { [weak self, weak webView] in
+                guard let self, !self.committed else { return }
+                webView?.stopLoading()
+                self.setState(.failed("The description page did not answer in time."))
+            }
+            self.deadline = deadline
+            DispatchQueue.main.asyncAfter(deadline: .now() + WebDepictionView.timeout, execute: deadline)
         }
 
         func observe(_ webView: WKWebView) {
@@ -125,13 +141,24 @@ struct WebDepictionView: UIViewRepresentable {
                      decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
             if response.isForMainFrame, let http = response.response as? HTTPURLResponse, http.statusCode >= 400 {
                 decisionHandler(.cancel)
+                deadline?.cancel()
                 setState(.failed("The description page could not be loaded: the server answered \(http.statusCode) (\(HTTPURLResponse.localizedString(forStatusCode: http.statusCode)))."))
                 return
             }
             decisionHandler(.allow)
         }
 
+        /// The page shows as soon as it starts to draw, rather than once every
+        /// image and script on it has loaded.
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            committed = true
+            deadline?.cancel()
+            setState(.loaded)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            committed = true
+            deadline?.cancel()
             setState(.loaded)
         }
 
@@ -144,12 +171,14 @@ struct WebDepictionView: UIViewRepresentable {
         }
 
         private func failed(_ error: Error) {
+            guard !committed else { return }
             let nsError = error as NSError
             // Cancelled loads, and loads Codling stopped itself.
             if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
                 || nsError.domain == "WebKitErrorDomain" && nsError.code == 102 {
                 return
             }
+            deadline?.cancel()
             setState(.failed("The description page could not be loaded. \(RefreshError.describe(error))"))
         }
 
