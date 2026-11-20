@@ -219,7 +219,7 @@ final class QueueModel: ObservableObject {
         // Even a change that failed half way is recorded, so that undo can
         // take back what it did.
         if after != before {
-            let title = undoing.map { "Undo of: \($0)" } ?? Self.title(plan, names: names)
+            let title = undoing.map(Self.undoTitle) ?? Self.title(plan, names: names)
             history.append(ChangeRecord(id: UUID(), date: Date(), title: title, before: before, after: after, backups: backups))
             history = Array(history.suffix(ChangeHistory.limit))
             ChangeHistory.save(history)
@@ -238,6 +238,13 @@ final class QueueModel: ObservableObject {
                 undoing = nil
             }
         }
+    }
+
+    /// Undoing a change titles the undo after it; undoing an undo makes
+    /// the first change again, so it takes that change's title back.
+    static func undoTitle(_ undone: String) -> String {
+        let prefix = "Undo of: "
+        return undone.hasPrefix(prefix) ? String(undone.dropFirst(prefix.count)) : prefix + undone
     }
 
     /// "Installed jq and 2 more", from what the plan changed.
@@ -477,7 +484,7 @@ private struct ReviewView: View {
         List {
             if let undoing {
                 Section {
-                    Label("Undo of: \(undoing)", systemImage: "arrow.uturn.backward.circle.fill")
+                    Label("Undo: \(undoing)", systemImage: "arrow.uturn.backward.circle.fill")
                         .font(.headline)
                 }
             }
@@ -586,7 +593,8 @@ private struct PlanSummary: View {
             parts.append(change.version)
         }
         if let origin = change.origin {
-            parts.append(origin)
+            // apt's name for a .deb file: here, always a backup of Codling's.
+            parts.append(origin == "local-deb" ? "from backup" : origin)
         }
         // The identifier, when the name shown is a different one.
         if let name = names[change.package], name != change.package {
