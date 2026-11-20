@@ -18,6 +18,30 @@
 //                          up packages that were unpacked or left half
 //                          configured, keeping changed configuration files,
 //                          and prints its status and output as JSON.
+//   codling-helper update-lists
+//                          runs apt-get update, so that apt knows the
+//                          packages Codling shows. Sources that are not
+//                          signed are read too, as other package managers
+//                          do; Codling warns about their packages before
+//                          installing them.
+//   codling-helper simulate OPERATION...
+//                          runs apt-get install -s, which works out what a
+//                          change would do and changes nothing. An operation
+//                          is +package (install or upgrade) or -package
+//                          (remove).
+//   codling-helper apply [--trust-unsigned] [--allow-removals] OPERATION...
+//                          makes the change with apt-get install -y. Without
+//                          --trust-unsigned, packages from sources that are
+//                          not signed are refused; without --allow-removals,
+//                          a change that would remove packages the operations
+//                          do not name is refused. Essential packages are
+//                          never removed.
+//   codling-helper respring
+//                          restarts SpringBoard, so that tweaks load.
+//
+// Operations name packages only: letters, digits, "+", "-" and ".", starting
+// with a letter or digit and ending with a letter, a digit or "+". Nothing
+// else from the caller reaches apt.
 
 #include <errno.h>
 #include <fcntl.h>
@@ -164,6 +188,157 @@ static void run_and_report(const char *root, const char *program, const char *co
     free(output);
 }
 
+// Exits with the error JSON when the helper is not where Codling installs it.
+static void require_root(char root[PATH_MAX]) {
+    if (jailbreak_root(root) != 0) {
+        puts("{\"error\":\"The helper is not inside Codling.app in a jailbreak root.\"}");
+        exit(70);
+    }
+}
+
+static void usage_error(const char *message) {
+    printf("{\"error\":");
+    print_json_string(message, strlen(message));
+    puts("}");
+    fprintf(stderr, "%s\n", message);
+    exit(64);
+}
+
+enum { name_limit = 128, operation_limit = 200 };
+
+// A package name as dpkg accepts it, kept to what cannot be read as an
+// option, a pattern or a path.
+static int valid_package(const char *name) {
+    size_t length = strlen(name);
+    if (length < 2 || length > name_limit) {
+        return 0;
+    }
+    for (size_t i = 0; i < length; i++) {
+        char c = name[i];
+        int alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        if (!alnum && c != '+' && c != '-' && c != '.') {
+            return 0;
+        }
+        if (i == 0 && !alnum) {
+            return 0;
+        }
+        if (i == length - 1 && !alnum && c != '+') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// Turns +name and -name operations into apt-get install arguments: name to
+// install, name- to remove. The strings stay owned by argv or the buffer.
+static size_t add_operations(int count, char **operations, const char **arguments, size_t used,
+                             char buffer[][name_limit + 2]) {
+    if (count < 1) {
+        usage_error("No operations were given.");
+    }
+    if (count > operation_limit) {
+        usage_error("Too many operations at once.");
+    }
+    for (int i = 0; i < count; i++) {
+        const char *operation = operations[i];
+        char kind = operation[0];
+        const char *name = operation + (kind ? 1 : 0);
+        if ((kind != '+' && kind != '-') || !valid_package(name)) {
+            usage_error("An operation is not +package or -package with a valid package name.");
+        }
+        if (kind == '+') {
+            arguments[used++] = name;
+        } else {
+            snprintf(buffer[i], name_limit + 2, "%s-", name);
+            arguments[used++] = buffer[i];
+        }
+    }
+    return used;
+}
+
+static int update_lists(void) {
+    char root[PATH_MAX];
+    require_root(root);
+    const char *const apt[] = { "apt-get", "update", "-q", "-o", "Acquire::AllowInsecureRepositories=true", NULL };
+    run_and_report(root, "/usr/bin/apt-get", apt);
+    putchar('\n');
+    return 0;
+}
+
+static int simulate(int count, char **operations) {
+    char root[PATH_MAX];
+    require_root(root);
+    static char buffer[operation_limit][name_limit + 2];
+    const char *arguments[operation_limit + 8];
+    size_t used = 0;
+    arguments[used++] = "apt-get";
+    arguments[used++] = "install";
+    arguments[used++] = "-s";
+    arguments[used++] = "-q";
+    used = add_operations(count, operations, arguments, used, buffer);
+    arguments[used] = NULL;
+    run_and_report(root, "/usr/bin/apt-get", arguments);
+    putchar('\n');
+    return 0;
+}
+
+static int apply(int count, char **words) {
+    char root[PATH_MAX];
+    require_root(root);
+    int trust_unsigned = 0;
+    int allow_removals = 0;
+    int first = 0;
+    while (first < count && words[first][0] == '-' && words[first][1] == '-') {
+        if (strcmp(words[first], "--trust-unsigned") == 0) {
+            trust_unsigned = 1;
+        } else if (strcmp(words[first], "--allow-removals") == 0) {
+            allow_removals = 1;
+        } else {
+            usage_error("Unknown option for apply.");
+        }
+        first++;
+    }
+    static char buffer[operation_limit][name_limit + 2];
+    const char *arguments[operation_limit + 16];
+    size_t used = 0;
+    arguments[used++] = "apt-get";
+    arguments[used++] = "install";
+    arguments[used++] = "-y";
+    arguments[used++] = "-q";
+    // A changed configuration file is kept, and dpkg asks nothing.
+    arguments[used++] = "-o";
+    arguments[used++] = "Dpkg::Options::=--force-confdef";
+    arguments[used++] = "-o";
+    arguments[used++] = "Dpkg::Options::=--force-confold";
+    if (trust_unsigned) {
+        arguments[used++] = "--allow-unauthenticated";
+    }
+    if (!allow_removals) {
+        arguments[used++] = "--no-remove";
+    }
+    used = add_operations(count - first, words + first, arguments, used, buffer);
+    arguments[used] = NULL;
+    run_and_report(root, "/usr/bin/apt-get", arguments);
+    putchar('\n');
+    return 0;
+}
+
+static int respring(void) {
+    char root[PATH_MAX];
+    require_root(root);
+    char sbreload[PATH_MAX];
+    snprintf(sbreload, sizeof sbreload, "%s/usr/bin/sbreload", root);
+    if (access(sbreload, X_OK) == 0) {
+        const char *const arguments[] = { "sbreload", NULL };
+        run_and_report(root, "/usr/bin/sbreload", arguments);
+    } else {
+        const char *const arguments[] = { "killall", "-9", "SpringBoard", NULL };
+        run_and_report(root, "/usr/bin/killall", arguments);
+    }
+    putchar('\n');
+    return 0;
+}
+
 static int audit(void) {
     char root[PATH_MAX];
     if (jailbreak_root(root) != 0) {
@@ -208,6 +383,19 @@ int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "configure-pending") == 0) {
         return configure_pending();
     }
-    fputs("usage: codling-helper check | audit | configure-pending\n", stderr);
+    if (argc == 2 && strcmp(argv[1], "update-lists") == 0) {
+        return update_lists();
+    }
+    if (argc >= 2 && strcmp(argv[1], "simulate") == 0) {
+        return simulate(argc - 2, argv + 2);
+    }
+    if (argc >= 2 && strcmp(argv[1], "apply") == 0) {
+        return apply(argc - 2, argv + 2);
+    }
+    if (argc == 2 && strcmp(argv[1], "respring") == 0) {
+        return respring();
+    }
+    fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
+          "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring\n", stderr);
     return 64;
 }

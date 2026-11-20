@@ -100,6 +100,7 @@ private struct PackageRow: View {
 
 private struct PackageDetailView: View {
     let package: InstalledPackage
+    @EnvironmentObject private var queue: QueueModel
 
     /// The fields shown in the summary, in this order; the rest follow.
     private static let summaryFields = ["Version", "Section", "Author", "Maintainer", "Architecture", "Installed-Size"]
@@ -135,6 +136,21 @@ private struct PackageDetailView: View {
                 if let depends = package.field("Depends") {
                     FieldRow(name: "Depends", value: depends)
                 }
+            }
+            Section {
+                if queue.operation(for: package.identifier) != nil {
+                    Button("Take Off Queue") {
+                        queue.remove(package.identifier)
+                    }
+                } else {
+                    Button("Remove", role: .destructive) {
+                        queue.add(.remove(package.identifier), name: package.name)
+                    }
+                }
+            } footer: {
+                Text(queue.operation(for: package.identifier) != nil
+                     ? "Queued. Review it in the Queue tab."
+                     : "Removing queues the change; the Queue tab shows everything apt would remove before anything happens.")
             }
         }
         .listStyle(.insetGrouped)

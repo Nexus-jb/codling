@@ -90,6 +90,10 @@ struct PackageView: View {
                     .font(.subheadline)
                     .foregroundColor(.green)
             }
+            if model.loaded {
+                PackageActions(identifier: identifier, name: name, available: record?.version,
+                               isPaid: PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial"))
+            }
             if let summaryText = record?.summary ?? summary?.summary, !summaryText.isEmpty {
                 Text(summaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -209,6 +213,85 @@ struct PackageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
         .padding(16)
+    }
+}
+
+/// Install, Upgrade and Remove. Each queues the change; the Queue tab
+/// reviews it with apt before anything happens.
+private struct PackageActions: View {
+    let identifier: String
+    let name: String
+    /// The newest version this source offers; nil when it no longer lists
+    /// the package.
+    let available: String?
+    let isPaid: Bool
+    @EnvironmentObject private var installed: InstalledPackagesModel
+    @EnvironmentObject private var queue: QueueModel
+
+    var body: some View {
+        let installedVersion = installed.version(of: identifier)
+        let upgradable = installedVersion.flatMap { current in
+            available.map { DebianVersion($0) > DebianVersion(current) }
+        } ?? false
+        VStack(alignment: .leading, spacing: 8) {
+            if let queued = queue.operation(for: identifier) {
+                HStack {
+                    Label(queuedText(queued, installed: installedVersion != nil), systemImage: "clock.fill")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Take Off Queue") {
+                        queue.remove(identifier)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                Text("Review it in the Queue tab.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                HStack(spacing: 10) {
+                    if installedVersion == nil {
+                        if !isPaid && available != nil {
+                            action("Install", .install(identifier), prominent: true)
+                        }
+                    } else {
+                        if upgradable && !isPaid {
+                            action("Upgrade", .install(identifier), prominent: true)
+                        }
+                        action("Remove", .remove(identifier), prominent: false)
+                            .tint(.red)
+                    }
+                }
+                if isPaid && (installedVersion == nil || upgradable) {
+                    Text("Installing and upgrading paid packages comes in a later version of Codling.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func action(_ title: String, _ operation: PackageOperation, prominent: Bool) -> some View {
+        let button = Button {
+            queue.add(operation, name: name)
+        } label: {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .frame(minWidth: 90)
+        }
+        .controlSize(.large)
+        if prominent {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button.buttonStyle(.bordered)
+        }
+    }
+
+    private func queuedText(_ operation: PackageOperation, installed: Bool) -> String {
+        switch operation {
+        case .install: return installed ? "Queued to upgrade" : "Queued to install"
+        case .remove: return "Queued to remove"
+        }
     }
 }
 
