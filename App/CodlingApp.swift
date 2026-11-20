@@ -34,7 +34,7 @@ struct CodlingApp: App {
         if #available(iOS 26, *) {
             TabView {
                 Tab("Featured", systemImage: "star") {
-                    FeaturedView()
+                    FeaturedView(environment: environment)
                 }
                 Tab("Sources", systemImage: "tray.full") {
                     SourcesView(model: sources)
@@ -54,7 +54,7 @@ struct CodlingApp: App {
             // The system tab bar is hidden, and the floating bar drawn after
             // iOS 26's takes its place.
             TabView(selection: $tab) {
-                FeaturedView()
+                FeaturedView(environment: environment)
                     .floatingTabBarSpace()
                     .tag(AppTab.featured)
                 SourcesView(model: sources)

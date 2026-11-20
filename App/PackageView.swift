@@ -59,6 +59,11 @@ struct PackageView: View {
         return summary?.displayName ?? identifier
     }
 
+    /// The package's web page, which the native depiction's tabs offer too.
+    private var webPage: URL? {
+        source.url(record?.depiction)
+    }
+
     private var depictionBase: URL? {
         switch model.depiction {
         case .native(_, let base): return base
@@ -138,15 +143,16 @@ struct PackageView: View {
                 .padding(24)
         case .native(let depiction, _):
             Card(padding: 0) {
-                NativeDepictionContent(depiction: depiction)
-                    .padding(.vertical, 8)
+                NativeDepictionContent(depiction: depiction, fullDescription: webPage.map { url in
+                    { router.perform(.web(url)) }
+                })
+                .padding(.vertical, 8)
             }
         case .web(let url):
             // Pages in a web view inside Codling stop before they draw on a
             // jailbroken device, so the page opens in the browser sheet, as
             // in Sileo.
-            descriptionText
-            WebDepictionLink(title: "Full Description") {
+            DescriptionTabs(details: record?.details ?? summary?.summary ?? "") {
                 router.perform(.web(url))
             }
         case .failed(let message):
@@ -311,33 +317,6 @@ private struct PackageActions: View {
     }
 }
 
-/// A row that opens a web page in the browser sheet.
-struct WebDepictionLink: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Label(title, systemImage: "safari")
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .font(.body.weight(.semibold))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.accentColor)
-    }
-}
-
 private struct InfoRow: View {
     let name: String
     let value: String
@@ -352,8 +331,44 @@ private struct InfoRow: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 5)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A package's description with a Full Description tab that opens its web
+/// page, as a native depiction's tabs do.
+private struct DescriptionTabs: View {
+    let details: String
+    let openPage: () -> Void
+    @State private var tab = 0
+
+    var body: some View {
+        Card(padding: 0) {
+            Picker("Section", selection: Binding(get: { tab }, set: { chosen in
+                if chosen == 1 {
+                    openPage()
+                } else {
+                    tab = chosen
+                }
+            })) {
+                Text("Details").tag(0)
+                Text("Full Description").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            if !details.isEmpty {
+                Text(details)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+            }
+        }
     }
 }
 

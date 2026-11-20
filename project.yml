@@ -32,6 +32,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.nexusjb.codling
         INFOPLIST_FILE: App/Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: "YES"
         SWIFT_OBJC_BRIDGING_HEADER: App/Codling-Bridging-Header.h
         # zlib, bzip2 and the Compression library read the package indexes.

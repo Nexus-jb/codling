@@ -268,6 +268,47 @@ actor IndexStore {
         return found
     }
 
+    /// The newest version of each package, in each source, whose section
+    /// holds any of the words, such as "tweak" for "Tweaks (iOS 15)".
+    func packages(inSectionsWith words: [String]) throws -> [PackageSummary] {
+        guard !words.isEmpty else { return [] }
+        let condition = words.map { _ in "lower(section) LIKE ? ESCAPE '\\'" }.joined(separator: " OR ")
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE \(condition)")
+        defer { sqlite3_finalize(statement) }
+        for (index, word) in words.enumerated() {
+            bind(statement, Int32(index + 1), PackageCatalog.likePattern(word.lowercased()))
+        }
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return PackageCatalog.newest(rows)
+    }
+
+    /// Every source's newest version of each of the packages.
+    func offers(ofAny packages: [String]) throws -> [PackageSummary] {
+        guard !packages.isEmpty else { return [] }
+        try execute("CREATE TEMP TABLE IF NOT EXISTS wanted (package TEXT PRIMARY KEY)")
+        try execute("DELETE FROM wanted")
+        let insert = try prepare("INSERT OR IGNORE INTO wanted (package) VALUES (?)")
+        for package in packages {
+            sqlite3_reset(insert)
+            bind(insert, 1, package)
+            guard sqlite3_step(insert) == SQLITE_DONE else {
+                sqlite3_finalize(insert)
+                throw error()
+            }
+        }
+        sqlite3_finalize(insert)
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE package IN (SELECT package FROM wanted)")
+        defer { sqlite3_finalize(statement) }
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return PackageCatalog.newest(rows)
+    }
+
     /// The newest version of a package in one source, if the source has it.
     func newest(of package: String, source: String) throws -> PackageSummary? {
         let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE source = ? AND package = ?")

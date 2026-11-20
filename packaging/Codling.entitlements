@@ -33,6 +33,12 @@
 		<string>IOSurfaceAcceleratorClient</string>
 		<string>AppleJPEGDriverUserClient</string>
 	</array>
+	<!-- Lets Codling read the device's UDID from MobileGestalt, for Device
+	     Info and for signing in to payment providers, which ask for it. -->
+	<key>com.apple.private.MobileGestalt.AllowedProtectedKeys</key>
+	<array>
+		<string>UniqueDeviceID</string>
+	</array>
 	<!-- Lets Codling start its helper as root through a spawn persona, so
 	     the helper needs no setuid bit. -->
 	<key>com.apple.private.persona-mgmt</key>

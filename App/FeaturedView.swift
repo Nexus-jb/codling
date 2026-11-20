@@ -3,8 +3,8 @@
 import SwiftUI
 
 /// The Featured tab: the banners every source publishes, with equal
-/// standing, and the packages sources added or updated since Codling first
-/// read them.
+/// standing, the updates for installed packages, and the packages sources
+/// added or updated since Codling first read them.
 @MainActor
 final class FeaturedModel: ObservableObject {
     struct Item: Identifiable {
@@ -17,11 +17,12 @@ final class FeaturedModel: ObservableObject {
 
     @Published private(set) var banners: [Item] = []
     @Published private(set) var arrivals: [IndexStore.Arrival] = []
+    @Published private(set) var updates: [PackageSummary] = []
     @Published private(set) var loaded = false
 
     static let arrivalLimit = 60
 
-    func load(sources: SourcesModel, reloadBanners: Bool) async {
+    func load(sources: SourcesModel, installed: [String: String], reloadBanners: Bool) async {
         guard let store = sources.store else { return }
         let infos = sources.rows.compactMap { sources.info(for: $0.id) }
 
@@ -54,54 +55,103 @@ final class FeaturedModel: ObservableObject {
         }
         banners = items
         arrivals = (try? await store.arrivals(limit: Self.arrivalLimit)) ?? []
+        let offers = (try? await store.offers(ofAny: Array(installed.keys))) ?? []
+        updates = AvailableUpdates.find(installed: installed, offers: offers)
         loaded = true
     }
 }
 
+/// The categories of Browse Categories, by the words their sections hold.
+struct PackageCategory: Identifiable {
+    let name: String
+    let words: [String]
+
+    var id: String { name }
+
+    static let all = [
+        PackageCategory(name: "Tweaks", words: ["tweak"]),
+        PackageCategory(name: "Themes", words: ["theme"]),
+        PackageCategory(name: "Development", words: ["devel"]),
+    ]
+}
+
 struct FeaturedView: View {
+    let environment: RuntimeEnvironment
     @EnvironmentObject private var sources: SourcesModel
+    @EnvironmentObject private var installed: InstalledPackagesModel
     @StateObject private var model = FeaturedModel()
+    @State private var showsDevice = false
 
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
+                    WelcomeCard()
+
                     if !model.banners.isEmpty {
+                        CardHeading(title: "Featured Tweaks", symbol: "star.fill")
+                            .padding(.top, 6)
                         FeaturedCarousel(items: model.banners)
                             .padding(.horizontal, -16)
-                        CardFooter(text: "Banners from every source you added, in a new order each time.")
                     }
 
-                    CardHeading(title: "New and Updated", symbol: "sparkles")
-                        .padding(.top, 8)
-                    if model.arrivals.isEmpty {
-                        Card {
-                            Text(model.loaded ? emptyText : "Loading")
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    } else {
-                        let rows = model.arrivals.compactMap { arrival in
-                            sources.info(for: arrival.package.source).map { ArrivalRow(arrival: arrival, info: $0) }
-                        }
-                        CardRows(items: rows, dividerInset: 72) { row in
-                            NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
-                                                                    summary: row.arrival.package)) {
-                                HStack(spacing: 8) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        CatalogRow(package: row.arrival.package, source: row.info, showSource: true)
-                                        Text("\(row.arrival.updated ? "Updated" : "New") \(row.arrival.date.formatted(.relative(presentation: .named)))")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundColor(row.arrival.updated ? .blue : .green)
-                                            .padding(.leading, 56)
+                    CardHeading(title: "Browse Categories", symbol: "square.grid.2x2")
+                        .padding(.top, 6)
+                    Card(padding: 14) {
+                        HStack(spacing: 8) {
+                            ForEach(PackageCategory.all) { category in
+                                NavigationLink(destination: CategoryPackagesView(category: category)) {
+                                    VStack(spacing: 8) {
+                                        IconTile(symbol: SectionSymbol.name(for: category.name),
+                                                 color: SectionSymbol.color(for: category.name), size: 50)
+                                        Text(category.name)
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.8)
                                     }
-                                    Chevron()
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 4)
+                                    .contentShape(Rectangle())
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(CardRowButtonStyle())
                         }
+                    }
+
+                    CardHeading(title: "Updates", symbol: "arrow.down.circle")
+                        .padding(.top, 6)
+                    updatesCard
+
+                    CardHeading(title: "New & Updated", symbol: "clock")
+                        .padding(.top, 6)
+                    arrivalsCard
+
+                    CommunityLinksCard()
+                        .padding(.top, 6)
+
+                    Card(padding: 0) {
+                        Button {
+                            showsDevice = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "iphone")
+                                    .font(.title3)
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 28)
+                                    .accessibilityHidden(true)
+                                Text("Device Info")
+                                    .font(.body.weight(.semibold))
+                                Spacer(minLength: 8)
+                                Text(DeviceModel.name(for: environment.deviceModel))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                Chevron()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 14)
+                        }
+                        .buttonStyle(CardRowButtonStyle())
                     }
                 }
                 .padding(.horizontal, 16)
@@ -109,16 +159,110 @@ struct FeaturedView: View {
             }
             .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Featured")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // The welcome card is the page's title.
+                ToolbarItem(placement: .principal) {
+                    Text("")
+                        .accessibilityHidden(true)
+                }
+            }
             .systemButton()
             .refreshable {
                 await sources.refresh(force: false)
-                await model.load(sources: sources, reloadBanners: true)
+                await model.load(sources: sources, installed: installed.versions, reloadBanners: true)
             }
-            .task(id: sources.indexGeneration) {
-                await model.load(sources: sources, reloadBanners: false)
+            .task(id: "\(sources.indexGeneration) \(installed.versions.count)") {
+                await model.load(sources: sources, installed: installed.versions, reloadBanners: false)
+            }
+            .sheet(isPresented: $showsDevice) {
+                DeviceInfoView(details: DeviceDetails.read(environment: environment, installed: installed))
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    @ViewBuilder
+    private var updatesCard: some View {
+        let rows = model.updates.compactMap { package in
+            sources.info(for: package.source).map { UpdateRow(package: package, info: $0) }
+        }
+        if rows.isEmpty {
+            Card(padding: 14) {
+                Text(model.loaded ? "Everything installed is up to date with your sources." : "Loading")
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            CardRows(items: rows, dividerInset: 72) { row in
+                NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package, summary: row.package)) {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            CatalogRow(package: row.package, source: row.info, showSource: true)
+                            if let current = installed.version(of: row.package.package) {
+                                Text("Installed \(current), \(row.package.version) available")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundColor(.blue)
+                                    .padding(.leading, 56)
+                            }
+                        }
+                        Chevron()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(CardRowButtonStyle())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var arrivalsCard: some View {
+        let rows = model.arrivals.compactMap { arrival in
+            sources.info(for: arrival.package.source).map { ArrivalRow(arrival: arrival, info: $0) }
+        }
+        if rows.isEmpty {
+            Card(padding: 14) {
+                Text(model.loaded ? emptyText : "Loading")
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Card(padding: 0) {
+                ForEach(ArrivalDay.group(rows)) { day in
+                    Text(day.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 2)
+                        .accessibilityAddTraits(.isHeader)
+                    Divider()
+                        .padding(.leading, 16)
+                    DividedRows(items: day.rows, dividerInset: 72) { row in
+                        NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
+                                                                summary: row.arrival.package)) {
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    CatalogRow(package: row.arrival.package, source: row.info, showSource: true)
+                                    Text(row.arrival.updated
+                                         ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
+                                         : "New")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(row.arrival.updated ? .blue : .green)
+                                        .padding(.leading, 56)
+                                }
+                                Chevron()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                        }
+                        .buttonStyle(CardRowButtonStyle())
+                    }
+                }
+            }
+        }
     }
 
     private var emptyText: String {
@@ -126,32 +270,205 @@ struct FeaturedView: View {
     }
 }
 
+/// An installed package's newer version, with the source it is from.
+private struct UpdateRow: Identifiable {
+    let package: PackageSummary
+    let info: SourceInfo
+
+    var id: String { package.id }
+}
+
 /// A new or updated package with the source it is from.
-private struct ArrivalRow: Identifiable {
+struct ArrivalRow: Identifiable {
     let arrival: IndexStore.Arrival
     let info: SourceInfo
 
     var id: String { arrival.id }
 }
 
-/// The banners side by side, all the same size, each with its source's name.
+/// The arrivals of one day: Today, Yesterday, or the date.
+struct ArrivalDay: Identifiable {
+    let title: String
+    let rows: [ArrivalRow]
+
+    var id: String { title }
+
+    static func group(_ rows: [ArrivalRow], calendar: Calendar = .current, now: Date = Date()) -> [ArrivalDay] {
+        var days: [ArrivalDay] = []
+        for row in rows {
+            let title: String
+            if calendar.isDate(row.arrival.date, inSameDayAs: now) {
+                title = "Today"
+            } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+                      calendar.isDate(row.arrival.date, inSameDayAs: yesterday) {
+                title = "Yesterday"
+            } else {
+                title = row.arrival.date.formatted(date: .abbreviated, time: .omitted)
+            }
+            if let last = days.last, last.title == title {
+                days[days.count - 1] = ArrivalDay(title: title, rows: last.rows + [row])
+            } else {
+                days.append(ArrivalDay(title: title, rows: [row]))
+            }
+        }
+        return days
+    }
+}
+
+/// The top of the Featured tab.
+private struct WelcomeCard: View {
+    var body: some View {
+        Card(padding: 16) {
+            HStack(spacing: 14) {
+                Image("CodlingIcon")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 68, height: 68)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Welcome to")
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(.secondary)
+                    Text("Codling")
+                        .font(.largeTitle.bold())
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Codling's own pages elsewhere. A link shows only once it has an
+/// address; until then the card does not show.
+private struct CommunityLinksCard: View {
+    struct Entry: Identifiable {
+        let title: String
+        let symbol: String
+        let url: URL?
+
+        var id: String { title }
+    }
+
+    static let links = [
+        Entry(title: "Twitter", symbol: "at", url: nil),
+        Entry(title: "Support", symbol: "headphones", url: nil),
+        Entry(title: "Website", symbol: "globe", url: nil),
+    ]
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        let shown = Self.links.filter { $0.url != nil }
+        if !shown.isEmpty {
+            Card(padding: 0) {
+                HStack(spacing: 0) {
+                    ForEach(shown) { link in
+                        if link.id != shown.first?.id {
+                            Divider()
+                                .frame(height: 24)
+                        }
+                        Button {
+                            if let url = link.url {
+                                openURL(url)
+                            }
+                        } label: {
+                            Label(link.title, systemImage: link.symbol)
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 13)
+                        }
+                        .buttonStyle(CardRowButtonStyle())
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The packages of one category, from every source.
+struct CategoryPackagesView: View {
+    let category: PackageCategory
+    @EnvironmentObject private var sources: SourcesModel
+    @State private var packages: [PackageSummary]?
+    @State private var query = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                if let packages {
+                    let shown = filtered(packages)
+                    let rows = shown.compactMap { package in
+                        sources.info(for: package.source).map { CategoryRow(package: package, info: $0) }
+                    }
+                    if !rows.isEmpty {
+                        CardRows(items: rows, dividerInset: 72) { row in
+                            NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package,
+                                                                    summary: row.package)) {
+                                CatalogCardRow(package: row.package, source: row.info, showSource: true)
+                            }
+                            .buttonStyle(CardRowButtonStyle())
+                        }
+                    }
+                    CardFooter(text: shown.count == packages.count
+                               ? "\(packages.count.formatted()) packages from your sources"
+                               : "\(shown.count.formatted()) of \(packages.count.formatted()) packages")
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(32)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .searchable(text: $query, prompt: "Filter by name, author or identifier")
+        .navigationTitle(category.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: sources.indexGeneration) {
+            packages = (try? await sources.store?.packages(inSectionsWith: category.words)) ?? []
+        }
+    }
+
+    private struct CategoryRow: Identifiable {
+        let package: PackageSummary
+        let info: SourceInfo
+
+        var id: String { package.id }
+    }
+
+    private func filtered(_ packages: [PackageSummary]) -> [PackageSummary] {
+        let words = PackageCatalog.searchWords(query)
+        guard !words.isEmpty else { return packages }
+        return packages.filter { package in
+            let fields = [package.displayName, package.package, package.displayAuthor ?? "", package.summary ?? ""]
+                .map { $0.lowercased() }
+            return words.allSatisfy { word in fields.contains { $0.contains(word) } }
+        }
+    }
+}
+
+/// The banners side by side, two to a screen, each with its source's name.
 private struct FeaturedCarousel: View {
     let items: [FeaturedModel.Item]
 
     var body: some View {
-        let width = min(UIScreen.main.bounds.width - 64, 340)
+        let width = ((min(UIScreen.main.bounds.width, 500) - 32 - 10) / 2).rounded(.down)
         let size = CGSize(width: width, height: (width * 148 / 263).rounded())
         ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(alignment: .top, spacing: 12) {
+            LazyHStack(alignment: .top, spacing: 10) {
                 ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 5) {
                         if let package = item.package {
                             NavigationLink(destination: PackageView(source: item.source, identifier: package.package, summary: package)) {
-                                BannerView(banner: item.banner, size: size, cornerRadius: 12)
+                                BannerView(banner: item.banner, size: size, cornerRadius: 14)
                             }
                             .buttonStyle(.plain)
                         } else {
-                            BannerView(banner: item.banner, size: size, cornerRadius: 12)
+                            BannerView(banner: item.banner, size: size, cornerRadius: 14)
                         }
                         Text(item.source.title)
                             .font(.caption)
@@ -163,7 +480,7 @@ private struct FeaturedCarousel: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
         }
     }
 }
