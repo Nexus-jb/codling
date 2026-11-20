@@ -73,12 +73,10 @@ private struct SourceRow: View {
                 .foregroundColor(.secondary)
                 .lineLimit(2)
             status
-            if !row.warnings.isEmpty {
-                ForEach(row.warnings, id: \.self) { warning in
-                    Label(warning, systemImage: "exclamationmark.triangle")
-                        .font(.footnote)
-                        .foregroundColor(.orange)
-                }
+            ForEach(row.warnings, id: \.self) { warning in
+                IconLine(symbol: "exclamationmark.triangle", text: warning)
+                    .font(.footnote)
+                    .foregroundColor(.orange)
             }
         }
         .padding(.vertical, 2)
@@ -102,11 +100,11 @@ private struct SourceRow: View {
             }
         case .idle:
             if case .failed(let message)? = row.outcome?.state {
-                Label(message, systemImage: "xmark.octagon.fill")
+                IconLine(symbol: "xmark.octagon.fill", text: message)
                     .font(.subheadline)
                     .foregroundColor(.red)
             } else if let count = row.packageCount {
-                Label(summary(count: count), systemImage: signatureSymbol)
+                IconLine(symbol: signatureSymbol, text: summary(count: count))
                     .font(.subheadline)
                     .foregroundColor(signatureColor)
             } else {
@@ -158,6 +156,23 @@ private struct SourceRow: View {
         case .signed?: return .green
         case .trustedWithoutSignature?: return .secondary
         default: return .orange
+        }
+    }
+}
+
+/// A symbol and text that wraps to as many lines as it needs. A List keeps a
+/// row's first height when its text grows, so the text asks for its full
+/// height rather than being cut short.
+private struct IconLine: View {
+    let symbol: String
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .accessibilityHidden(true)
+            Text(text)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
