@@ -175,3 +175,70 @@ final class PackageIndexTests: XCTestCase {
         XCTAssertEqual(records[2].version, "4.0")
     }
 }
+
+final class AptDiagnosticsTests: XCTestCase {
+    private func ids(_ output: String) -> [String] {
+        AptDiagnostics.diagnose(output).map(\.id)
+    }
+
+    // Each line as apt or dpkg prints it.
+    func testCommonErrors() {
+        let cases: [(String, String, AptDiagnosis.Fix?)] = [
+            ("E: dpkg was interrupted, you must manually run 'dpkg --configure -a' to correct the problem.", "dpkg-interrupted", .configurePending),
+            ("The following packages are only half configured, probably due to problems", "half-configured", .configurePending),
+            ("The following packages have been unpacked but not yet configured. They must be configured using", "half-configured", .configurePending),
+            ("dpkg: error processing package com.example (--configure): package is in a very bad inconsistent state; you should", "needs-reinstall", nil),
+            ("E: Could not get lock /var/jb/var/lib/dpkg/lock-frontend. It is held by process 412 (Sileo)", "lock-held", .retry),
+            ("E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?", "lock-held", .retry),
+            ("dpkg: error processing archive /tmp/x.deb (--install): package architecture (iphoneos-arm) does not match system (iphoneos-arm64)", "architecture-mismatch", nil),
+            ("Codling needs an Apple A12 chip or newer: iPhone XS, iPhone XR or a later device.", "old-chip", nil),
+            ("dpkg: error processing archive /tmp/b.deb (--unpack): trying to overwrite '/var/jb/usr/lib/libfoo.dylib', which is also in package com.example.a 1.0", "file-conflict", nil),
+            ("E: Unmet dependencies. Try 'apt --fix-broken install' with no packages (or specify a solution).", "unmet-dependencies", .refreshSources),
+            (" com.example.b : Depends: com.example.c (>= 2.0) but it is not going to be installed", "unmet-dependencies", .refreshSources),
+            ("E: Unable to locate package com.example.missing", "unknown-package", .refreshSources),
+            ("E: Failed to fetch https://repo.example/./Packages.xz  Hash Sum mismatch", "hash-mismatch", .retry),
+            ("W: GPG error: https://repo.example ./ InRelease: The following signatures couldn't be verified because the public key is not available: NO_PUBKEY 0123456789ABCDEF", "missing-key", nil),
+            ("W: GPG error: https://repo.example ./ InRelease: The following signatures were invalid: BADSIG 0123456789ABCDEF", "bad-signature", nil),
+            ("E: Release file for https://repo.example/./InRelease is not valid yet (invalid for another 2d 3h).", "not-valid-yet", .refreshSources),
+            ("E: Release file for https://repo.example/./InRelease is expired (invalid since 12d 4h).", "expired", nil),
+            ("Err:3 https://repo.example ./ InRelease  Temporary failure resolving 'repo.example'", "no-network", .retry),
+            ("E: Failed to fetch https://repo.example/debs/a.deb  404  Not Found", "not-found", .refreshSources),
+            ("E: You don't have enough free space in /var/jb/var/cache/apt/archives/.", "disk-full", .retry),
+            ("dpkg-deb: error: '/tmp/a.deb' is not a Debian format archive", "damaged-archive", .retry),
+            ("E: Malformed entry 3 in list file /var/jb/etc/apt/sources.list.d/x.list (Component)", "malformed-sources", nil),
+            ("E: Sub-process /var/jb/usr/bin/dpkg returned an error code (1)", "dpkg-failed", .configurePending),
+        ]
+        for (line, id, fix) in cases {
+            let found = AptDiagnostics.diagnose(line)
+            XCTAssertEqual(found.map(\.id), [id], line)
+            XCTAssertEqual(found.first?.fix, fix, line)
+        }
+    }
+
+    func testDetailsFromTheLine() {
+        let conflict = AptDiagnostics.diagnose("trying to overwrite '/a/b', which is also in package com.example.a 1.0")[0]
+        XCTAssertTrue(conflict.explanation.contains("/a/b"))
+        XCTAssertTrue(conflict.advice.contains("com.example.a"))
+        let architecture = AptDiagnostics.diagnose("package architecture (iphoneos-arm) does not match system (iphoneos-arm64)")[0]
+        XCTAssertTrue(architecture.explanation.contains("iphoneos-arm,"))
+        XCTAssertTrue(architecture.advice.contains("iphoneos-arm64 version"))
+    }
+
+    func testSpecificProblemsHideTheGenericFailure() {
+        let output = """
+            Selecting previously unselected package com.example.b.
+            dpkg: error processing archive /tmp/b.deb (--unpack):
+             trying to overwrite '/var/jb/usr/lib/libfoo.dylib', which is also in package com.example.a 1.0
+            Errors were encountered while processing:
+             /tmp/b.deb
+            E: Sub-process /var/jb/usr/bin/dpkg returned an error code (1)
+            """
+        XCTAssertEqual(ids(output), ["file-conflict"])
+        XCTAssertEqual(ids("E: Sub-process /usr/bin/dpkg returned an error code (1)\nErrors were encountered while processing:"),
+                       ["dpkg-failed"])
+    }
+
+    func testCleanOutput() {
+        XCTAssertEqual(ids("Reading package lists...\nBuilding dependency tree...\nReading state information..."), [])
+    }
+}
