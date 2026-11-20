@@ -79,10 +79,10 @@ final class CompatibilityTests: XCTestCase {
 
         // A range in the name only.
         let autoAnswer = "AutoAnswer XS (rootless) (iOS 11 to 16)"
-        for version in ["15.0", "15.8.3", "16.3.1", "16.7.10"] {
+        for version in ["11.0", "14.8", "15.8.3", "16.3.1", "16.7.10"] {
             XCTAssertEqual(verdict(version, name: autoAnswer), .supported, version)
         }
-        for version in ["14.8", "17.0", "18.7.1", "26.0.1"] {
+        for version in ["10.3.3", "17.0", "18.7.1", "26.0.1"] {
             XCTAssertEqual(verdict(version, name: autoAnswer), .unsupported, version)
         }
 
