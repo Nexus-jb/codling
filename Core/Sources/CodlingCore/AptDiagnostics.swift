@@ -64,13 +64,20 @@ public enum AptDiagnostics {
     public static func significantAudit(_ output: String) -> String {
         var sections: [[String]] = [[]]
         for line in output.components(separatedBy: "\n") {
+            let indented = line.first == " " || line.first == "\t"
+            let current = sections[sections.count - 1]
             if line.trimmingCharacters(in: .whitespaces).isEmpty {
-                if !(sections.last ?? []).isEmpty {
+                if !current.isEmpty {
                     sections.append([])
                 }
-            } else {
-                sections[sections.count - 1].append(line)
+                continue
             }
+            // A header after a package line starts the next section, even
+            // without a blank line between them.
+            if !indented, let last = current.last, last.first == " " || last.first == "\t" {
+                sections.append([])
+            }
+            sections[sections.count - 1].append(line)
         }
         return sections.filter { section in
             guard !section.isEmpty else { return false }

@@ -255,7 +255,7 @@ final class AptDiagnosticsTests: XCTestCase {
             """
         XCTAssertEqual(AptDiagnostics.significantAudit(healthy), "")
 
-        let broken = healthy + """
+        let broken = healthy + "\n" + """
             The following packages are only half configured, probably due to problems
             configuring them the first time.  The configuration should be retried using
             dpkg --configure <package> or the configure menu option in dselect:
@@ -265,5 +265,7 @@ final class AptDiagnosticsTests: XCTestCase {
         XCTAssertTrue(significant.hasPrefix("The following packages are only half configured"))
         XCTAssertFalse(significant.contains("md5sums"))
         XCTAssertEqual(AptDiagnostics.diagnose(significant).map(\.id), ["half-configured"])
+        // Sections that follow each other without a blank line are still apart.
+        XCTAssertEqual(AptDiagnostics.significantAudit(healthy + broken.dropFirst(healthy.count + 1)), significant)
     }
 }
