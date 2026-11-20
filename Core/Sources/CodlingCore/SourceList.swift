@@ -84,6 +84,14 @@ public enum SourceList {
     /// characters the root helper does not write: the helper checks the same.
     public static func repositoryURI(from text: String) -> String? {
         var address = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "https://" was already in the field when an address was pasted
+        // after it.
+        for prefix in ["https://", "http://"] where address.lowercased().hasPrefix(prefix) {
+            let rest = address.dropFirst(prefix.count)
+            if rest.lowercased().hasPrefix("https://") || rest.lowercased().hasPrefix("http://") {
+                address = String(rest)
+            }
+        }
         if !address.contains("://") {
             address = "https://" + address
         }
@@ -184,6 +192,31 @@ public enum SourceList {
     /// Every source apt reads under an etc/apt directory: sources.list, then
     /// the files in sources.list.d in name order. The same source written twice
     /// is kept once.
+    /// The repository addresses in copied text, such as one address per
+    /// line or the lines of a sources.list, in order and each once.
+    public static func repositoryURIs(in text: String) -> [String] {
+        var seen = Set<String>()
+        return text.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "\"" || $0 == "'" })
+            .filter { $0.contains(".") && $0 != "./" }
+            .compactMap { repositoryURI(from: String($0)) }
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// A repository's name from its Release or InRelease file: its Label,
+    /// else its Origin.
+    public static func releaseName(_ text: String) -> String? {
+        var fields: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            for key in ["Label", "Origin"] where line.hasPrefix(key + ":") && fields[key] == nil {
+                let value = line.dropFirst(key.count + 1).trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty {
+                    fields[key] = value
+                }
+            }
+        }
+        return fields["Label"] ?? fields["Origin"]
+    }
+
     public static func read(aptDirectory: String, fileManager: FileManager = .default) -> [Source] {
         var files: [String] = []
         let main = aptDirectory + "/sources.list"

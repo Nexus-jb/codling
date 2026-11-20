@@ -166,12 +166,13 @@ final class SourcesModel: ObservableObject {
         return rows.first { place($0.source.uri) == place(uri) }?.source
     }
 
-    /// Whether a repository answers at uri; the reason when it does not.
-    func probe(uri: String) async -> String? {
+    /// What answers at a repository's address: its name, or the reason
+    /// nothing usable did.
+    func inspect(uri: String) async -> Result<String?, RefreshError> {
         guard let refresher else {
-            return setupError ?? "Codling is not ready to read sources."
+            return .failure(.message(setupError ?? "Codling is not ready to read sources."))
         }
-        return await refresher.probe(uri: uri)
+        return await refresher.inspect(uri: uri)
     }
 
     /// Adds a flat repository through the root helper, reads apt's lists

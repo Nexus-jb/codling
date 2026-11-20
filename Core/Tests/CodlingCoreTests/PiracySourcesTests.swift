@@ -42,11 +42,30 @@ final class PiracySourcesTests: XCTestCase {
         XCTAssertEqual(SourceList.repositoryURI(from: "  HTTP://Repo.Example.com/Path  "), "http://repo.example.com/Path/")
         XCTAssertEqual(SourceList.repositoryURI(from: "https://example.github.io/repo/"), "https://example.github.io/repo/")
         XCTAssertEqual(SourceList.repositoryURI(from: "https://example.com/~me/repo+beta"), "https://example.com/~me/repo+beta/")
-        for bad in ["", "ftp://example.com/", "https://", "https://localhost/", "https://exa mple.com/",
+        // An address pasted after the "https://" already in the field.
+        XCTAssertEqual(SourceList.repositoryURI(from: "https://https://repo.example.com"), "https://repo.example.com/")
+        XCTAssertEqual(SourceList.repositoryURI(from: "https://http://repo.example.com/"), "http://repo.example.com/")
+        for bad in ["", "https://https://", "ftp://example.com/", "https://", "https://localhost/", "https://exa mple.com/",
                     "https://example.com/a b/", "https://example.com/?x=1", "https://example.com/#x",
                     "https://user@example.com/", "https://example.com/../etc/", "https://example.com/a\nb",
                     "https://example.com:8080/", "https://-example.com/", "file:///etc/"] {
             XCTAssertNil(SourceList.repositoryURI(from: bad), bad)
         }
+    }
+
+    func testCopiedAddresses() {
+        XCTAssertEqual(SourceList.repositoryURIs(in: "https://havoc.app/\nhttps://repo.chariz.com/\n"),
+                       ["https://havoc.app/", "https://repo.chariz.com/"])
+        XCTAssertEqual(SourceList.repositoryURIs(in: "deb https://apt.procurs.us/ 1900 main\ndeb http://limneos.net/repo/ ./"),
+                       ["https://apt.procurs.us/", "http://limneos.net/repo/"])
+        XCTAssertEqual(SourceList.repositoryURIs(in: "Add \"opa334.github.io\", it is good. opa334.github.io"),
+                       ["https://opa334.github.io/"])
+        XCTAssertEqual(SourceList.repositoryURIs(in: "hello there"), [])
+    }
+
+    func testReleaseName() {
+        XCTAssertEqual(SourceList.releaseName("Origin: opa334\nLabel: opa334's Repo\nSuite: stable\n"), "opa334's Repo")
+        XCTAssertEqual(SourceList.releaseName("-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\nOrigin: Havoc\nSuite: stable\n"), "Havoc")
+        XCTAssertNil(SourceList.releaseName("Suite: stable\nLabel:\n"))
     }
 }
