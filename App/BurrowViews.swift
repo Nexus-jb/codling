@@ -295,24 +295,36 @@ private struct BurrowStateSections: View {
                 Text("No tweaks are installed.")
                     .foregroundColor(.secondary)
             }
-            ForEach(state.tweaks) { tweak in
+            // A package's tweaks, such as one for SpringBoard and one for an
+            // app, are one row.
+            ForEach(state.tweakGroups) { group in
                 NavigationLink {
-                    TweakSettingsView(model: model, tweakName: tweak.name)
+                    PackageTweaksView(model: model, groupID: group.id)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(tweak.displayName)
-                        // A package can install more than one tweak, such as
-                        // one for SpringBoard and one for an app.
-                        Text(tweak.displayName == tweak.name ? summary(of: tweak) : "\(tweak.name) · \(summary(of: tweak))")
-                            .font(.footnote)
-                            .foregroundColor(state.isOffEverywhere(tweak.name) || !state.placesOff(tweak.name).isEmpty
-                                             ? .orange : .secondary)
+                        Text(group.title)
+                        // One line for each of the package's tweaks.
+                        ForEach(group.tweaks) { tweak in
+                            Text(line(for: tweak, alone: group.tweaks.count == 1))
+                                .font(.footnote)
+                                .foregroundColor(isOffSomewhere(tweak) ? .orange : .secondary)
+                        }
                     }
                 }
             }
         } header: {
             Text("Tweaks")
         }
+    }
+
+    private func isOffSomewhere(_ tweak: BurrowState.Tweak) -> Bool {
+        state.isOffEverywhere(tweak.name) || !state.placesOff(tweak.name).isEmpty
+    }
+
+    /// "PowerSelectorApp · On"; just "On" for a package's only tweak named
+    /// as the package is.
+    private func line(for tweak: BurrowState.Tweak, alone: Bool) -> String {
+        alone && tweak.displayName == tweak.name ? summary(of: tweak) : "\(tweak.name) · \(summary(of: tweak))"
     }
 
     private func summary(of tweak: BurrowState.Tweak) -> String {
@@ -350,30 +362,35 @@ private struct BurrowStateSections: View {
     }
 }
 
-/// One tweak: where it loads, where it is off, and the switches.
-struct TweakSettingsView: View {
+/// One package's tweaks: for each, where it loads, where it is off, and
+/// the switches.
+struct PackageTweaksView: View {
     @ObservedObject var model: BurrowModel
-    let tweakName: String
-    @State private var choosingApp = false
+    let groupID: String
+    @State private var choosingFor: BurrowState.Tweak?
 
-    private var origin: String { "tweak:" + tweakName }
+    private var origin: String { "package:" + groupID }
+
+    private var group: BurrowState.TweakGroup? {
+        model.state?.tweakGroups.first { $0.id == groupID }
+    }
 
     var body: some View {
         List {
-            if let state = model.state, let tweak = state.tweaks.first(where: { $0.name == tweakName }) {
-                content(state: state, tweak: tweak)
+            if let state = model.state, let group {
+                content(state: state, group: group)
             } else {
                 Text("This tweak is no longer installed.")
                     .foregroundColor(.secondary)
             }
         }
-        .navigationTitle(model.state?.tweaks.first(where: { $0.name == tweakName })?.displayName ?? tweakName)
+        .navigationTitle(group?.title ?? "Tweak")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.load() }
-        .sheet(isPresented: $choosingApp) {
-            if let state = model.state, let tweak = state.tweaks.first(where: { $0.name == tweakName }) {
+        .sheet(item: $choosingFor) { tweak in
+            if let state = model.state {
                 AppChooserView(model: model, state: state, tweak: tweak) { process in
-                    choosingApp = false
+                    choosingFor = nil
                     Task { await model.setTweak(tweak.name, on: false, in: process, origin: origin) }
                 }
             }
@@ -383,50 +400,43 @@ struct TweakSettingsView: View {
     }
 
     @ViewBuilder
-    private func content(state: BurrowState, tweak: BurrowState.Tweak) -> some View {
+    private func content(state: BurrowState, group: BurrowState.TweakGroup) -> some View {
+        if let package = group.tweaks.first?.package {
+            Section {
+                detail("Package", [package, group.tweaks.first?.packageVersion].compactMap { $0 }.joined(separator: " "))
+                if group.tweaks.count > 1 {
+                    Text("This package installs \(group.tweaks.count) tweaks, each with its own settings below.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        ForEach(group.tweaks) { tweak in
+            tweakSection(state: state, tweak: tweak, named: group.tweaks.count > 1 || tweak.displayName != tweak.name)
+        }
+    }
+
+    private func tweakSection(state: BurrowState, tweak: BurrowState.Tweak, named: Bool) -> some View {
         let offEverywhere = state.isOffEverywhere(tweak.name)
         let places = state.placesOff(tweak.name)
         let canChange = state.canChangeSettings && model.working == nil
-
-        Section {
-            if tweak.displayName != tweak.name {
-                detail("File", tweak.name + ".dylib")
-            }
-            if let package = tweak.package {
-                detail("Package", [package, tweak.packageVersion].compactMap { $0 }.joined(separator: " "))
-            }
+        return Section {
             detail("Loads into", reach(of: tweak))
             if tweak.manager {
                 Text("This is a tweak manager: it decides about other tweaks, and loads before them.")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
-        }
-
-        Section {
             Toggle("On Everywhere", isOn: Binding(
                 get: { !offEverywhere },
                 set: { on in
                     Task { await model.setTweak(tweak.name, on: on, in: BurrowState.everyTweak, origin: origin) }
                 }))
                 .disabled(!canChange || state.disabledEverywhere.contains(BurrowState.everyTweak))
-        } footer: {
-            if offEverywhere {
-                Text("Off in every process. Turn it on everywhere before turning it on in one app.")
-            } else {
-                Text("Turning it off everywhere keeps the apps below as they are.")
-            }
-        }
-
-        Section {
-            if places.isEmpty {
-                Text("Not turned off in any app.")
-                    .foregroundColor(.secondary)
-            }
             ForEach(places) { place in
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(model.name(of: place.process))
+                        Text("Off in \(model.name(of: place.process))")
                         if place.everyTweak {
                             Text("Every tweak is off here")
                                 .font(.footnote)
@@ -450,16 +460,22 @@ struct TweakSettingsView: View {
                 .accessibilityElement(children: .combine)
             }
             Button {
-                choosingApp = true
+                choosingFor = tweak
             } label: {
                 Label("Turn Off in an App", systemImage: "minus.circle")
             }
             .disabled(!canChange || offEverywhere)
         } header: {
-            Text("Turned Off In")
+            if named {
+                Text(tweak.name)
+            }
         } footer: {
-            if !state.usesBurrowLoader {
+            if offEverywhere {
+                Text("Off in every process. Turn it on everywhere before turning it on in one app.")
+            } else if !state.usesBurrowLoader {
                 Text("These settings take effect once Burrow's loader loads the tweaks.")
+            } else if !places.isEmpty {
+                Text("Turning it off everywhere keeps the apps above as they are.")
             }
         }
     }

@@ -175,6 +175,34 @@ public struct BurrowState: Decodable, Equatable {
     /// The name burrowctl uses for every tweak, and for every process in
     /// events.
     public static let everyTweak = "*"
+
+    /// The tweaks one package installed, such as one for SpringBoard and one
+    /// for an app, which people know as one thing.
+    public struct TweakGroup: Identifiable, Equatable {
+        /// The package, or the tweak's own name for one no package installed.
+        public var id: String
+        public var title: String
+        public var tweaks: [Tweak]
+    }
+
+    /// The tweaks by package, by title.
+    public var tweakGroups: [TweakGroup] {
+        var groups: [TweakGroup] = []
+        var index: [String: Int] = [:]
+        for tweak in tweaks {
+            let id = tweak.package ?? "tweak:" + tweak.name
+            if let at = index[id] {
+                groups[at].tweaks.append(tweak)
+            } else {
+                index[id] = groups.count
+                groups.append(TweakGroup(id: id, title: tweak.displayName, tweaks: [tweak]))
+            }
+        }
+        return groups.sorted {
+            let order = $0.title.localizedStandardCompare($1.title)
+            return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
+        }
+    }
 }
 
 extension BurrowState.Tweak {

@@ -21,6 +21,8 @@ final class BurrowStateTests: XCTestCase {
     {"bundles":["com.apple.springboard"],"classes":[],"executables":[],"manager":false,"name":"Foo",\
     "package":"com.example.foo","packageName":"Foo Tweak","packageVersion":"1.2"},\
     {"bundles":["com.apple.UIKit"],"classes":[],"executables":[],"manager":false,"name":"Bar"},\
+    {"bundles":["com.example.bank"],"classes":[],"executables":[],"manager":false,"name":"FooApp",\
+    "package":"com.example.foo","packageName":"Foo Tweak","packageVersion":"1.2"},\
     {"bundles":["com.apple.WebKit"],"classes":[],"executables":["Preferences"],"manager":false,"name":"Web",\
     "package":"com.example.web","packageName":null,"packageVersion":"2"},\
     {"bundles":["com.apple.Foundation"],"classes":[],"executables":[],"manager":true,"name":"Choicy"},\
@@ -36,10 +38,10 @@ final class BurrowStateTests: XCTestCase {
         XCTAssertEqual(state.safeModeSince, Date(timeIntervalSince1970: 1_795_053_600))
         XCTAssertNil(state.trialUntil)
         XCTAssertNil(state.wentBack)
-        XCTAssertEqual(state.tweaks.map(\.name), ["Foo", "Bar", "Web", "Choicy", "Nothing"])
+        XCTAssertEqual(state.tweaks.map(\.name), ["Foo", "Bar", "FooApp", "Web", "Choicy", "Nothing"])
         XCTAssertEqual(state.tweaks[0].displayName, "Foo Tweak")
         XCTAssertEqual(state.tweaks[1].displayName, "Bar")
-        XCTAssertEqual(state.tweaks[2].displayName, "Web")
+        XCTAssertEqual(state.tweaks[3].displayName, "Web")
         XCTAssertNil(state.events[2].date)
     }
 
@@ -59,6 +61,15 @@ final class BurrowStateTests: XCTestCase {
         XCTAssertEqual(state.safeModeEvents.map(\.tweak), ["Bar", "Foo"])
         XCTAssertFalse(state.isStillOff(state.safeModeEvents[0]))
         XCTAssertTrue(state.isStillOff(state.safeModeEvents[1]))
+    }
+
+    func testGroupsByPackage() throws {
+        let state = try BurrowState.decode(Data(sample.utf8))
+        // The two tweaks of com.example.foo are one group, under its name.
+        XCTAssertEqual(state.tweakGroups.map(\.title), ["Bar", "Choicy", "Foo Tweak", "Nothing", "Web"])
+        XCTAssertEqual(state.tweakGroups[2].id, "com.example.foo")
+        XCTAssertEqual(state.tweakGroups[2].tweaks.map(\.name), ["Foo", "FooApp"])
+        XCTAssertEqual(state.tweakGroups[0].id, "tweak:Bar")
     }
 
     func testReach() throws {
@@ -97,7 +108,7 @@ final class BurrowStateTests: XCTestCase {
         guard case .success(let state) = BurrowState.decode(output: output) else {
             return XCTFail("the report was not read")
         }
-        XCTAssertEqual(state.tweaks.count, 5)
+        XCTAssertEqual(state.tweaks.count, 6)
 
         // A Bool written as 1 says which key.
         let numbers = sample.replacingOccurrences(of: "\"daemonRunning\":true", with: "\"daemonRunning\":1")
