@@ -176,17 +176,22 @@ final class SourcesModel: ObservableObject {
     }
 
     /// Adds a flat repository through the root helper, reads apt's lists
-    /// again and refreshes the new source. Returns the reason when it fails.
-    func add(uri: String) async -> String? {
+    /// again and refreshes the new source. Returns its row, with how the
+    /// refresh went, or why it was not added.
+    func add(uri: String) async -> Result<Row, RefreshError> {
         let result = await Task.detached(priority: .userInitiated) { RootHelper.addSource(uri) }.value
         if case .failure(let failure) = result {
-            return failure.message
+            return .failure(.message(failure.message))
         }
         reloadSources()
-        if let row = rows.first(where: { $0.source.uri == uri }) {
-            await refresh(id: row.id)
+        guard let id = rows.first(where: { $0.source.uri == uri })?.id else {
+            return .failure(.message("apt does not list \(uri) after Codling added it."))
         }
-        return nil
+        await refresh(id: id)
+        guard let row = rows.first(where: { $0.id == id }) else {
+            return .failure(.message("apt does not list \(uri) after Codling added it."))
+        }
+        return .success(row)
     }
 
     /// Removes a source Codling added. Returns the reason when it fails.

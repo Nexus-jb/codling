@@ -342,7 +342,7 @@ final class AddSourceFlow: ObservableObject {
                 await self.addTyped(alert?.textFields?.first?.text ?? "")
             }
         })
-        present(alert)
+        Task { await present(alert) }
     }
 
     private func addTyped(_ text: String) async {
@@ -354,7 +354,7 @@ final class AddSourceFlow: ObservableObject {
             askForAddress(text, problem: "\(existing.uri) is already in apt's lists.")
             return
         }
-        await add([uri], confirmed: true)
+        await add([uri])
     }
 
     /// Offers the addresses copied to the clipboard.
@@ -362,24 +362,24 @@ final class AddSourceFlow: ObservableObject {
         guard uris.count == 1, let uri = uris.first else {
             confirm(title: "Add \(uris.count) Sources?",
                     message: "From the clipboard:\n" + uris.joined(separator: "\n")) {
-                await self.add(uris, confirmed: true)
+                await self.add(uris)
             }
             return
         }
         // The warning comes before anything is fetched from such a source.
         if PiracySources.entry(for: uri) != nil {
-            await add([uri], confirmed: false)
+            await add([uri])
             return
         }
-        working = "Checking \(Source(uri: uri, suite: "./", components: []).host)"
-        let inspected = await model?.inspect(uri: uri)
-        working = nil
+        let host = Source(uri: uri, suite: "./", components: []).host
+        let inspected = await step("Checking \(host)") { await self.model?.inspect(uri: uri) }
+        await hideProgress()
         switch inspected {
         case .failure(let error)?:
             askForAddress(uri, problem: error.message)
         case .success(let name)?:
             confirm(title: "Add This Source?", message: [name, uri].compactMap { $0 }.joined(separator: "\n")) {
-                await self.add([uri], confirmed: true, checked: true)
+                await self.add([uri], checked: true)
             }
         case nil:
             break
@@ -387,32 +387,133 @@ final class AddSourceFlow: ObservableObject {
     }
 
     /// Adds the sources one by one: the piracy warning first where it
-    /// applies, then a check that a repository answers, then the helper.
-    private func add(_ uris: [String], confirmed: Bool, checked: Bool = false) async {
-        var failures: [String] = []
-        for uri in uris {
-            if let entry = PiracySources.entry(for: uri), !(await warn(entry)) {
-                continue
-            }
-            let host = Source(uri: uri, suite: "./", components: []).host
-            if !checked {
-                working = "Checking \(host)"
-                if case .failure(let error)? = await model?.inspect(uri: uri) {
-                    failures.append("\(uri): \(error.message)")
+    /// applies, then a check that a repository answers, then the helper and
+    /// a first refresh. A prompt in the middle of the screen says what is
+    /// happening, and the result says what came of each source, so that a
+    /// source that was not added, or not read, does not go unnoticed.
+    private func add(_ uris: [String], checked: Bool = false) async {
+        var lines: [String] = []
+        var single: (uri: String, result: Result<SourcesModel.Row, RefreshError>)?
+        for (index, uri) in uris.enumerated() {
+            if let entry = PiracySources.entry(for: uri) {
+                await hideProgress()
+                if !(await warn(entry)) {
+                    if uris.count == 1 {
+                        return
+                    }
+                    lines.append("Not added: \(uri), on the piracy list.")
                     continue
                 }
             }
-            working = "Adding \(host)"
-            if let reason = await model?.add(uri: uri) {
-                failures.append("\(uri): \(reason)")
+            let host = Source(uri: uri, suite: "./", components: []).host
+            let counter = uris.count > 1 ? " (\(index + 1) of \(uris.count))" : ""
+            var result: Result<SourcesModel.Row, RefreshError>
+            if !checked, case .failure(let error)? = await step("Checking \(host)\(counter)", { await self.model?.inspect(uri: uri) }) {
+                result = .failure(error)
+            } else {
+                result = await step("Adding \(host) and reading its packages\(counter)", { await self.model?.add(uri: uri) })
+                    ?? .failure(.message("Codling is not ready to add sources."))
+            }
+            single = (uri, result)
+            lines.append(Self.describe(uri: uri, result))
+        }
+        await hideProgress()
+        if uris.count == 1, let single {
+            showResult(uri: single.uri, single.result)
+        } else if !lines.isEmpty {
+            let alert = UIAlertController(title: "Sources", message: lines.joined(separator: "\n\n"), preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+            await present(alert)
+        }
+    }
+
+    /// Runs one step with the progress prompt saying what it is.
+    private func step<T>(_ text: String, _ work: () async -> T) async -> T {
+        working = text
+        await showProgress(text)
+        let value = await work()
+        working = nil
+        return value
+    }
+
+    private static func describe(uri: String, _ result: Result<SourcesModel.Row, RefreshError>) -> String {
+        switch result {
+        case .failure(let error):
+            return "Not added: \(uri). \(error.message)"
+        case .success(let row):
+            if case .failed(let message)? = row.outcome?.state {
+                return "Added, but not read: \(row.title). \(message)"
+            }
+            let count = row.packageCount ?? 0
+            return "Added: \(row.title), \(count == 1 ? "1 package" : "\(count.formatted()) packages")."
+        }
+    }
+
+    /// What came of one source: added and read, added but not read, or not
+    /// added, with what to do next.
+    private func showResult(uri: String, _ result: Result<SourcesModel.Row, RefreshError>) {
+        let alert: UIAlertController
+        switch result {
+        case .failure(let error):
+            alert = UIAlertController(title: "The Source Was Not Added", message: "\(uri)\n\n\(error.message)",
+                                      preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Edit Address", style: .default) { _ in
+                Task { @MainActor in self.askForAddress(uri) }
+            })
+        case .success(let row):
+            if case .failed(let message)? = row.outcome?.state {
+                alert = UIAlertController(title: "Added, but Not Read",
+                                          message: "\(row.title)\n\n\(message)\n\nYou can keep it and refresh later, or remove it.",
+                                          preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "Keep", style: .cancel))
+                alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { _ in
+                    Task { @MainActor in _ = await self.model?.remove(row.source) }
+                })
+            } else {
+                let count = row.packageCount ?? 0
+                var message = "\(row.title)\n\(count == 1 ? "1 package" : "\(count.formatted()) packages")"
+                if !row.warnings.isEmpty {
+                    message += "\n\n" + row.warnings.joined(separator: "\n")
+                }
+                alert = UIAlertController(title: "Source Added", message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
             }
         }
-        working = nil
-        if !failures.isEmpty {
-            let alert = UIAlertController(title: failures.count == 1 ? "A Source Was Not Added" : "Some Sources Were Not Added",
-                                          message: failures.joined(separator: "\n\n"), preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: "OK", style: .cancel))
-            present(alert)
+        Task { await present(alert) }
+    }
+
+    // MARK: Progress
+
+    private var progress: UIAlertController?
+
+    /// A prompt with a spinner that says what is happening; it has no
+    /// buttons and goes away when the work is done.
+    private func showProgress(_ text: String) async {
+        if let progress {
+            progress.message = text + "\n\n\n"
+            return
+        }
+        let alert = UIAlertController(title: "Adding Source", message: text + "\n\n\n", preferredStyle: .alert)
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        alert.view.addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: alert.view.centerXAnchor),
+            spinner.bottomAnchor.constraint(equalTo: alert.view.bottomAnchor, constant: -22),
+        ])
+        progress = alert
+        await present(alert)
+    }
+
+    private func hideProgress() async {
+        guard let progress else {
+            return
+        }
+        self.progress = nil
+        await Self.once { finish in
+            progress.dismiss(animated: true, completion: finish)
         }
     }
 
@@ -425,7 +526,7 @@ final class AddSourceFlow: ObservableObject {
                 preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "Don't Add", style: .cancel) { _ in continuation.resume(returning: false) })
             alert.addAction(UIAlertAction(title: "Add Anyway", style: .destructive) { _ in continuation.resume(returning: true) })
-            present(alert)
+            Task { await self.present(alert) }
         }
     }
 
@@ -441,17 +542,39 @@ final class AddSourceFlow: ObservableObject {
         }
         alert.addAction(action)
         alert.preferredAction = action
-        present(alert)
+        Task { await present(alert) }
     }
 
-    private func present(_ alert: UIViewController) {
+    /// Presents a prompt over whatever is on screen, and returns once it is
+    /// up.
+    private func present(_ alert: UIViewController) async {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard var top = scenes.flatMap(\.windows).first(where: \.isKeyWindow)?.rootViewController else {
             return
         }
-        while let presented = top.presentedViewController {
+        // A prompt on its way out cannot present another.
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
             top = presented
         }
-        top.present(alert, animated: true)
+        await Self.once { finish in
+            top.present(alert, animated: true, completion: finish)
+        }
+    }
+
+    /// Waits for a UIKit completion, but no more than two seconds: one that
+    /// is not called, as when a presentation is refused, must not stop the
+    /// flow.
+    private static func once(_ start: (@escaping () -> Void) -> Void) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var finished = false
+            let finish = {
+                if !finished {
+                    finished = true
+                    continuation.resume()
+                }
+            }
+            start(finish)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: finish)
+        }
     }
 }
