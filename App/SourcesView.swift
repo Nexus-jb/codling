@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import Metal
 import SwiftUI
 import UIKit
 
@@ -686,9 +687,49 @@ enum Presenter {
     }
 
     /// The share sheet, to send source addresses by Messages, Telegram or
-    /// any other app.
+    /// any other app. The system's sheet draws app icons with Core Image,
+    /// which crashes without a Metal device; then Codling offers the apps it
+    /// can open itself.
     static func share(_ items: [Any]) {
-        Task { await present(UIActivityViewController(activityItems: items, applicationActivities: nil)) }
+        if MTLCreateSystemDefaultDevice() != nil {
+            Task { await present(UIActivityViewController(activityItems: items, applicationActivities: nil)) }
+        } else {
+            shareWithoutSheet(items.map { ($0 as? URL)?.absoluteString ?? "\($0)" }.joined(separator: "\n"))
+        }
+    }
+
+    /// Messages, Telegram, WhatsApp and Mail by their addresses, and Copy.
+    private static func shareWithoutSheet(_ text: String) {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=?")
+        let query = text.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        let sheet = UIAlertController(title: "Share", message: nil, preferredStyle: .actionSheet)
+        let apps: [(String, String)] = [
+            ("Messages", "sms:&body=" + query),
+            ("Telegram", "tg://msg?text=" + query),
+            ("WhatsApp", "whatsapp://send?text=" + query),
+            ("Mail", "mailto:?body=" + query),
+        ]
+        for (name, address) in apps {
+            guard let url = URL(string: address) else { continue }
+            sheet.addAction(UIAlertAction(title: name, style: .default) { _ in
+                Task { @MainActor in
+                    if !(await UIApplication.shared.open(url)) {
+                        let alert = UIAlertController(title: "\(name) Did Not Open",
+                                                      message: "It may not be installed. The address is copied instead.",
+                                                      preferredStyle: .alert)
+                        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+                        UIPasteboard.general.string = text
+                        await present(alert)
+                    }
+                }
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+            UIPasteboard.general.string = text
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        Task { await present(sheet) }
     }
 
     /// Shares one source's address as a link, which Messages and the other

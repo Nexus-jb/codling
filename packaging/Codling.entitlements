@@ -8,6 +8,12 @@
 	<!-- Codling reads and writes the package database outside an app sandbox. -->
 	<key>com.apple.private.security.no-container</key>
 	<true/>
+	<!-- Without it the system gives Codling no Metal device, and the share
+	     sheet crashes drawing app icons: Core Image falls back to OpenGL ES,
+	     which it cannot load (seen on iOS 16.3.1 with Dopamine). Sileo has
+	     it too. -->
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
 	<!-- Lets Codling start its helper as root through a spawn persona, so
 	     the helper needs no setuid bit. -->
 	<key>com.apple.private.persona-mgmt</key>
