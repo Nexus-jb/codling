@@ -9,12 +9,14 @@ struct CodlingApp: App {
     @StateObject private var installed = InstalledPackagesModel()
     @StateObject private var health = PackageHealthModel()
     @StateObject private var queue = QueueModel()
+    @StateObject private var burrow: BurrowModel
 
     init() {
         let environment = RuntimeEnvironment.current()
         self.environment = environment
         MediaLoader.shared = MediaLoader(environment: environment)
         _sources = StateObject(wrappedValue: SourcesModel(environment: environment))
+        _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
     }
 
     var body: some Scene {
@@ -29,7 +31,7 @@ struct CodlingApp: App {
                 QueueView(environment: environment, queue: queue)
                     .tabItem { Label("Queue", systemImage: "tray.and.arrow.down") }
                     .badge(queue.items.count)
-                SystemCheckView(environment: environment, health: health, sources: sources)
+                SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
                     .tabItem { Label("System", systemImage: "gearshape") }
             }
             .environmentObject(sources)

@@ -139,6 +139,25 @@ enum RootHelper {
         run(["respring"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
     }
 
+    /// Runs Burrow's `burrowctl json`, which reports the tweak loader, the
+    /// loader settings, every tweak and Safe Mode's events. It changes nothing.
+    static func burrowState() -> Result<CommandResult, Failure> {
+        run(["burrow-state"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    /// Turns a tweak back on or off with burrowctl, in one process, named by
+    /// its bundle identifier or executable name, or everywhere.
+    static func burrowTweak(on: Bool, tweak: String, process: String?) -> Result<CommandResult, Failure> {
+        run(["burrow-tweak", on ? "on" : "off", tweak] + (process.map { [$0] } ?? []), timeoutMilliseconds: 30_000)
+            .flatMap { decode(CommandResult.self, from: $0) }
+    }
+
+    /// Makes Burrow's or ElleKit's loader load the tweaks into new processes.
+    static func burrowLoader(burrow: Bool) -> Result<CommandResult, Failure> {
+        run(["burrow-loader", burrow ? "burrow" : "ellekit"], timeoutMilliseconds: 60_000)
+            .flatMap { decode(CommandResult.self, from: $0) }
+    }
+
     private static func arguments(for operations: [PackageOperation]) -> [String]? {
         guard !operations.isEmpty, operations.allSatisfy(\.isValid) else {
             return nil

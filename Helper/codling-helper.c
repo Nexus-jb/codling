@@ -44,6 +44,22 @@
 //                          into JAILBREAK/var/lib/codling/backups, which only
 //                          root can write, so that undo can put it back. The
 //                          newest backups are kept; older ones are deleted.
+//   codling-helper burrow-state
+//                          runs Burrow's burrowctl json, which prints the
+//                          tweak loader in use, the loader settings, every
+//                          tweak and Safe Mode's events, and prints its status
+//                          and output as JSON. It changes nothing.
+//   codling-helper burrow-tweak on|off TWEAK [PROCESS]
+//                          turns a tweak back on or off with burrowctl enable
+//                          or disable, in the process PROCESS (a bundle
+//                          identifier or an executable name), or everywhere
+//                          with PROCESS "*". Without PROCESS, on means
+//                          wherever it is off. TWEAK may be "*", every tweak.
+//   codling-helper burrow-loader burrow|ellekit
+//                          makes Burrow's or ElleKit's loader the one that
+//                          loads tweaks into new processes, with burrowctl
+//                          loader. Burrow's guard goes back to ElleKit's by
+//                          itself when Burrow's loader crashes.
 //
 // Operations name packages only: letters, digits, "+", "-" and ".", starting
 // with a letter or digit and ending with a letter, a digit or "+". A third
@@ -53,6 +69,7 @@
 
 #include "repack.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -563,6 +580,67 @@ static int configure_pending(void) {
     return 0;
 }
 
+// A tweak or process name for burrowctl: letters, digits, spaces and
+// "._+-", not starting with "." or "-", so that it cannot be read as an
+// option or a path; or "*", every tweak or everywhere.
+static int valid_burrow_name(const char *name) {
+    size_t length = strlen(name);
+    if (length == 0 || length > name_limit) {
+        return 0;
+    }
+    if (strcmp(name, "*") == 0) {
+        return 1;
+    }
+    if (name[0] == '.' || name[0] == '-') {
+        return 0;
+    }
+    for (const char *c = name; *c; c++) {
+        if (!isalnum((unsigned char)*c) && !strchr(" ._+-", *c)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char burrowctl[] = "/usr/bin/burrowctl";
+
+static int burrow_state(void) {
+    char root[PATH_MAX];
+    require_root(root);
+    const char *const arguments[] = { "burrowctl", "json", NULL };
+    run_and_report(root, burrowctl, arguments);
+    putchar('\n');
+    return 0;
+}
+
+static int burrow_tweak(int count, char **words) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (count < 2 || count > 3 || (strcmp(words[0], "on") != 0 && strcmp(words[0], "off") != 0)) {
+        usage_error("Say on or off, a tweak, and optionally a process.");
+    }
+    if (!valid_burrow_name(words[1]) || (count == 3 && !valid_burrow_name(words[2]))) {
+        usage_error("A tweak or process name has characters burrowctl does not take.");
+    }
+    const char *const arguments[] = { "burrowctl", strcmp(words[0], "on") == 0 ? "enable" : "disable", words[1],
+                                      count == 3 ? words[2] : NULL, NULL };
+    run_and_report(root, burrowctl, arguments);
+    putchar('\n');
+    return 0;
+}
+
+static int burrow_loader(const char *which) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (strcmp(which, "burrow") != 0 && strcmp(which, "ellekit") != 0) {
+        usage_error("The loader is burrow or ellekit.");
+    }
+    const char *const arguments[] = { "burrowctl", "loader", which, NULL };
+    run_and_report(root, burrowctl, arguments);
+    putchar('\n');
+    return 0;
+}
+
 int main(int argc, char **argv) {
     // Nothing from the caller's environment, and a known file mode mask.
     static char *clean[] = { "PATH=/usr/bin:/bin:/usr/sbin:/sbin", NULL };
@@ -593,7 +671,17 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "backup") == 0) {
         return backup(argc - 2, argv + 2);
     }
+    if (argc == 2 && strcmp(argv[1], "burrow-state") == 0) {
+        return burrow_state();
+    }
+    if (argc >= 2 && strcmp(argv[1], "burrow-tweak") == 0) {
+        return burrow_tweak(argc - 2, argv + 2);
+    }
+    if (argc == 3 && strcmp(argv[1], "burrow-loader") == 0) {
+        return burrow_loader(argv[2]);
+    }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
-          "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE...\n", stderr);
+          "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
+          "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
     return 64;
 }

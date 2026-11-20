@@ -8,6 +8,7 @@ struct SystemCheckView: View {
     let environment: RuntimeEnvironment
     @ObservedObject var health: PackageHealthModel
     let sources: SourcesModel
+    let burrow: BurrowModel
     @State private var helper: HelperState = .checking
 
     enum HelperState {
@@ -38,6 +39,16 @@ struct SystemCheckView: View {
                     .accessibilityElement(children: .combine)
                 } header: {
                     Text("Installation")
+                }
+
+                Section {
+                    NavigationLink(destination: BurrowView(model: burrow)) {
+                        Label("Burrow", systemImage: "puzzlepiece.extension")
+                    }
+                } header: {
+                    Text("Tweaks")
+                } footer: {
+                    Text("The loader that loads the tweaks, what Safe Mode turned off, and turning a tweak off in one app.")
                 }
 
                 Section {
