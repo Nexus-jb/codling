@@ -35,6 +35,7 @@ struct CodlingApp: App {
             .environmentObject(sources)
             .environmentObject(installed)
             .environmentObject(queue)
+            .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
             .task { await installed.load(statusPath: environment.dpkgStatusPath) }
         }
     }

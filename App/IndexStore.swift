@@ -198,13 +198,13 @@ actor IndexStore {
 
     // MARK: Browsing
 
-    private static let summaryColumns = "source, package, version, name, section, author, maintainer, summary, icon, tag"
+    private static let summaryColumns = "source, package, version, name, section, author, maintainer, summary, icon, tag, depends"
 
     private func summary(_ statement: OpaquePointer?) -> PackageSummary {
         PackageSummary(source: column(statement, 0) ?? "", package: column(statement, 1) ?? "",
                        version: column(statement, 2) ?? "", name: column(statement, 3), section: column(statement, 4),
                        author: column(statement, 5), maintainer: column(statement, 6), summary: column(statement, 7),
-                       icon: column(statement, 8), tag: column(statement, 9))
+                       icon: column(statement, 8), tag: column(statement, 9), depends: column(statement, 10))
     }
 
     /// The newest version of each package of a source, sorted by name.

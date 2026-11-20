@@ -12,6 +12,7 @@ struct PackageView: View {
 
     @EnvironmentObject private var sources: SourcesModel
     @EnvironmentObject private var installed: InstalledPackagesModel
+    @Environment(\.device) private var device
     @StateObject private var model = PackageModel()
     @StateObject private var router = DepictionRouter()
 
@@ -89,6 +90,11 @@ struct PackageView: View {
                 Label(installedText(installedVersion), systemImage: "checkmark.circle.fill")
                     .font(.subheadline)
                     .foregroundColor(.green)
+            }
+            if let record {
+                CompatibilityCard(report: Compatibility.check(depends: record.depends, tag: record.tag, name: record.name,
+                                                              summary: record.summary, systemVersion: device.systemVersion),
+                                  architecture: record.architecture)
             }
             if model.loaded {
                 PackageActions(identifier: identifier, name: name, available: record?.version,

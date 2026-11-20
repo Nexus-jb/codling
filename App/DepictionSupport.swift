@@ -138,6 +138,118 @@ extension EnvironmentValues {
     }
 }
 
+private struct DeviceKey: EnvironmentKey {
+    static let defaultValue = DeviceFacts(systemVersion: "", scheme: .unknown)
+}
+
+/// What compatibility badges compare packages with.
+struct DeviceFacts {
+    let systemVersion: String
+    let scheme: JailbreakScheme
+
+    /// The kind of package this device's jailbreak installs.
+    var jailbreak: JailbreakKind {
+        switch scheme {
+        case .rootless: return .rootless
+        case .roothide: return .roothide
+        case .unknown: return .other("unknown")
+        }
+    }
+}
+
+extension EnvironmentValues {
+    var device: DeviceFacts {
+        get { self[DeviceKey.self] }
+        set { self[DeviceKey.self] = newValue }
+    }
+}
+
+/// Whether a package fits this device: its iOS version, and its jailbreak.
+struct CompatibilityCard: View {
+    let report: CompatibilityReport
+    let architecture: String
+    @Environment(\.device) private var device
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            line(symbol: iosSymbol, color: iosColor, title: iosTitle, detail: iosDetail)
+            line(symbol: jailbreakFits ? "checkmark.seal.fill" : "xmark.octagon.fill",
+                 color: jailbreakFits ? .green : .red, title: jailbreakTitle, detail: nil)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
+    }
+
+    private func line(symbol: String, color: Color, title: String, detail: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundColor(color)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                if let detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var iosSymbol: String {
+        switch report.verdict {
+        case .supported: return "checkmark.circle.fill"
+        case .unsupported: return "xmark.circle.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    private var iosColor: Color {
+        switch report.verdict {
+        case .supported: return .green
+        case .unsupported: return .red
+        case .unknown: return .secondary
+        }
+    }
+
+    private var iosTitle: String {
+        switch report.verdict {
+        case .supported: return "Supports iOS \(device.systemVersion)"
+        case .unsupported: return "Not for iOS \(device.systemVersion)"
+        case .unknown: return "Does not say which iOS versions it supports"
+        }
+    }
+
+    private var iosDetail: String? {
+        guard let range = report.range, let source = report.source else { return nil }
+        switch source {
+        case .dependency: return "Its dependencies require \(range); apt holds it to that."
+        case .tags: return "Its tags say \(range)."
+        case .name: return "Its name or summary says \(range)."
+        }
+    }
+
+    private var kind: JailbreakKind { JailbreakKind(architecture: architecture) }
+
+    private var jailbreakFits: Bool {
+        kind == .any || kind == device.jailbreak
+    }
+
+    private var jailbreakTitle: String {
+        if kind == .any {
+            return "Made for any jailbreak"
+        }
+        if jailbreakFits {
+            return "Built for \(kind.title) jailbreaks, like this device's"
+        }
+        return "Built for \(kind.title) jailbreaks; this device's is \(device.jailbreak.title)"
+    }
+}
+
 /// A symbol for a package without an icon, from its section.
 enum SectionSymbol {
     static func name(for section: String?) -> String {

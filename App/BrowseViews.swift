@@ -188,6 +188,7 @@ struct CatalogRow: View {
     let package: PackageSummary
     let source: SourceInfo
     let showSource: Bool
+    @Environment(\.device) private var device
 
     var body: some View {
         HStack(spacing: 12) {
@@ -211,6 +212,11 @@ struct CatalogRow: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
+                }
+                if package.compatibility(systemVersion: device.systemVersion).verdict == .unsupported {
+                    Label("Not for iOS \(device.systemVersion)", systemImage: "xmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.red)
                 }
                 let byline = [package.displayAuthor, showSource ? source.title : nil].compactMap { $0 }.joined(separator: " · ")
                 if !byline.isEmpty {

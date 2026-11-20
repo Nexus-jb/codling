@@ -14,10 +14,11 @@ public struct PackageSummary: Equatable, Identifiable {
     public var summary: String?
     public var icon: String?
     public var tag: String?
+    public var depends: String?
 
     public init(source: String, package: String, version: String, name: String? = nil, section: String? = nil,
                 author: String? = nil, maintainer: String? = nil, summary: String? = nil, icon: String? = nil,
-                tag: String? = nil) {
+                tag: String? = nil, depends: String? = nil) {
         self.source = source
         self.package = package
         self.version = version
@@ -28,6 +29,12 @@ public struct PackageSummary: Equatable, Identifiable {
         self.summary = summary
         self.icon = icon
         self.tag = tag
+        self.depends = depends
+    }
+
+    /// What the package says about the device's iOS version.
+    public func compatibility(systemVersion: String) -> CompatibilityReport {
+        Compatibility.check(depends: depends, tag: tag, name: name, summary: summary, systemVersion: systemVersion)
     }
 
     public var id: String { source + "\n" + package }
