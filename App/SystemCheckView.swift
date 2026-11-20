@@ -151,20 +151,20 @@ struct DeviceCard: View {
     private var front: DeviceModel.Front { DeviceModel.front(for: environment.deviceModel) }
 
     var body: some View {
-        let width = min(UIScreen.main.bounds.width - 48, 340)
         let tablet = front == .tablet
-        let bezel: CGFloat = tablet ? 16 : 11
-        let outer: CGFloat = tablet ? 30 : (front == .homeButton ? 44 : 58)
-        let inner: CGFloat = front == .homeButton ? 4 : outer - bezel
+        let width: CGFloat = tablet ? 280 : 212
+        let bezel: CGFloat = tablet ? 12 : 8
+        let outer: CGFloat = tablet ? 24 : (front == .homeButton ? 32 : 40)
+        let inner: CGFloat = front == .homeButton ? 3 : outer - bezel
         // A home button phone has a band above and below its screen.
-        let band: CGFloat = front == .homeButton ? 56 : 0
+        let band: CGFloat = front == .homeButton ? 40 : 0
 
         screen
             .padding(.top, topSpace)
-            .padding(.bottom, 28)
-            .padding(.horizontal, 16)
+            .padding(.bottom, 18)
+            .padding(.horizontal, 12)
             .frame(width: width - 2 * bezel)
-            .frame(minHeight: (width - 2 * bezel) * (tablet ? 1.3 : 1.7) - 2 * band, alignment: .top)
+            .frame(minHeight: (width - 2 * bezel) * (tablet ? 1.3 : 1.95) - 2 * band, alignment: .top)
             .background(Color(.systemGroupedBackground))
             .overlay(alignment: .top) { frontFeature }
             .clipShape(RoundedRectangle(cornerRadius: inner, style: .continuous))
@@ -181,16 +181,16 @@ struct DeviceCard: View {
             .overlay { if front == .homeButton { homeButtonBands(band: band) } }
             .overlay(alignment: .topLeading) { if !tablet { sideButtons(left: true) } }
             .overlay(alignment: .topTrailing) { if !tablet { sideButtons(left: false) } }
-            .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+            .shadow(color: .black.opacity(0.16), radius: 12, y: 6)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilityText)
     }
 
     private var topSpace: CGFloat {
         switch front {
-        case .dynamicIsland: return 72
-        case .notch: return 60
-        case .homeButton, .tablet: return 28
+        case .dynamicIsland: return 46
+        case .notch: return 40
+        case .homeButton, .tablet: return 18
         }
     }
 
@@ -200,13 +200,13 @@ struct DeviceCard: View {
         case .dynamicIsland:
             Capsule()
                 .fill(Color.black)
-                .frame(width: 96, height: 30)
-                .padding(.top, 14)
+                .frame(width: 62, height: 19)
+                .padding(.top, 9)
         case .notch:
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.black)
-                .frame(width: 150, height: 52)
-                .offset(y: -22)
+                .frame(width: 96, height: 36)
+                .offset(y: -16)
         case .homeButton, .tablet:
             EmptyView()
         }
@@ -216,27 +216,27 @@ struct DeviceCard: View {
         VStack {
             Capsule()
                 .fill(Color(white: 0.3))
-                .frame(width: 46, height: 6)
+                .frame(width: 32, height: 4)
                 .padding(.top, band / 2 + 2)
             Spacer()
             Circle()
-                .strokeBorder(Color(white: 0.4), lineWidth: 2)
-                .frame(width: 40, height: 40)
-                .padding(.bottom, band / 2 - 10)
+                .strokeBorder(Color(white: 0.4), lineWidth: 1.5)
+                .frame(width: 28, height: 28)
+                .padding(.bottom, band / 2 - 6)
         }
     }
 
     private var screen: some View {
-        VStack(spacing: 18) {
-            VStack(spacing: 10) {
-                IconTile(symbol: front == .tablet ? "ipad" : "iphone", size: 56)
+        VStack(spacing: 12) {
+            VStack(spacing: 5) {
+                IconTile(symbol: front == .tablet ? "ipad" : "iphone", size: 38)
                 Text(DeviceModel.name(for: environment.deviceModel))
-                    .font(.title2.bold())
+                    .font(.headline)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                 Text("Model · \(environment.deviceModel)")
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundColor(.secondary)
             }
             group("System") {
@@ -249,32 +249,32 @@ struct DeviceCard: View {
                 Divider()
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Installed at")
-                        .font(.footnote)
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                     Text(environment.displayPath)
-                        .font(.footnote.monospaced())
+                        .font(.caption2.monospaced())
                         .lineLimit(3)
                         .minimumScaleFactor(0.7)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 10)
+                .padding(.vertical, 7)
             }
         }
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .foregroundColor(.secondary)
                 .padding(.leading, 4)
             VStack(spacing: 0) {
                 content()
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
@@ -287,29 +287,29 @@ struct DeviceCard: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
         }
-        .font(.callout)
-        .padding(.vertical, 11)
+        .font(.footnote)
+        .padding(.vertical, 7)
     }
 
     /// Volume and action buttons on the left, the side button on the right.
     private func sideButtons(left: Bool) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             if left {
-                button(height: 26)
-                button(height: 46)
-                button(height: 46)
+                button(height: 16)
+                button(height: 30)
+                button(height: 30)
             } else {
-                button(height: 72)
+                button(height: 46)
             }
         }
-        .padding(.top, left ? 110 : 150)
-        .offset(x: left ? -3 : 3)
+        .padding(.top, left ? 70 : 96)
+        .offset(x: left ? -2 : 2)
     }
 
     private func button(height: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 2)
             .fill(Color(white: 0.3))
-            .frame(width: 4, height: height)
+            .frame(width: 3, height: height)
     }
 
     private var accessibilityText: String {
