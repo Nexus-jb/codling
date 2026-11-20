@@ -122,7 +122,7 @@ final class SearchModel: ObservableObject {
         // Wait for typing to pause.
         try? await Task.sleep(nanoseconds: 250_000_000)
         guard !Task.isCancelled else { return }
-        let found = (try? await store.search(trimmed, limit: Self.limit)) ?? ([], false)
+        let found: (results: [PackageSummary], truncated: Bool) = (try? await store.search(trimmed, limit: Self.limit)) ?? ([], false)
         guard !Task.isCancelled else { return }
         results = found.results
         truncated = found.truncated
