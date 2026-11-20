@@ -266,6 +266,20 @@ enum SectionSymbol {
         if text.contains("librar") || text.contains("framework") { return "books.vertical.fill" }
         return "shippingbox.fill"
     }
+
+    /// The color of a section's icon, by the same kinds as its symbol.
+    static func color(for section: String?) -> Color {
+        switch name(for: section) {
+        case "paintbrush.fill": return .purple
+        case "wand.and.stars": return .orange
+        case "square.grid.2x2.fill": return .teal
+        case "app.fill": return .cyan
+        case "keyboard": return .gray
+        case "terminal.fill": return .indigo
+        case "books.vertical.fill": return .brown
+        default: return .blue
+        }
+    }
 }
 
 /// Five stars, filled to a rating out of five.

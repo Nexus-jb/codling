@@ -11,6 +11,9 @@ struct CodlingApp: App {
     @StateObject private var queue = QueueModel()
     @StateObject private var burrow: BurrowModel
     @StateObject private var systemSheet = SystemSheet()
+    @State private var tab: AppTab = .featured
+    /// The floating tab bar steps aside while the keyboard is up.
+    @State private var keyboardShown = false
 
     init() {
         let environment = RuntimeEnvironment.current()
@@ -18,11 +21,14 @@ struct CodlingApp: App {
         MediaLoader.shared = MediaLoader(environment: environment)
         _sources = StateObject(wrappedValue: SourcesModel(environment: environment))
         _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
+        if #unavailable(iOS 26) {
+            UITabBar.appearance().isHidden = true
+        }
     }
 
-    /// Featured, Sources, Search, Queue and Installed. On iOS 26 the tab
-    /// bar is the system's Liquid Glass bar, which keeps Search apart as a
-    /// round button at its end.
+    /// Featured, Sources, Queue and Installed, with Search apart as a round
+    /// button at the end: on iOS 26 the system's Liquid Glass tab bar, and
+    /// before it a floating bar drawn after it.
     @ViewBuilder
     private var tabs: some View {
         if #available(iOS 26, *) {
@@ -45,18 +51,36 @@ struct CodlingApp: App {
                 }
             }
         } else {
-            TabView {
+            // The system tab bar is hidden, and the floating bar drawn after
+            // iOS 26's takes its place.
+            TabView(selection: $tab) {
                 FeaturedView()
-                    .tabItem { Label("Featured", systemImage: "star") }
+                    .floatingTabBarSpace()
+                    .tag(AppTab.featured)
                 SourcesView(model: sources)
-                    .tabItem { Label("Sources", systemImage: "tray.full") }
-                SearchView()
-                    .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                    .floatingTabBarSpace()
+                    .tag(AppTab.sources)
                 QueueView(environment: environment, queue: queue)
-                    .tabItem { Label("Queue", systemImage: "tray.and.arrow.down") }
-                    .badge(queue.items.count)
+                    .floatingTabBarSpace()
+                    .tag(AppTab.queue)
                 InstalledView(environment: environment, model: installed)
-                    .tabItem { Label("Installed", systemImage: "shippingbox") }
+                    .floatingTabBarSpace()
+                    .tag(AppTab.installed)
+                SearchView()
+                    .floatingTabBarSpace()
+                    .tag(AppTab.search)
+            }
+            .overlay(alignment: .bottom) {
+                if !keyboardShown {
+                    FloatingTabBar(selection: $tab, queueCount: queue.items.count)
+                        .transition(.opacity)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keyboardShown = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardShown = false
             }
         }
     }

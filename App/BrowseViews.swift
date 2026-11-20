@@ -24,76 +24,66 @@ struct SourceDetailView: View {
     }
 
     private func content(row: SourcesModel.Row, info: SourceInfo) -> some View {
-        List {
-            Section {
-                SourceRow(row: row, iconSize: 56)
-            }
-            if let entry = PiracySources.entry(for: row.source.uri) {
-                Section {
-                    Label("\(entry.name) is known for handing out paid tweaks and apps without their developers' permission. Cracked packages are often outdated or unstable and can carry malware.",
-                          systemImage: "exclamationmark.shield.fill")
-                        .foregroundColor(.red)
-                } footer: {
-                    Text("Codling does not block any source. You can remove this one below.")
+        ScrollView {
+            VStack(spacing: 12) {
+                Card {
+                    SourceHeader(row: row)
                 }
-            }
-            if let featured = model.featured {
-                Section {
+                if let entry = PiracySources.entry(for: row.source.uri) {
+                    Card {
+                        StatusLine(symbol: "exclamationmark.shield.fill", text: "Known for piracy", color: .red)
+                        Text("\(entry.name) is known for handing out paid tweaks and apps without their developers' permission. Cracked packages are often outdated or unstable and can carry malware.")
+                            .font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 6)
+                    }
+                    CardFooter(text: "Codling does not block any source. You can remove this one below.")
+                }
+                if let featured = model.featured {
+                    CardHeading(title: "Featured Packages", symbol: "star.fill")
+                        .padding(.top, 8)
                     BannerCarousel(featured: featured, source: info, model: model)
-                        .listRowInsets(EdgeInsets())
+                        .padding(.horizontal, -16)
                 }
-            }
-            Section {
-                if !model.loaded {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                } else if let error = model.error {
-                    Text(error)
-                        .foregroundColor(.red)
-                } else if model.packages.isEmpty {
-                    Text("Codling has no packages from this source. It may have none for this device, or its last refresh failed.")
-                        .foregroundColor(.secondary)
-                } else {
-                    NavigationLink(destination: PackageListView(title: "All Packages", source: info, packages: model.packages)) {
-                        CountRow(title: "All Packages", symbol: "square.stack.3d.up.fill", count: model.packages.count)
-                    }
-                    ForEach(model.sections) { section in
-                        NavigationLink(destination: PackageListView(title: section.name, source: info,
-                                                                    packages: model.packages.filter { $0.displaySection == section.name })) {
-                            CountRow(title: section.name, symbol: SectionSymbol.name(for: section.name), count: section.count)
+
+                CardHeading(title: "Sections", symbol: "square.stack.3d.up")
+                    .padding(.top, 8)
+                Card(padding: 0) {
+                    sections(info: info)
+                }
+
+                CardHeading(title: "Security Check", symbol: "checkmark.shield")
+                    .padding(.top, 8)
+                Card {
+                    securityCheck
+                }
+
+                Card(padding: 0) {
+                    Button(role: .destructive) {
+                        confirmingRemoval = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "trash")
+                                .font(.title3)
+                            Text("Remove Source")
+                                .font(.body.weight(.semibold))
+                            Spacer()
                         }
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 15)
                     }
+                    .buttonStyle(CardRowButtonStyle())
                 }
-            } header: {
-                Text("Sections")
+                .padding(.top, 8)
+                CardFooter(text: sources.isCodlingSource(row.source)
+                           ? "Added with Codling."
+                           : "Listed in \((row.source.file as NSString).lastPathComponent).")
             }
-            if let findings {
-                Section {
-                    if findings.isEmpty {
-                        Label("Nothing found", systemImage: "checkmark.shield.fill")
-                            .foregroundColor(.green)
-                    }
-                    ForEach(findings) { finding in
-                        Label(SourceScan.describe(finding), systemImage: symbol(for: finding))
-                            .foregroundColor(color(for: finding))
-                    }
-                } header: {
-                    Text("Security Check")
-                } footer: {
-                    Text("Compared with your other sources and installed packages: packages sold elsewhere and free here, packages that say they are cracks, and newer copies of the jailbreak's own packages. Codling cannot see inside packages.")
-                }
-            }
-            Section {
-                Button("Remove Source", role: .destructive) {
-                    confirmingRemoval = true
-                }
-            } footer: {
-                Text(sources.isCodlingSource(row.source)
-                     ? "Added with Codling."
-                     : "Listed in \((row.source.file as NSString).lastPathComponent).")
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .navigationTitle(row.title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: sources.indexGeneration) {
@@ -127,6 +117,71 @@ struct SourceDetailView: View {
 }
 
 private extension SourceDetailView {
+    @ViewBuilder
+    func sections(info: SourceInfo) -> some View {
+        if !model.loaded {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(16)
+        } else if let error = model.error {
+            Text(error)
+                .foregroundColor(.red)
+                .padding(16)
+        } else if model.packages.isEmpty {
+            Text("Codling has no packages from this source. It may have none for this device, or its last refresh failed.")
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(16)
+        } else {
+            NavigationLink(destination: PackageListView(title: "All Packages", source: info, packages: model.packages)) {
+                CountRow(title: "All Packages", symbol: "square.stack.3d.up.fill", color: .blue, count: model.packages.count)
+            }
+            .buttonStyle(CardRowButtonStyle())
+            ForEach(model.sections) { section in
+                Divider()
+                    .padding(.leading, 66)
+                NavigationLink(destination: PackageListView(title: section.name, source: info,
+                                                            packages: model.packages.filter { $0.displaySection == section.name })) {
+                    CountRow(title: section.name, symbol: SectionSymbol.name(for: section.name),
+                             color: SectionSymbol.color(for: section.name), count: section.count)
+                }
+                .buttonStyle(CardRowButtonStyle())
+            }
+        }
+    }
+
+    @ViewBuilder
+    var securityCheck: some View {
+        if let findings {
+            VStack(alignment: .leading, spacing: 10) {
+                if findings.isEmpty {
+                    StatusLine(symbol: "checkmark.shield.fill", text: "Nothing found", color: .green)
+                }
+                ForEach(findings) { finding in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: symbol(for: finding))
+                            .accessibilityHidden(true)
+                        Text(SourceScan.describe(finding))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundColor(color(for: finding))
+                }
+            }
+        } else {
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Checking")
+                    .foregroundColor(.secondary)
+            }
+        }
+        Divider()
+            .padding(.vertical, 12)
+        Text("Compares this source with your other sources and installed packages: packages sold elsewhere and free here, packages that say they are cracks, and newer copies of the jailbreak's own packages. Codling cannot see inside packages.")
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     func symbol(for finding: SourceScan.Finding) -> String {
         switch finding.kind {
         case .paidElsewhere: return "dollarsign.circle.fill"
@@ -146,16 +201,24 @@ private extension SourceDetailView {
 private struct CountRow: View {
     let title: String
     let symbol: String
+    let color: Color
     let count: Int
 
     var body: some View {
-        HStack {
-            Label(title, systemImage: symbol)
-            Spacer()
+        HStack(spacing: 14) {
+            IconTile(symbol: symbol, color: color, size: 36)
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
             Text(count.formatted())
                 .foregroundColor(.secondary)
                 .monospacedDigit()
+            Chevron()
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
     }
 }
@@ -183,7 +246,8 @@ private struct BannerCarousel: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
         }
     }
 
