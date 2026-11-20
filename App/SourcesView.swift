@@ -34,6 +34,8 @@ struct SourcesView: View {
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
                                     CompactSourceRow(row: row)
                                 }
+                                .listRowBackground(CardCellBackground(first: row.id == model.rows.first?.id,
+                                                                      last: row.id == model.rows.last?.id))
                                 .contextMenu {
                                     Button {
                                         Presenter.share(address: row.source.uri)
@@ -244,10 +246,10 @@ struct CompactSourceRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: 40)
+            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: 42)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
-                    .font(.headline)
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
                 Text(row.source.uri)
                     .font(.caption)
@@ -258,7 +260,7 @@ struct CompactSourceRow: View {
             Spacer(minLength: 4)
             trailing
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
         .accessibilityValue(accessibilitySummary)
     }

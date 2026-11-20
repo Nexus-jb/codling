@@ -299,21 +299,27 @@ struct QueueView: View {
                 Task { await queue.apply(plan, installed: installed, statusPath: environment.dpkgStatusPath, names: names) }
             }
         case .blocked(let diagnoses, let output):
-            List {
-                Section {
-                    Label("apt cannot make this change", systemImage: "xmark.octagon.fill")
-                        .foregroundColor(.red)
-                        .font(.headline)
-                    ForEach(diagnoses, id: \.line) { diagnosis in
-                        DiagnosisView(diagnosis: diagnosis, showsFix: false) { _ in }
+            ScrollView {
+                VStack(spacing: 12) {
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "xmark.octagon", color: .red, title: "apt cannot make this change") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(diagnoses, id: \.line) { diagnosis in
+                                    DiagnosisView(diagnosis: diagnosis, showsFix: false) { _ in }
+                                }
+                                OutputText(title: "What apt said", output: output)
+                            }
+                        }
+                        Button("Back to the Queue") { queue.backToEditing() }
+                            .buttonStyle(TintedButtonStyle())
+                            .padding(.top, 12)
                     }
-                    OutputText(title: "What apt said", output: output)
                 }
-                Section {
-                    Button("Back to the Queue") { queue.backToEditing() }
-                }
+                .toolColumn()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .listStyle(.insetGrouped)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
         case .applying(let message):
             progress(message)
         case .finished(let succeeded, let plan, let diagnoses, let output, let notes):
@@ -421,48 +427,48 @@ struct QueueView: View {
     }
 
     private func finished(succeeded: Bool, plan: AptPlan, diagnoses: [AptDiagnosis], output: String, notes: [String]) -> some View {
-        List {
-            Section {
+        ScrollView {
+            VStack(spacing: 12) {
+                Card(padding: 14) {
+                    if succeeded {
+                        ToolHeader(symbol: "checkmark.circle", color: .green, title: "The changes were applied") {
+                            notesAndOutput(notes: notes, output: output)
+                        }
+                    } else {
+                        ToolHeader(symbol: "xmark.octagon", color: .red, title: "The changes could not be applied") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(diagnoses, id: \.line) { diagnosis in
+                                    DiagnosisView(diagnosis: diagnosis, showsFix: false) { _ in }
+                                }
+                                ToolNote(text: "The System screen checks the package system and offers the fixes it needs.")
+                                notesAndOutput(notes: notes, output: output)
+                            }
+                        }
+                    }
+                    Button("Done") { queue.backToEditing() }
+                        .buttonStyle(TintedButtonStyle())
+                        .padding(.top, 12)
+                }
                 if succeeded {
-                    Label("The changes were applied", systemImage: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.headline)
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "arrow.triangle.2.circlepath", color: .orange, title: "Restart SpringBoard") {
+                            ToolNote(text: "Tweaks that were installed, upgraded or removed take effect after SpringBoard restarts.")
+                        }
+                        Button(queue.restarting ? "Restarting SpringBoard" : "Restart SpringBoard") {
+                            confirmingRestart = true
+                        }
+                        .buttonStyle(TintedButtonStyle(color: .orange))
+                        .disabled(queue.restarting)
+                        .padding(.top, 12)
+                    }
                     PlanSummary(plan: plan, names: names)
-                } else {
-                    Label("The changes could not be applied", systemImage: "xmark.octagon.fill")
-                        .foregroundColor(.red)
-                        .font(.headline)
-                    ForEach(diagnoses, id: \.line) { diagnosis in
-                        DiagnosisView(diagnosis: diagnosis, showsFix: false) { _ in }
-                    }
-                    Text("The System tab checks the package system and offers the fixes it needs.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-                ForEach(notes, id: \.self) { note in
-                    Label(note, systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline)
-                        .foregroundColor(.orange)
-                }
-                OutputText(title: "What apt said", output: output)
-            }
-            if succeeded {
-                Section {
-                    Button {
-                        confirmingRestart = true
-                    } label: {
-                        Label(queue.restarting ? "Restarting SpringBoard" : "Restart SpringBoard", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .disabled(queue.restarting)
-                } footer: {
-                    Text("Tweaks that were installed, upgraded or removed take effect after SpringBoard restarts.")
                 }
             }
-            Section {
-                Button("Done") { queue.backToEditing() }
-            }
+            .toolColumn()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .confirmationDialog("Restart SpringBoard?", isPresented: $confirmingRestart, titleVisibility: .visible) {
             Button("Restart SpringBoard") {
                 Task { await queue.restartSpringBoard() }
@@ -470,6 +476,17 @@ struct QueueView: View {
         } message: {
             Text("The Home Screen closes for a moment and every open app restarts.")
         }
+    }
+
+    @ViewBuilder
+    private func notesAndOutput(notes: [String], output: String) -> some View {
+        ForEach(notes, id: \.self) { note in
+            Label(note, systemImage: "exclamationmark.triangle.fill")
+                .font(.footnote)
+                .foregroundColor(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        OutputText(title: "What apt said", output: output)
     }
 
     private func progress(_ message: String) -> some View {
@@ -526,71 +543,71 @@ private struct ReviewView: View {
     let onConfirm: () -> Void
 
     var body: some View {
-        List {
-            if let undoing {
-                Section {
-                    Label("Undo: \(undoing)", systemImage: "arrow.uturn.backward.circle.fill")
-                        .font(.headline)
-                }
-            }
-            ForEach(notes, id: \.self) { note in
-                Section {
-                    Label(note, systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline)
-                        .foregroundColor(.orange)
-                }
-            }
-            if plan.isEmpty {
-                Section {
-                    Text(undoing == nil ? "Nothing needs to change: everything queued is already as asked."
-                         : "Nothing can be undone automatically.")
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                PlanSummary(plan: plan, names: names)
-            }
-            if !plan.unauthenticated.isEmpty {
-                Section {
-                    Label("Not verified", systemImage: "exclamationmark.shield.fill")
-                        .foregroundColor(.orange)
-                        .font(.headline)
-                    Text("These packages come from sources that are not signed, so Codling cannot tell whether they were changed on the way: \(plan.unauthenticated.map { names[$0] ?? $0 }.joined(separator: ", ")). Confirm only if you trust their sources.")
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if plan.changes.contains(where: { $0.kind == .remove && $0.package == "com.nexusjb.codling" }) {
-                Section {
-                    Label("This removes Codling itself.", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundColor(.red)
-                }
-            }
-            if !warnings.isEmpty {
-                Section("While updating the lists") {
-                    ForEach(warnings, id: \.line) { warning in
-                        DiagnosisView(diagnosis: warning, showsFix: false) { _ in }
+        ScrollView {
+            VStack(spacing: 12) {
+                Card(padding: 14) {
+                    ToolHeader(symbol: undoing == nil ? "checklist" : "arrow.uturn.backward",
+                               color: undoing == nil ? .blue : .orange,
+                               title: undoing.map { "Undo: \($0)" } ?? "Review Changes") {
+                        if plan.isEmpty {
+                            ToolNote(text: undoing == nil ? "Nothing needs to change: everything queued is already as asked."
+                                     : "Nothing can be undone automatically.")
+                        } else {
+                            ToolNote(text: "Everything apt would change, including the packages these need. Nothing happens until you confirm.")
+                        }
+                        ForEach(notes, id: \.self) { note in
+                            Label(note, systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundColor(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 2)
+                        }
                     }
-                    Text("Sources that could not be refreshed keep the lists apt had before.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                    if plan.changes.contains(where: { $0.kind == .remove && $0.package == "com.nexusjb.codling" }) {
+                        StatusLine(symbol: "exclamationmark.triangle.fill", text: "This removes Codling itself.", color: .red)
+                            .padding(.top, 10)
+                    }
+                    VStack(spacing: 8) {
+                        if !plan.isEmpty {
+                            Button(plan.removesPackages ? "Confirm, Including Removals" : "Confirm", action: onConfirm)
+                                .buttonStyle(TintedButtonStyle(color: plan.removesPackages ? .red : .accentColor))
+                        }
+                        Button("Cancel", action: onCancel)
+                            .buttonStyle(TintedButtonStyle(color: .secondary))
+                    }
+                    .padding(.top, 12)
                 }
-            }
-            Section {
+
+                if !plan.unauthenticated.isEmpty {
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "exclamationmark.shield", color: .orange, title: "Not verified") {
+                            ToolNote(text: "These packages come from sources that are not signed, so Codling cannot tell whether they were changed on the way: \(plan.unauthenticated.map { names[$0] ?? $0 }.joined(separator: ", ")). Confirm only if you trust their sources.")
+                        }
+                    }
+                }
+
+                if !warnings.isEmpty {
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "arrow.clockwise", color: .orange, title: "While updating the lists") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(warnings, id: \.line) { warning in
+                                    DiagnosisView(diagnosis: warning, showsFix: false) { _ in }
+                                }
+                                ToolNote(text: "Sources that could not be refreshed keep the lists apt had before.")
+                            }
+                        }
+                    }
+                }
+
                 if !plan.isEmpty {
-                    Button {
-                        onConfirm()
-                    } label: {
-                        Text(plan.removesPackages ? "Confirm, Including Removals" : "Confirm")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .foregroundColor(plan.removesPackages ? .red : .accentColor)
+                    PlanSummary(plan: plan, names: names)
                 }
-                Button("Cancel", action: onCancel)
-                    .frame(maxWidth: .infinity)
             }
+            .toolColumn()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
     }
 }
 
@@ -600,32 +617,40 @@ private struct PlanSummary: View {
     let names: [String: String]
 
     var body: some View {
-        group("Install", .install, symbol: "arrow.down.circle.fill", color: .accentColor)
-        group("Upgrade", .upgrade, symbol: "arrow.up.circle.fill", color: .green)
-        group("Reinstall", .reinstall, symbol: "arrow.clockwise.circle.fill", color: .secondary)
-        group("Downgrade", .downgrade, symbol: "arrow.down.right.circle.fill", color: .orange)
-        group("Remove", .remove, symbol: "trash.circle.fill", color: .red)
+        group("Install", .install, symbol: "arrow.down", color: .accentColor)
+        group("Upgrade", .upgrade, symbol: "arrow.up", color: .green)
+        group("Reinstall", .reinstall, symbol: "arrow.clockwise", color: .gray)
+        group("Downgrade", .downgrade, symbol: "arrow.down.right", color: .orange)
+        group("Remove", .remove, symbol: "trash", color: .red)
+    }
+
+    private struct Row: Identifiable {
+        let change: AptPlan.Change
+
+        var id: String { change.package }
     }
 
     @ViewBuilder
     private func group(_ title: String, _ kind: AptPlan.Kind, symbol: String, color: Color) -> some View {
         let changes = plan.changes(kind)
         if !changes.isEmpty {
-            Section("\(title) (\(changes.count))") {
-                ForEach(changes, id: \.package) { change in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: symbol)
-                            .foregroundColor(color)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(names[change.package] ?? change.package)
-                            Text(detail(change))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+            CardHeading(title: "\(title) · \(changes.count)", symbol: symbol)
+                .padding(.top, 8)
+            CardRows(items: changes.map(Row.init), dividerInset: 62) { row in
+                HStack(spacing: 12) {
+                    IconTile(symbol: symbol, color: color, size: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(names[row.change.package] ?? row.change.package)
+                            .font(.body.weight(.semibold))
+                        Text(detail(row.change))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
-                    .accessibilityElement(children: .combine)
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .accessibilityElement(children: .combine)
             }
         }
     }

@@ -33,36 +33,6 @@ extension View {
     }
 }
 
-/// A section header that folds its section away: the title, how many rows
-/// the section holds, and an arrow that turns when it opens.
-struct CollapsibleHeader: View {
-    let title: String
-    let count: Int
-    @Binding var expanded: Bool
-
-    var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                expanded.toggle()
-            }
-        } label: {
-            HStack {
-                Text("\(title) · \(count.formatted())")
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.footnote.weight(.semibold))
-                    .rotationEffect(.degrees(expanded ? 0 : -90))
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
-        .accessibilityLabel("\(title), \(count)")
-        .accessibilityValue(expanded ? "Shown" : "Hidden")
-        .accessibilityHint(expanded ? "Hides the list." : "Shows the list.")
-    }
-}
-
 // MARK: Cards
 
 /// A rounded card on the grouped background, as the System screen and a
@@ -417,5 +387,80 @@ extension View {
     func toolColumn() -> some View {
         frame(maxWidth: 380)
             .frame(maxWidth: .infinity)
+    }
+}
+
+/// A heading over a card that folds the card away: an icon, the title, how
+/// many it holds, and an arrow that turns when it opens.
+struct CollapsibleCardHeading: View {
+    let title: String
+    var symbol: String?
+    let count: Int
+    @Binding var expanded: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                expanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+                Text(count.formatted())
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Color(.tertiarySystemFill), in: Capsule())
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.subheadline.weight(.semibold))
+                    .rotationEffect(.degrees(expanded ? 0 : -90))
+                    .accessibilityHidden(true)
+            }
+            .font(.title3.weight(.semibold))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title), \(count)")
+        .accessibilityValue(expanded ? "Shown" : "Hidden")
+        .accessibilityHint(expanded ? "Hides the list." : "Shows the list.")
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The background of a row in a List drawn as a card: the first and last
+/// rows round their outer corners as cards do. A List keeps its swipe
+/// actions and selection, which a card of rows cannot.
+struct CardCellBackground: View {
+    let first: Bool
+    let last: Bool
+
+    var body: some View {
+        CornerRoundedRectangle(radius: 22, corners: corners)
+            .fill(Color(.secondarySystemGroupedBackground))
+    }
+
+    private var corners: UIRectCorner {
+        var corners: UIRectCorner = []
+        if first { corners.formUnion([.topLeft, .topRight]) }
+        if last { corners.formUnion([.bottomLeft, .bottomRight]) }
+        return corners
+    }
+}
+
+/// A rectangle with some corners rounded.
+struct CornerRoundedRectangle: Shape {
+    let radius: CGFloat
+    let corners: UIRectCorner
+
+    func path(in rect: CGRect) -> Path {
+        Path(UIBezierPath(roundedRect: rect, byRoundingCorners: corners,
+                          cornerRadii: CGSize(width: radius, height: radius)).cgPath)
     }
 }
