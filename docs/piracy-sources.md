@@ -42,6 +42,25 @@ published article, or, to contest an entry, with what has changed. A pull
 request that adds an entry adds its row here too. Entries are reviewed on
 their evidence alone, whoever runs the source.
 
+## The security check
+
+The list only knows sources by name. After a source is added, and on every
+source's page, Codling also checks the source's packages against the
+person's other sources and installed packages, from the package index:
+
+- **Sold elsewhere, free here.** A package that another source sells, with
+  the `cydia::commercial` tag, and this source gives away. It is most likely
+  cracked.
+- **Says it is a crack.** A package whose name or description says it is a
+  crack or a cracking tool, such as an in-app purchase cracker.
+- **A newer copy of the jailbreak's own package.** A package such as `apt`,
+  `dpkg` or one dpkg marks as essential, in a newer version than any other
+  source has, which the next upgrade would take from this source.
+
+The check reads no package's contents, so it cannot find malware that shows
+no such sign, and it says so. When it finds something right after a source
+is added, the prompt offers to remove the source again.
+
 ## What the warning says
 
 > *Known for Piracy.* NAME is known for handing out paid tweaks and apps

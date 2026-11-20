@@ -6,6 +6,8 @@ import SwiftUI
 struct SourceDetailView: View {
     let sourceID: String
     @EnvironmentObject private var sources: SourcesModel
+    @EnvironmentObject private var installed: InstalledPackagesModel
+    @State private var findings: [SourceScan.Finding]?
     @StateObject private var model = SourceDetailModel()
     @State private var confirmingRemoval = false
     @State private var problem: String?
@@ -67,6 +69,22 @@ struct SourceDetailView: View {
             } header: {
                 Text("Sections")
             }
+            if let findings {
+                Section {
+                    if findings.isEmpty {
+                        Label("Nothing found", systemImage: "checkmark.shield.fill")
+                            .foregroundColor(.green)
+                    }
+                    ForEach(findings) { finding in
+                        Label(SourceScan.describe(finding), systemImage: symbol(for: finding))
+                            .foregroundColor(color(for: finding))
+                    }
+                } header: {
+                    Text("Security Check")
+                } footer: {
+                    Text("Compared with your other sources and installed packages: packages sold elsewhere and free here, packages that say they are cracks, and newer copies of the jailbreak's own packages. Codling cannot see inside packages.")
+                }
+            }
             if sources.isCodlingSource(row.source) {
                 Section {
                     Button("Remove Source", role: .destructive) {
@@ -82,6 +100,8 @@ struct SourceDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: sources.indexGeneration) {
             await model.load(store: sources.store, source: row.source)
+            findings = await sources.scan(sourceID: sourceID, installed: installed.versions,
+                                          essential: installed.essential)
         }
         .refreshable {
             await model.load(store: sources.store, source: row.source, reloadBanners: true)
@@ -104,6 +124,23 @@ struct SourceDetailView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(problem ?? "")
+        }
+    }
+}
+
+private extension SourceDetailView {
+    func symbol(for finding: SourceScan.Finding) -> String {
+        switch finding.kind {
+        case .paidElsewhere: return "dollarsign.circle.fill"
+        case .crack: return "exclamationmark.shield.fill"
+        case .replacesSystem: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    func color(for finding: SourceScan.Finding) -> Color {
+        switch finding.kind {
+        case .paidElsewhere, .crack: return .red
+        case .replacesSystem: return .orange
         }
     }
 }

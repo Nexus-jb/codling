@@ -194,6 +194,21 @@ final class SourcesModel: ObservableObject {
         return .success(row)
     }
 
+    /// The security check of a source's packages, against the other
+    /// sources and the installed packages; nil when the index cannot be read.
+    func scan(sourceID: String, installed: [String: String], essential: Set<String>) async -> [SourceScan.Finding]? {
+        guard let store,
+              let packages = try? await store.packages(source: sourceID),
+              let others = try? await store.otherOffers(sharingPackagesWith: sourceID) else {
+            return nil
+        }
+        let titles = Dictionary(rows.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        return await Task.detached(priority: .userInitiated) {
+            SourceScan.scan(packages: packages, others: others, sourceTitles: titles, installed: installed,
+                            essential: essential)
+        }.value
+    }
+
     /// Removes a source Codling added. Returns the reason when it fails.
     func remove(_ source: Source) async -> String? {
         guard isCodlingSource(source) else {

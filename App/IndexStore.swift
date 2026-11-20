@@ -249,6 +249,23 @@ actor IndexStore {
     }
 
     /// The newest version of a package in each source that has it.
+    /// The other sources' copies of a source's packages, for its security
+    /// check.
+    func otherOffers(sharingPackagesWith source: String) throws -> [PackageSummary] {
+        let statement = try prepare("""
+            SELECT \(Self.summaryColumns) FROM packages
+            WHERE source != ? AND package IN (SELECT package FROM packages WHERE source = ?)
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(statement, 1, source)
+        bind(statement, 2, source)
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return rows
+    }
+
     func offers(of package: String) throws -> [PackageSummary] {
         let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages WHERE package = ?")
         defer { sqlite3_finalize(statement) }

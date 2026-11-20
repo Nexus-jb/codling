@@ -8,6 +8,7 @@ import UIKit
 /// a source, from the clipboard when an address is on it.
 struct SourcesView: View {
     @ObservedObject var model: SourcesModel
+    @EnvironmentObject private var installed: InstalledPackagesModel
     @StateObject private var adder = AddSourceFlow()
     @State private var removing: Source?
     @State private var problem: String?
@@ -54,7 +55,10 @@ struct SourcesView: View {
         }
         .navigationViewStyle(.stack)
         .task { await model.start() }
-        .onAppear { adder.model = model }
+        .onAppear {
+            adder.model = model
+            adder.installed = installed
+        }
         .confirmationDialog("Remove this source?", isPresented: Binding(
             get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible,
             presenting: removing) { source in
@@ -298,6 +302,7 @@ private struct IconLine: View {
 @MainActor
 final class AddSourceFlow: ObservableObject {
     weak var model: SourcesModel?
+    weak var installed: InstalledPackagesModel?
     /// What is happening, for the banner.
     @Published private(set) var working: String?
 
@@ -312,7 +317,11 @@ final class AddSourceFlow: ObservableObject {
             Task { @MainActor in
                 let copied = hasAddress ? SourceList.repositoryURIs(in: UIPasteboard.general.string ?? "") : []
                 let fresh = copied.filter { self.model?.existing(uri: $0) == nil }
-                if fresh.isEmpty {
+                if let first = copied.first, fresh.isEmpty {
+                    self.askForAddress("https://", problem: copied.count == 1
+                        ? "\(first), on the clipboard, is already in apt's lists. Type another address."
+                        : "The \(copied.count) addresses on the clipboard are already in apt's lists. Type another address.")
+                } else if fresh.isEmpty {
                     self.askForAddress("https://")
                 } else {
                     await self.offer(fresh)
@@ -393,7 +402,7 @@ final class AddSourceFlow: ObservableObject {
     /// source that was not added, or not read, does not go unnoticed.
     private func add(_ uris: [String], checked: Bool = false) async {
         var lines: [String] = []
-        var single: (uri: String, result: Result<SourcesModel.Row, RefreshError>)?
+        var single: (uri: String, result: Result<SourcesModel.Row, RefreshError>, findings: [SourceScan.Finding]?)?
         for (index, uri) in uris.enumerated() {
             if let entry = PiracySources.entry(for: uri) {
                 await hideProgress()
@@ -414,12 +423,19 @@ final class AddSourceFlow: ObservableObject {
                 result = await step("Adding \(host) and reading its packages\(counter)", { await self.model?.add(uri: uri) })
                     ?? .failure(.message("Codling is not ready to add sources."))
             }
-            single = (uri, result)
-            lines.append(Self.describe(uri: uri, result))
+            var findings: [SourceScan.Finding]?
+            if case .success(let row) = result {
+                findings = await step("Checking \(row.title)'s packages\(counter)") {
+                    await self.model?.scan(sourceID: row.id, installed: self.installed?.versions ?? [:],
+                                           essential: self.installed?.essential ?? [])
+                }
+            }
+            single = (uri, result, findings)
+            lines.append(Self.describe(uri: uri, result, findings))
         }
         await hideProgress()
         if uris.count == 1, let single {
-            showResult(uri: single.uri, single.result)
+            showResult(uri: single.uri, single.result, findings: single.findings)
         } else if !lines.isEmpty {
             let alert = UIAlertController(title: "Sources", message: lines.joined(separator: "\n\n"), preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .cancel))
@@ -436,7 +452,8 @@ final class AddSourceFlow: ObservableObject {
         return value
     }
 
-    private static func describe(uri: String, _ result: Result<SourcesModel.Row, RefreshError>) -> String {
+    private static func describe(uri: String, _ result: Result<SourcesModel.Row, RefreshError>,
+                                 _ findings: [SourceScan.Finding]?) -> String {
         switch result {
         case .failure(let error):
             return "Not added: \(uri). \(error.message)"
@@ -445,13 +462,25 @@ final class AddSourceFlow: ObservableObject {
                 return "Added, but not read: \(row.title). \(message)"
             }
             let count = row.packageCount ?? 0
-            return "Added: \(row.title), \(count == 1 ? "1 package" : "\(count.formatted()) packages")."
+            let check = findings.map { $0.isEmpty ? " The security check found nothing." : " The security check found \($0.count) things to look at; see its page." } ?? ""
+            return "Added: \(row.title), \(count == 1 ? "1 package" : "\(count.formatted()) packages").\(check)"
         }
+    }
+
+    /// The security check's findings for a prompt: a few lines, and how many
+    /// more the source's page lists.
+    static func summarize(_ findings: [SourceScan.Finding]) -> String {
+        let shown = 5
+        var lines = findings.prefix(shown).map { "• " + SourceScan.describe($0) }
+        if findings.count > shown {
+            lines.append("…and \(findings.count - shown) more on the source's page.")
+        }
+        return lines.joined(separator: "\n")
     }
 
     /// What came of one source: added and read, added but not read, or not
     /// added, with what to do next.
-    private func showResult(uri: String, _ result: Result<SourcesModel.Row, RefreshError>) {
+    private func showResult(uri: String, _ result: Result<SourcesModel.Row, RefreshError>, findings: [SourceScan.Finding]?) {
         let alert: UIAlertController
         switch result {
         case .failure(let error):
@@ -476,8 +505,20 @@ final class AddSourceFlow: ObservableObject {
                 if !row.warnings.isEmpty {
                     message += "\n\n" + row.warnings.joined(separator: "\n")
                 }
-                alert = UIAlertController(title: "Source Added", message: message, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+                if let findings, !findings.isEmpty {
+                    message += "\n\nThe security check found:\n" + Self.summarize(findings)
+                    alert = UIAlertController(title: "Source Added: Check Its Packages", message: message, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "Keep", style: .cancel))
+                    alert.addAction(UIAlertAction(title: "Remove", style: .destructive) { _ in
+                        Task { @MainActor in _ = await self.model?.remove(row.source) }
+                    })
+                } else {
+                    if findings != nil {
+                        message += "\n\nThe security check found nothing: no packages sold on your other sources, no cracks, and no newer copies of the jailbreak's own packages."
+                    }
+                    alert = UIAlertController(title: "Source Added", message: message, preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+                }
             }
         }
         Task { await present(alert) }
