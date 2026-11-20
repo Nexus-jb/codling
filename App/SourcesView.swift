@@ -32,7 +32,7 @@ struct SourcesView: View {
                         Section {
                             ForEach(model.rows) { row in
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
-                                    SourceRow(row: row)
+                                    CompactSourceRow(row: row)
                                 }
                                 .contextMenu {
                                     Button {
@@ -233,8 +233,90 @@ struct SourcesView: View {
     }
 }
 
-/// A source: its icon, name and address, how its last refresh went, and
-/// what the user should know about it.
+/// A source in the list: its icon, name and address, and its package count,
+/// with a small red mark when its last refresh failed or it is on the
+/// piracy list. Its page says the rest.
+struct CompactSourceRow: View {
+    let row: SourcesModel.Row
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Text(row.source.uri)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 4)
+            trailing
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(accessibilitySummary)
+    }
+
+    private var failed: Bool {
+        if case .failed? = row.outcome?.state { return true }
+        return false
+    }
+
+    private var flagged: Bool {
+        PiracySources.entry(for: row.source.uri) != nil
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        HStack(spacing: 6) {
+            if flagged {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .foregroundColor(.red)
+            }
+            switch row.activity {
+            case .refreshing:
+                ProgressView()
+            case .waiting:
+                ProgressView()
+                    .opacity(0.4)
+            case .idle:
+                if failed {
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.red)
+                } else if let count = row.packageCount {
+                    Text(count.formatted())
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                }
+            }
+        }
+    }
+
+    private var accessibilitySummary: String {
+        var parts: [String] = []
+        if flagged {
+            parts.append("known for piracy")
+        }
+        switch row.activity {
+        case .refreshing: parts.append("refreshing")
+        case .waiting: parts.append("waiting to refresh")
+        case .idle:
+            if case .failed(let message)? = row.outcome?.state {
+                parts.append("refresh failed: \(message)")
+            } else if let count = row.packageCount {
+                parts.append(count == 1 ? "1 package" : "\(count) packages")
+            }
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
+/// A source in full, for its page: its icon, name and address, how its last
+/// refresh went, and what the user should know about it.
 struct SourceRow: View {
     let row: SourcesModel.Row
     var iconSize: CGFloat = 40
