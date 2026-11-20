@@ -34,9 +34,7 @@ struct SourceDetailView: View {
                           systemImage: "exclamationmark.shield.fill")
                         .foregroundColor(.red)
                 } footer: {
-                    Text(sources.isCodlingSource(row.source)
-                         ? "Codling does not block any source. You can remove this one below."
-                         : "Codling does not block any source. This one was added outside Codling; remove it in the app that added it.")
+                    Text("Codling does not block any source. You can remove this one below.")
                 }
             }
             if let featured = model.featured {
@@ -85,14 +83,14 @@ struct SourceDetailView: View {
                     Text("Compared with your other sources and installed packages: packages sold elsewhere and free here, packages that say they are cracks, and newer copies of the jailbreak's own packages. Codling cannot see inside packages.")
                 }
             }
-            if sources.isCodlingSource(row.source) {
-                Section {
-                    Button("Remove Source", role: .destructive) {
-                        confirmingRemoval = true
-                    }
-                } footer: {
-                    Text("Added with Codling.")
+            Section {
+                Button("Remove Source", role: .destructive) {
+                    confirmingRemoval = true
                 }
+            } footer: {
+                Text(sources.isCodlingSource(row.source)
+                     ? "Added with Codling."
+                     : "Listed in \((row.source.file as NSString).lastPathComponent).")
             }
         }
         .listStyle(.insetGrouped)
@@ -117,7 +115,7 @@ struct SourceDetailView: View {
                 }
             }
         } message: {
-            Text("Its packages stay installed. Codling stops showing its packages and their updates.")
+            Text(SourcesModel.removalNote(for: row.source, jailbreak: sources.isJailbreakSource(row.source)))
         }
         .alert("The source was not removed", isPresented: Binding(
             get: { problem != nil }, set: { if !$0 { problem = nil } })) {

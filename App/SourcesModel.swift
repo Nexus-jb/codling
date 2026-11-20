@@ -151,8 +151,7 @@ final class SourcesModel: ObservableObject {
         isRefreshing = false
     }
 
-    /// Whether Codling added a source, and so may remove it. The others
-    /// belong to the jailbreak or to another package manager.
+    /// Whether Codling added a source, to its own sources file.
     func isCodlingSource(_ source: Source) -> Bool {
         source.file.hasSuffix("/" + SourceList.codlingFileName)
     }
@@ -209,14 +208,24 @@ final class SourcesModel: ObservableObject {
         }.value
     }
 
-    /// Removes a source Codling added. Returns the reason when it fails.
+    /// Whether a source is the one the jailbreak installs and updates its
+    /// own packages from, which needs a clearer warning before it goes.
+    func isJailbreakSource(_ source: Source) -> Bool {
+        source.host == "procurs.us" || source.host.hasSuffix(".procurs.us")
+            || source.file.hasSuffix("/procursus.sources")
+    }
+
+    /// Removes a source from whichever sources file lists it, through the
+    /// root helper. Returns the reason when it fails.
     func remove(_ source: Source) async -> String? {
-        guard isCodlingSource(source) else {
-            return "Codling did not add this source, so it leaves it to the app that did."
-        }
         let result = await Task.detached(priority: .userInitiated) { RootHelper.removeSource(source.uri) }.value
-        if case .failure(let failure) = result {
+        switch result {
+        case .failure(let failure):
             return failure.message
+        case .success(let change) where !change.changed:
+            return "Codling did not find \(source.uri) in apt's sources files."
+        case .success:
+            break
         }
         reloadSources()
         if let store {
@@ -252,6 +261,14 @@ final class SourcesModel: ObservableObject {
             rows[index].stored = try? await store.source(id: id)
         }
         indexGeneration += 1
+    }
+
+    /// What removing a source does, for its confirmation.
+    static func removalNote(for source: Source, jailbreak: Bool) -> String {
+        if jailbreak {
+            return "This is the jailbreak's own source. Without it, apt cannot update or repair the jailbreak's packages, and other packages that need them may not install. Its packages stay installed."
+        }
+        return "Its packages stay installed. Codling stops showing its packages and their updates."
     }
 
     /// What package pages need to know about a source.

@@ -90,6 +90,53 @@ int main(int argc, char **argv) {
     expect(read_back && length == 0, "a missing file reads as empty");
     free(read_back);
 
+    // Removing a source from any file.
+    expect(valid_existing_uri("http://apt.thebigboss.org/repofiles/cydia/"), "an existing address");
+    expect(valid_existing_uri("https://Repo.Example.com:8443/a_b/"), "an existing address with a port");
+    expect(!valid_existing_uri("https://example.com/a b/"), "an address with a space");
+    expect(!valid_existing_uri("ftp://example.com/"), "an ftp address");
+    expect(same_uri("https://havoc.app", 17, "https://havoc.app/"), "with or without the last slash");
+    expect(!same_uri("https://havoc.app/x", 19, "https://havoc.app/"), "a longer address");
+
+    const char *deb822 = "Types: deb\nURIs: https://havoc.app/\nSuites: ./\nComponents:\n\n"
+                         "# Chariz\nTypes: deb\nURIs: https://repo.chariz.com/ https://havoc.app\nSuites: ./\n\n"
+                         "Types: deb\nURIs: https://apt.procurs.us/\nSuites: 1900\nComponents: main\n";
+    char big[2048];
+    dropped = filter_deb822(deb822, strlen(deb822), "https://havoc.app/", big, &out_length);
+    expect(dropped == 2, "both mentions of the address go");
+    expect_text(big, out_length,
+                "# Chariz\nTypes: deb\nURIs: https://repo.chariz.com/\nSuites: ./\n\n"
+                "Types: deb\nURIs: https://apt.procurs.us/\nSuites: 1900\nComponents: main\n\n",
+                "a stanza with only that address goes; another keeps its other address and comment");
+
+    const char *one_line = "# Sources\ndeb https://havoc.app/ ./\ndeb [trusted=yes] http://limneos.net/repo ./\n"
+                           "deb-src https://havoc.app ./\ndeb https://repo.chariz.com/ ./\n";
+    dropped = filter_one_line(one_line, strlen(one_line), "https://havoc.app/", big, &out_length);
+    expect(dropped == 2, "deb and deb-src lines go");
+    expect_text(big, out_length, "# Sources\ndeb [trusted=yes] http://limneos.net/repo ./\ndeb https://repo.chariz.com/ ./\n",
+                "the other lines stay as they were");
+    dropped = filter_one_line(one_line, strlen(one_line), "http://limneos.net/repo/", big, &out_length);
+    expect(dropped == 1, "an address after options");
+
+    char sileo[PATH_MAX];
+    snprintf(sileo, sizeof sileo, "%s/sileo.sources", argv[1]);
+    const char *only = "Types: deb\nURIs: https://havoc.app/\nSuites: ./\n";
+    expect(write_codling_sources(sileo, only, strlen(only)) == 0, "a package manager's file");
+    expect(remove_from_file(sileo, "https://repo.chariz.com/", 0) == 0, "an address not in the file");
+    expect(remove_from_file(sileo, "https://havoc.app/", 0) == 1, "the address goes");
+    read_back = read_codling_sources(sileo, &length);
+    expect(read_back && length == 1 && read_back[0] == '\n', "another manager's file stays, empty");
+    free(read_back);
+    snprintf(path, sizeof path, "%s/codling.sources", argv[1]);
+    expect(write_codling_sources(path, only, strlen(only)) == 0 && remove_from_file(path, "https://havoc.app/", 1) == 1 &&
+               access(path, F_OK) != 0,
+           "an emptied codling.sources is deleted");
+    char link_path[PATH_MAX];
+    snprintf(link_path, sizeof link_path, "%s/linked.sources", argv[1]);
+    expect(write_codling_sources(sileo, only, strlen(only)) == 0 && symlink(sileo, link_path) == 0 &&
+               remove_from_file(link_path, "https://havoc.app/", 0) == 0,
+           "a link is not followed");
+
     if (failures) {
         fprintf(stderr, "[sources] %d of %d checks failed\n", failures, checks);
         return 1;

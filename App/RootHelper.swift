@@ -150,7 +150,7 @@ enum RootHelper {
         run(["add-source", uri], timeoutMilliseconds: 30_000).flatMap { decode(SourceChange.self, from: $0) }
     }
 
-    /// Takes a repository out of codling.sources.
+    /// Takes a repository out of every sources file apt reads.
     static func removeSource(_ uri: String) -> Result<SourceChange, Failure> {
         run(["remove-source", uri], timeoutMilliseconds: 30_000).flatMap { decode(SourceChange.self, from: $0) }
     }

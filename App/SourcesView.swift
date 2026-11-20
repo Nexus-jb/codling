@@ -51,22 +51,18 @@ struct SourcesView: View {
                                         Label("Refresh", systemImage: "arrow.clockwise")
                                     }
                                     .disabled(model.isRefreshing || row.activity != .idle)
-                                    if model.isCodlingSource(row.source) {
-                                        Button(role: .destructive) {
-                                            removing = row.source
-                                        } label: {
-                                            Label("Remove", systemImage: "trash")
-                                        }
+                                    Button(role: .destructive) {
+                                        removing = row.source
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
                                     }
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if !isEditing {
-                                        if model.isCodlingSource(row.source) {
-                                            Button(role: .destructive) {
-                                                removing = row.source
-                                            } label: {
-                                                Label("Remove", systemImage: "trash")
-                                            }
+                                        Button(role: .destructive) {
+                                            removing = row.source
+                                        } label: {
+                                            Label("Remove", systemImage: "trash")
                                         }
                                         Button {
                                             Task { await model.refresh(id: row.id) }
@@ -103,8 +99,8 @@ struct SourcesView: View {
             Button("Remove \(source.host)", role: .destructive) {
                 Task { problem = await model.remove(source) }
             }
-        } message: { _ in
-            Text("Its packages stay installed. Codling stops showing its packages and their updates.")
+        } message: { source in
+            Text(SourcesModel.removalNote(for: source, jailbreak: model.isJailbreakSource(source)))
         }
         .alert("Export All Sources?", isPresented: $exporting) {
             Button("Copy") { export(share: false) }

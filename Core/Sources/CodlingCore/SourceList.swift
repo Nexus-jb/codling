@@ -73,9 +73,8 @@ public struct Source: Hashable, Identifiable {
 }
 
 public enum SourceList {
-    /// The file Codling adds sources to, in sources.list.d. Codling removes
-    /// only the sources in it; the others belong to the jailbreak or to
-    /// another package manager.
+    /// The file Codling adds sources to, in sources.list.d. It removes a
+    /// source from whichever file lists it.
     public static let codlingFileName = "codling.sources"
 
     /// A repository address as people type it, as apt's URI: https:// when no
