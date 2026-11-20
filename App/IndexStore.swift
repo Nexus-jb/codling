@@ -70,7 +70,8 @@ actor IndexStore {
             """)
     }
 
-    private static let schemaVersion = 2
+    /// 3: package_count counts packages rather than versions.
+    private static let schemaVersion = 3
 
     private static func integer(_ database: OpaquePointer?, _ sql: String) throws -> Int {
         var statement: OpaquePointer?
@@ -140,7 +141,8 @@ actor IndexStore {
                     bind(insert, 18, record.tag)
                     guard sqlite3_step(insert) == SQLITE_DONE else { throw error() }
                 }
-                stored.packageCount = packages.count
+                // Packages, not versions: an index can list several versions of one.
+                stored.packageCount = Set(packages.map(\.package)).count
             }
             let upsert = try prepare("""
                 INSERT OR REPLACE INTO sources (id, label, release_etag, release_modified, release_digest,
@@ -189,7 +191,7 @@ actor IndexStore {
     }
 
     func packageCount() throws -> Int {
-        let statement = try prepare("SELECT COUNT(*) FROM packages")
+        let statement = try prepare("SELECT COUNT(*) FROM (SELECT DISTINCT source, package FROM packages)")
         defer { sqlite3_finalize(statement) }
         return sqlite3_step(statement) == SQLITE_ROW ? Int(sqlite3_column_int64(statement, 0)) : 0
     }

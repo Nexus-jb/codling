@@ -188,7 +188,7 @@ struct SourceRefresher {
         try await store.save(stateToSave, packages: records)
         try saveLists(source: source, releaseFiles: releaseFiles, indexes: indexes)
         return RefreshOutcome(state: .updated, label: stateToSave.label, signature: signature,
-                              packageCount: records.count, warnings: warnings)
+                              packageCount: Set(records.map(\.package)).count, warnings: warnings)
     }
 
     private func unchanged(_ stored: StoredSource?, source: Source) -> RefreshOutcome {
