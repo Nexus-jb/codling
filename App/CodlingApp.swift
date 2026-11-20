@@ -13,6 +13,8 @@ struct CodlingApp: App {
         let environment = RuntimeEnvironment.current()
         self.environment = environment
         MediaLoader.shared = MediaLoader(environment: environment)
+        // Web depictions keep nothing between launches.
+        WebDepictionView.emptyAppSession()
         _sources = StateObject(wrappedValue: SourcesModel(environment: environment))
     }
 

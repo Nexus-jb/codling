@@ -10,8 +10,8 @@ enum WebLoadState: Equatable {
 }
 
 /// A web depiction, as tall as its content so that it scrolls with the rest
-/// of the package page. It keeps no cookies or storage between pages, and a
-/// tapped link opens outside it.
+/// of the package page. A tapped link opens outside it, and it keeps no
+/// cookies or site data once the page closes.
 struct WebDepictionView: UIViewRepresentable {
     let url: URL
     @Binding var height: CGFloat
@@ -25,43 +25,55 @@ struct WebDepictionView: UIViewRepresentable {
     /// How long a page may take to start showing.
     static let timeout: TimeInterval = 30
 
+    /// Pages load in a private session that keeps nothing. Where that
+    /// session cannot run (its page process stops before drawing anything),
+    /// they load in the app's own session instead, which Codling empties
+    /// whenever a page closes. The choice holds until Codling quits.
+    static var privateSessionFails = false
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: Self.configuration())
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        webView.allowsLinkPreview = false
-        context.coordinator.observe(webView)
-        context.coordinator.load(webView)
-        return webView
+    /// A plain view that holds the web view, so that the web view can be
+    /// replaced when it has to load in the other session.
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+        container.clipsToBounds = true
+        context.coordinator.container = container
+        context.coordinator.load()
+        return container
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {
+    func updateUIView(_ container: UIView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.loadedReload != reload {
-            context.coordinator.load(webView)
+            context.coordinator.load()
         }
     }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.deadline?.cancel()
-        webView.stopLoading()
-        coordinator.observation = nil
+    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
+        coordinator.tearDown()
+        if privateSessionFails {
+            WebDepictionView.emptyAppSession()
+        }
     }
 
     static func configuration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = privateSessionFails ? .default() : .nonPersistent()
         configuration.applicationNameForUserAgent = "Codling"
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         return configuration
+    }
+
+    /// Removes every cookie and all site data of the app's own session.
+    static func emptyAppSession() {
+        let store = WKWebsiteDataStore.default()
+        store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
     }
 
     static func request(_ url: URL) -> URLRequest {
@@ -72,6 +84,8 @@ struct WebDepictionView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         var parent: WebDepictionView
+        weak var container: UIView?
+        private var webView: WKWebView?
         var observation: NSKeyValueObservation?
         var loadedReload: Int
         var deadline: DispatchWorkItem?
@@ -87,14 +101,27 @@ struct WebDepictionView: UIViewRepresentable {
             loadedReload = parent.reload
         }
 
-        func load(_ webView: WKWebView) {
+        /// Loads the page in a new web view.
+        func load() {
+            tearDown()
+            guard let container else { return }
+            let webView = WKWebView(frame: container.bounds, configuration: WebDepictionView.configuration())
+            webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            webView.scrollView.isScrollEnabled = false
+            webView.scrollView.contentInsetAdjustmentBehavior = .never
+            webView.navigationDelegate = self
+            webView.uiDelegate = self
+            webView.allowsLinkPreview = false
+            container.addSubview(webView)
+            self.webView = webView
+            observe(webView)
+
             loadedReload = parent.reload
             committed = false
             started = false
             answer = nil
             setState(.loading)
             webView.load(WebDepictionView.request(parent.url))
-            deadline?.cancel()
             let deadline = DispatchWorkItem { [weak self, weak webView] in
                 guard let self, !self.committed else { return }
                 webView?.stopLoading()
@@ -102,6 +129,17 @@ struct WebDepictionView: UIViewRepresentable {
             }
             self.deadline = deadline
             DispatchQueue.main.asyncAfter(deadline: .now() + WebDepictionView.timeout, execute: deadline)
+        }
+
+        func tearDown() {
+            deadline?.cancel()
+            deadline = nil
+            observation = nil
+            webView?.stopLoading()
+            webView?.navigationDelegate = nil
+            webView?.uiDelegate = nil
+            webView?.removeFromSuperview()
+            webView = nil
         }
 
         /// Where a load that never showed stopped.
@@ -202,10 +240,16 @@ struct WebDepictionView: UIViewRepresentable {
             setState(.failed("The description page could not be loaded. \(RefreshError.describe(error))"))
         }
 
-        /// The process that draws the page stopped, as when it runs out of
-        /// memory.
+        /// The process that draws the page stopped. Before anything was
+        /// drawn in the private session, the page loads again in the app's
+        /// own session; otherwise the page has failed.
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             deadline?.cancel()
+            if !committed && !WebDepictionView.privateSessionFails {
+                WebDepictionView.privateSessionFails = true
+                DispatchQueue.main.async { self.load() }
+                return
+            }
             committed = false
             setState(.failed("The description page stopped unexpectedly."))
         }
