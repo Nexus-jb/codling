@@ -26,15 +26,17 @@ struct SystemCheckView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 18)
 
-                    Text("Tools")
-                        .font(.largeTitle.bold())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 6)
-                        .accessibilityAddTraits(.isHeader)
-
-                    burrowCard
-                    helperCard
-                    PackageHealthCard(model: health)
+                    VStack(spacing: 12) {
+                        Text("Tools")
+                            .font(.title2.bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 4)
+                            .accessibilityAddTraits(.isHeader)
+                        burrowCard
+                        helperCard
+                        PackageHealthCard(model: health)
+                    }
+                    .toolColumn()
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
@@ -58,20 +60,11 @@ struct SystemCheckView: View {
 
     private var burrowCard: some View {
         NavigationLink(destination: BurrowView(model: burrow)) {
-            Card {
-                HStack(spacing: 14) {
-                    IconTile(symbol: "puzzlepiece.extension", color: .blue)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Burrow")
-                            .font(.title3.bold())
-                            .foregroundColor(.primary)
-                        Text("Manage the tweaks it loads, see what Safe Mode turned off, and turn a tweak off in one app.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
+            Card(padding: 14) {
+                HStack(spacing: 8) {
+                    ToolHeader(symbol: "puzzlepiece.extension", color: .blue, title: "Burrow") {
+                        ToolNote(text: "Manage the tweaks it loads, see what Safe Mode turned off, and turn a tweak off in one app.")
                     }
-                    Spacer(minLength: 4)
                     Chevron()
                 }
             }
@@ -80,25 +73,18 @@ struct SystemCheckView: View {
     }
 
     private var helperCard: some View {
-        Card {
-            HStack(alignment: .top, spacing: 14) {
-                IconTile(symbol: "lock.shield", color: .indigo)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Root Helper")
-                        .font(.title3.bold())
-                    helperStatus
-                    Text("The helper installs and removes packages, and takes only Codling's commands. This check changes nothing.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        Card(padding: 14) {
+            ToolHeader(symbol: "lock.shield", color: .indigo, title: "Root Helper") {
+                helperStatus
+                ToolNote(text: "The helper installs and removes packages, and takes only Codling's commands. This check changes nothing.")
+                    .padding(.top, 2)
             }
             Button("Check the Root Helper") {
                 Task { await checkHelper() }
             }
             .buttonStyle(TintedButtonStyle())
             .disabled(isChecking)
-            .padding(.top, 16)
+            .padding(.top, 12)
         }
     }
 
@@ -114,21 +100,25 @@ struct SystemCheckView: View {
             HStack(spacing: 8) {
                 ProgressView()
                 Text("Checking")
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
         case .checked(.success(let identity)) where identity.isRoot:
             StatusLine(symbol: "checkmark.circle.fill", text: "Running as root", color: .green)
             Text(identity.dpkgWritable ? "UID 0 · Can write the package database."
                                        : "UID 0 · Cannot write the package database.")
+                .font(.subheadline)
                 .foregroundColor(.secondary)
         case .checked(.success(let identity)):
             StatusLine(symbol: "xmark.octagon.fill", text: "Did not get root", color: .red)
             Text("It ran as UID \(identity.uid), so Codling cannot install packages.")
+                .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .checked(.failure(let failure)):
             StatusLine(symbol: "xmark.octagon.fill", text: "Did not run", color: .red)
             Text(failure.message)
+                .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

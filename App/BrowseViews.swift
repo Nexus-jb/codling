@@ -31,7 +31,7 @@ struct SourceDetailView: View {
                 }
                 if let entry = PiracySources.entry(for: row.source.uri) {
                     Card {
-                        StatusLine(symbol: "exclamationmark.shield.fill", text: "Known for piracy", color: .red)
+                        StatusLine(symbol: "exclamationmark.shield.fill", text: "Known for piracy", color: .red, font: .body.weight(.semibold))
                         Text("\(entry.name) is known for handing out paid tweaks and apps without their developers' permission. Cracked packages are often outdated or unstable and can carry malware.")
                             .font(.subheadline)
                             .fixedSize(horizontal: false, vertical: true)
@@ -155,7 +155,7 @@ private extension SourceDetailView {
         if let findings {
             VStack(alignment: .leading, spacing: 10) {
                 if findings.isEmpty {
-                    StatusLine(symbol: "checkmark.shield.fill", text: "Nothing found", color: .green)
+                    StatusLine(symbol: "checkmark.shield.fill", text: "Nothing found", color: .green, font: .body.weight(.semibold))
                 }
                 ForEach(findings) { finding in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {

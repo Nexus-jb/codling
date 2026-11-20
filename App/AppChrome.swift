@@ -139,6 +139,7 @@ struct StatusLine: View {
     let symbol: String
     let text: String
     let color: Color
+    var font: Font = .subheadline.weight(.semibold)
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -147,7 +148,7 @@ struct StatusLine: View {
             Text(text)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.body.weight(.semibold))
+        .font(font)
         .foregroundColor(color)
     }
 }
@@ -159,12 +160,12 @@ struct TintedButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.body.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundColor(isEnabled ? color : .secondary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 13)
+            .padding(.vertical, 10)
             .background(color.opacity(configuration.isPressed ? 0.22 : 0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -371,5 +372,50 @@ struct PackageIcon: View {
                 .clipShape(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
                 .accessibilityHidden(true)
         }
+    }
+}
+
+// MARK: Tool cards
+
+/// The top of a tool card, as on the System screen and the Queue: an icon,
+/// a title, and what is under it (a status, a note).
+struct ToolHeader<Content: View>: View {
+    let symbol: String
+    var color: Color = .accentColor
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            IconTile(symbol: symbol, color: color, size: 40)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// What a tool does, in a card.
+struct ToolNote: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+extension View {
+    /// Tool cards in a column of moderate width, centered on wide screens.
+    func toolColumn() -> some View {
+        frame(maxWidth: 380)
+            .frame(maxWidth: .infinity)
     }
 }

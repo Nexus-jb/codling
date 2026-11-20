@@ -83,18 +83,11 @@ struct PackageHealthCard: View {
     @State private var confirming: AptDiagnosis.Fix?
 
     var body: some View {
-        Card {
-            HStack(alignment: .top, spacing: 14) {
-                IconTile(symbol: "shippingbox", color: .blue)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Packages")
-                        .font(.title3.bold())
-                    status
-                    Text("A check with dpkg and apt for packages left half installed or missing a dependency. It changes nothing.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        Card(padding: 14) {
+            ToolHeader(symbol: "shippingbox", color: .blue, title: "Packages") {
+                status
+                ToolNote(text: "A check with dpkg and apt for packages left half installed or missing a dependency. It changes nothing.")
+                    .padding(.top, 2)
             }
             problems
             Button("Check the Packages") {
@@ -102,7 +95,7 @@ struct PackageHealthCard: View {
             }
             .buttonStyle(TintedButtonStyle())
             .disabled(isBusy)
-            .padding(.top, 16)
+            .padding(.top, 12)
         }
         .confirmationDialog("Finish setting up the packages?", isPresented: Binding(
             get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible) {
@@ -131,22 +124,26 @@ struct PackageHealthCard: View {
             HStack(spacing: 8) {
                 ProgressView()
                 Text("Checking")
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
         case .fixing(let fix):
             HStack(spacing: 8) {
                 ProgressView()
                 Text(fix == .configurePending ? "Finishing setup" : "Working")
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
         case .healthy:
             StatusLine(symbol: "checkmark.circle.fill", text: "No problems", color: .green)
             Text("Every package is fully installed, and every dependency is met.")
+                .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .failed(let message):
             StatusLine(symbol: "xmark.octagon.fill", text: "Could not check", color: .red)
             Text(message)
+                .font(.subheadline)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         case .problems(let diagnoses, _):

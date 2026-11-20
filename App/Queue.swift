@@ -322,58 +322,102 @@ struct QueueView: View {
     }
 
     private var editing: some View {
-        List {
-            if queue.items.isEmpty {
-                Section {
-                    Text("Nothing is queued. Install, upgrade or remove packages from their pages.")
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                Section {
-                    ForEach(queue.items) { item in
-                        HStack {
-                            Label(item.name, systemImage: symbol(item.operation))
-                            Spacer()
-                            Text(verb(item.operation))
-                                .foregroundColor(.secondary)
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                    .onDelete { queue.remove(atOffsets: $0) }
-                } footer: {
-                    Text("Swipe to take a package off the queue. The review shows everything apt would change, including the packages these need, before anything happens.")
-                }
-                Section {
-                    Button {
-                        Task { await queue.review() }
-                    } label: {
-                        Text("Review Changes")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                    }
+        ScrollView {
+            VStack(spacing: 12) {
+                queueCard
+                if let last = queue.lastChange {
+                    lastChangeCard(last)
                 }
             }
-            if let last = queue.lastChange {
-                Section {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(last.title)
-                        Text(last.date.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Button {
-                        Task { await queue.undoLastChange(names: names) }
-                    } label: {
-                        Label("Undo Last Change", systemImage: "arrow.uturn.backward")
-                    }
-                } header: {
-                    Text("Last Change")
-                } footer: {
-                    Text("Undo removes what the change added and puts back what it removed or replaced, from the backups made before it. You review it first.")
+            .toolColumn()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+    }
+
+    /// What is queued, a button to take each off, and the review.
+    private var queueCard: some View {
+        Card(padding: 14) {
+            ToolHeader(symbol: "tray.and.arrow.down", color: .blue, title: "Queue") {
+                if queue.items.isEmpty {
+                    Text("Nothing is queued")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.secondary)
+                    ToolNote(text: "Install, upgrade or remove packages from their pages, and they wait here until you review them.")
+                        .padding(.top, 2)
+                } else {
+                    StatusLine(symbol: "clock.fill",
+                               text: queue.items.count == 1 ? "1 change waiting" : "\(queue.items.count) changes waiting",
+                               color: .blue)
+                    ToolNote(text: "The review shows everything apt would change, including the packages these need, before anything happens.")
+                        .padding(.top, 2)
                 }
+            }
+            if !queue.items.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(queue.items) { item in
+                        if item.id != queue.items.first?.id {
+                            Divider()
+                        }
+                        HStack(spacing: 10) {
+                            Image(systemName: symbol(item.operation))
+                                .foregroundColor(.accentColor)
+                                .frame(width: 22)
+                                .accessibilityHidden(true)
+                            Text(item.name)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Spacer(minLength: 6)
+                            Text(verb(item.operation))
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                            Button {
+                                withAnimation { queue.remove(item.id) }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title3)
+                                    .foregroundColor(Color(.tertiaryLabel))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Take \(item.name) off the queue")
+                        }
+                        .padding(.vertical, 9)
+                        .accessibilityElement(children: .contain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .background(Color(.tertiarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(.top, 12)
+
+                Button("Review Changes") {
+                    Task { await queue.review() }
+                }
+                .buttonStyle(TintedButtonStyle())
+                .padding(.top, 12)
             }
         }
-        .listStyle(.insetGrouped)
+    }
+
+    private func lastChangeCard(_ last: ChangeRecord) -> some View {
+        Card(padding: 14) {
+            ToolHeader(symbol: "arrow.uturn.backward", color: .orange, title: "Last Change") {
+                Text(last.title)
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(last.date.formatted(date: .abbreviated, time: .shortened))
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                ToolNote(text: "Undo removes what the change added and puts back what it removed or replaced, from the backups made before it. You review it first.")
+                    .padding(.top, 2)
+            }
+            Button("Undo Last Change") {
+                Task { await queue.undoLastChange(names: names) }
+            }
+            .buttonStyle(TintedButtonStyle(color: .orange))
+            .padding(.top, 12)
+        }
     }
 
     private func finished(succeeded: Bool, plan: AptPlan, diagnoses: [AptDiagnosis], output: String, notes: [String]) -> some View {
