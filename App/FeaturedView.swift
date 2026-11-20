@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import CodlingCore
 import SwiftUI
 
 /// The Featured tab: the banners every source publishes, with equal
