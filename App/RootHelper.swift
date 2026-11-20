@@ -113,13 +113,34 @@ enum RootHelper {
             .flatMap { decode(CommandResult.self, from: $0) }
     }
 
+    /// What `codling-helper backup` reports for each package.
+    struct BackupReport: Decodable, Equatable {
+        struct Entry: Decodable, Equatable {
+            let package: String
+            let version: String
+            let file: String?
+            let error: String?
+        }
+
+        let backups: [Entry]
+    }
+
+    /// Rebuilds the installed packages' .debs into the helper's backups, so
+    /// that undo can put them back.
+    static func backup(_ packages: [String]) -> Result<BackupReport, Failure> {
+        guard !packages.isEmpty, packages.allSatisfy(PackageOperation.isValidName) else {
+            return .failure(.failed(status: 64, message: "A package name is not one apt accepts."))
+        }
+        return run(["backup"] + packages, timeoutMilliseconds: 900_000).flatMap { decode(BackupReport.self, from: $0) }
+    }
+
     /// Restarts SpringBoard.
     static func respring() -> Result<CommandResult, Failure> {
         run(["respring"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
     }
 
     private static func arguments(for operations: [PackageOperation]) -> [String]? {
-        guard !operations.isEmpty, operations.allSatisfy({ PackageOperation.isValidName($0.package) }) else {
+        guard !operations.isEmpty, operations.allSatisfy(\.isValid) else {
             return nil
         }
         return operations.map(\.helperArgument)

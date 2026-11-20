@@ -38,11 +38,22 @@
 //                          never removed.
 //   codling-helper respring
 //                          restarts SpringBoard, so that tweaks load.
+//   codling-helper backup PACKAGE...
+//                          rebuilds the .deb of each installed package from
+//                          dpkg's database and the files on disk (repack.c),
+//                          into JAILBREAK/var/lib/codling/backups, which only
+//                          root can write, so that undo can put it back. The
+//                          newest backups are kept; older ones are deleted.
 //
 // Operations name packages only: letters, digits, "+", "-" and ".", starting
-// with a letter or digit and ending with a letter, a digit or "+". Nothing
-// else from the caller reaches apt.
+// with a letter or digit and ending with a letter, a digit or "+". A third
+// operation, @package=version, installs that version from its backup; the
+// version is checked too, and the helper finds the file itself. Nothing else
+// from the caller reaches apt.
 
+#include "repack.h"
+
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -204,7 +215,9 @@ static void usage_error(const char *message) {
     exit(64);
 }
 
-enum { name_limit = 128, operation_limit = 200 };
+enum { name_limit = 128, operation_limit = 200, backups_kept = 60 };
+
+static const char backups_suffix[] = "/var/lib/codling/backups";
 
 // A package name as dpkg accepts it, kept to what cannot be read as an
 // option, a pattern or a path.
@@ -229,10 +242,58 @@ static int valid_package(const char *name) {
     return 1;
 }
 
-// Turns +name and -name operations into apt-get install arguments: name to
-// install, name- to remove. The strings stay owned by argv or the buffer.
-static size_t add_operations(int count, char **operations, const char **arguments, size_t used,
-                             char buffer[][name_limit + 2]) {
+// A Debian version: a digit first, then letters, digits and ".+~:-".
+static int valid_version(const char *version) {
+    size_t length = strlen(version);
+    if (length < 1 || length > 128 || version[0] < '0' || version[0] > '9') {
+        return 0;
+    }
+    for (size_t i = 0; i < length; i++) {
+        char c = version[i];
+        int alnum = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        if (!alnum && !strchr(".+~:-", c)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+enum { backup_path_size = PATH_MAX };
+
+// The backup of name at version: NAME_VERSION_ARCH.deb in the backups
+// directory, found by listing it. 0 when it exists.
+static int backup_path(const char *root, const char *name, const char *version, char path[backup_path_size]) {
+    char directory[PATH_MAX];
+    snprintf(directory, sizeof directory, "%s%s", root, backups_suffix);
+    char escaped[512];
+    codling_escape_version(version, escaped, sizeof escaped);
+    char prefix[name_limit + 520];
+    snprintf(prefix, sizeof prefix, "%s_%s_", name, escaped);
+    DIR *listing = opendir(directory);
+    if (!listing) {
+        return -1;
+    }
+    int found = -1;
+    struct dirent *entry;
+    while ((entry = readdir(listing)) != NULL) {
+        size_t length = strlen(entry->d_name);
+        if (strncmp(entry->d_name, prefix, strlen(prefix)) == 0 && length > 4
+            && strcmp(entry->d_name + length - 4, ".deb") == 0 && !strchr(entry->d_name + strlen(prefix), '_')) {
+            snprintf(path, backup_path_size, "%s/%s", directory, entry->d_name);
+            found = 0;
+            break;
+        }
+    }
+    closedir(listing);
+    return found;
+}
+
+// Turns operations into apt-get install arguments: +name installs name,
+// -name removes it (name-), @name=version installs the backup's file. The
+// strings stay owned by argv or the buffer. Sets *restores when any
+// operation restores a backup.
+static size_t add_operations(const char *root, int count, char **operations, const char **arguments, size_t used,
+                             char buffer[][backup_path_size], int *restores) {
     if (count < 1) {
         usage_error("No operations were given.");
     }
@@ -243,13 +304,32 @@ static size_t add_operations(int count, char **operations, const char **argument
         const char *operation = operations[i];
         char kind = operation[0];
         const char *name = operation + (kind ? 1 : 0);
+        if (kind == '@') {
+            char package[name_limit + 1];
+            const char *equals = strchr(name, '=');
+            size_t name_length = equals ? (size_t)(equals - name) : 0;
+            if (!equals || name_length > name_limit) {
+                usage_error("A restore is not @package=version.");
+            }
+            memcpy(package, name, name_length);
+            package[name_length] = '\0';
+            if (!valid_package(package) || !valid_version(equals + 1)) {
+                usage_error("A restore names a package or version that is not valid.");
+            }
+            if (backup_path(root, package, equals + 1, buffer[i]) != 0) {
+                usage_error("There is no backup of that version of the package.");
+            }
+            arguments[used++] = buffer[i];
+            *restores = 1;
+            continue;
+        }
         if ((kind != '+' && kind != '-') || !valid_package(name)) {
-            usage_error("An operation is not +package or -package with a valid package name.");
+            usage_error("An operation is not +package, -package or @package=version with valid names.");
         }
         if (kind == '+') {
             arguments[used++] = name;
         } else {
-            snprintf(buffer[i], name_limit + 2, "%s-", name);
+            snprintf(buffer[i], backup_path_size, "%s-", name);
             arguments[used++] = buffer[i];
         }
     }
@@ -268,14 +348,21 @@ static int update_lists(void) {
 static int simulate(int count, char **operations) {
     char root[PATH_MAX];
     require_root(root);
-    static char buffer[operation_limit][name_limit + 2];
+    static char buffer[operation_limit][backup_path_size];
     const char *arguments[operation_limit + 8];
     size_t used = 0;
+    int restores = 0;
     arguments[used++] = "apt-get";
     arguments[used++] = "install";
     arguments[used++] = "-s";
     arguments[used++] = "-q";
-    used = add_operations(count, operations, arguments, used, buffer);
+    // Set below when an operation restores a backup, which may be older.
+    size_t downgrades = used++;
+    arguments[downgrades] = "-q";
+    used = add_operations(root, count, operations, arguments, used, buffer, &restores);
+    if (restores) {
+        arguments[downgrades] = "--allow-downgrades";
+    }
     arguments[used] = NULL;
     run_and_report(root, "/usr/bin/apt-get", arguments);
     putchar('\n');
@@ -298,13 +385,16 @@ static int apply(int count, char **words) {
         }
         first++;
     }
-    static char buffer[operation_limit][name_limit + 2];
+    static char buffer[operation_limit][backup_path_size];
     const char *arguments[operation_limit + 16];
     size_t used = 0;
+    int restores = 0;
     arguments[used++] = "apt-get";
     arguments[used++] = "install";
     arguments[used++] = "-y";
     arguments[used++] = "-q";
+    size_t downgrades = used++;
+    arguments[downgrades] = "-q";
     // A changed configuration file is kept, and dpkg asks nothing.
     arguments[used++] = "-o";
     arguments[used++] = "Dpkg::Options::=--force-confdef";
@@ -316,10 +406,115 @@ static int apply(int count, char **words) {
     if (!allow_removals) {
         arguments[used++] = "--no-remove";
     }
-    used = add_operations(count - first, words + first, arguments, used, buffer);
+    used = add_operations(root, count - first, words + first, arguments, used, buffer, &restores);
+    if (restores) {
+        arguments[downgrades] = "--allow-downgrades";
+    }
     arguments[used] = NULL;
     run_and_report(root, "/usr/bin/apt-get", arguments);
     putchar('\n');
+    return 0;
+}
+
+// Deletes all but the newest backups_kept backups.
+static void prune_backups(const char *directory) {
+    DIR *listing = opendir(directory);
+    if (!listing) {
+        return;
+    }
+    struct kept { char name[NAME_MAX + 1]; time_t time; };
+    static struct kept files[1024];
+    size_t count = 0;
+    struct dirent *entry;
+    while ((entry = readdir(listing)) != NULL && count < sizeof files / sizeof files[0]) {
+        size_t length = strlen(entry->d_name);
+        if (length > 4 && strcmp(entry->d_name + length - 4, ".deb") == 0) {
+            char path[PATH_MAX];
+            struct stat info;
+            snprintf(path, sizeof path, "%s/%s", directory, entry->d_name);
+            if (lstat(path, &info) == 0 && S_ISREG(info.st_mode)) {
+                snprintf(files[count].name, sizeof files[count].name, "%s", entry->d_name);
+                files[count].time = info.st_mtime;
+                count++;
+            }
+        }
+    }
+    closedir(listing);
+    while (count > backups_kept) {
+        size_t oldest = 0;
+        for (size_t i = 1; i < count; i++) {
+            if (files[i].time < files[oldest].time) {
+                oldest = i;
+            }
+        }
+        char path[PATH_MAX];
+        snprintf(path, sizeof path, "%s/%s", directory, files[oldest].name);
+        unlink(path);
+        files[oldest] = files[--count];
+    }
+}
+
+static int backup(int count, char **names) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (count < 1 || count > operation_limit) {
+        usage_error("Name between 1 and 200 packages to back up.");
+    }
+    for (int i = 0; i < count; i++) {
+        if (!valid_package(names[i])) {
+            usage_error("A package name is not valid.");
+        }
+    }
+    char codling[PATH_MAX];
+    char directory[PATH_MAX];
+    char staging[PATH_MAX];
+    char admin[PATH_MAX];
+    char dpkg_deb[PATH_MAX];
+    char search[4 * PATH_MAX];
+    snprintf(codling, sizeof codling, "%s/var/lib/codling", root);
+    snprintf(directory, sizeof directory, "%s%s", root, backups_suffix);
+    snprintf(staging, sizeof staging, "%s/var/lib/codling/staging", root);
+    snprintf(admin, sizeof admin, "%s/var/lib/dpkg", root);
+    snprintf(dpkg_deb, sizeof dpkg_deb, "%s/usr/bin/dpkg-deb", root);
+    snprintf(search, sizeof search,
+             "PATH=%s/usr/sbin:%s/usr/bin:%s/sbin:%s/bin:/usr/sbin:/usr/bin:/sbin:/bin", root, root, root, root);
+    for (const char *made = codling; made; made = made == codling ? directory : NULL) {
+        if (mkdir(made, 0755) != 0 && errno != EEXIST) {
+            usage_error("The backup directory cannot be created.");
+        }
+        // Root's alone, whoever made it.
+        if (chown(made, 0, 0) != 0 || chmod(made, 0755) != 0) {
+            usage_error("The backup directory cannot be made root's.");
+        }
+    }
+    struct codling_repack_paths paths = {
+        .admin = admin, .files = "", .staging = staging, .output = directory,
+        .dpkg_deb = dpkg_deb, .path_variable = search,
+    };
+    fputs("{\"backups\":[", stdout);
+    for (int i = 0; i < count; i++) {
+        char version[256] = "";
+        char architecture[64] = "";
+        char file_name[PATH_MAX];
+        char message[1024];
+        codling_installed_version(admin, names[i], version, sizeof version, architecture, sizeof architecture);
+        int made = codling_repack(&paths, names[i], file_name, sizeof file_name, message, sizeof message);
+        printf("%s{\"package\":", i ? "," : "");
+        print_json_string(names[i], strlen(names[i]));
+        fputs(",\"version\":", stdout);
+        print_json_string(version, strlen(version));
+        if (made == 0) {
+            fputs(",\"file\":", stdout);
+            print_json_string(file_name, strlen(file_name));
+        } else {
+            fputs(",\"error\":", stdout);
+            print_json_string(message, strlen(message));
+        }
+        putchar('}');
+    }
+    puts("]}");
+    codling_remove_tree(staging);
+    prune_backups(directory);
     return 0;
 }
 
@@ -395,7 +590,10 @@ int main(int argc, char **argv) {
     if (argc == 2 && strcmp(argv[1], "respring") == 0) {
         return respring();
     }
+    if (argc >= 2 && strcmp(argv[1], "backup") == 0) {
+        return backup(argc - 2, argv + 2);
+    }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
-          "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring\n", stderr);
+          "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE...\n", stderr);
     return 64;
 }

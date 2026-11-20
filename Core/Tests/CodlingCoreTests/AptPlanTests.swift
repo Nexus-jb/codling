@@ -56,6 +56,20 @@ final class AptPlanTests: XCTestCase {
                        ["not-found"])
     }
 
+    func testUndo() {
+        let before = ["a": "1.0", "b": "2.0", "c": "3.0", "kept": "1"]
+        let after = ["a": "1.1", "c": "3.0", "kept": "1", "new": "0.1", "dep": "5"]
+        let plan = UndoPlanner.plan(before: before, after: after, backups: ["a": "1.0", "b": "1.9"])
+        XCTAssertEqual(plan.operations, [.remove("dep"), .remove("new"), .restore("a", version: "1.0")])
+        XCTAssertEqual(plan.missing, ["b"])
+        XCTAssertEqual(UndoPlanner.plan(before: before, after: before, backups: [:]), .init(operations: [], missing: []))
+        XCTAssertEqual(PackageOperation.restore("a", version: "1:2.0-1").helperArgument, "@a=1:2.0-1")
+        XCTAssertTrue(PackageOperation.restore("a.b", version: "1:2.0~beta1+x").isValid)
+        XCTAssertFalse(PackageOperation.restore("a.b", version: "v1").isValid)
+        XCTAssertFalse(PackageOperation.restore("a.b", version: "1 0").isValid)
+        XCTAssertFalse(PackageOperation.restore("a.b", version: "1/../x").isValid)
+    }
+
     func testOperations() {
         XCTAssertEqual(PackageOperation.install("jq").helperArgument, "+jq")
         XCTAssertEqual(PackageOperation.remove("com.example.tweak").helperArgument, "-com.example.tweak")
