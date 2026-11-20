@@ -64,40 +64,50 @@ struct FeaturedView: View {
 
     var body: some View {
         NavigationView {
-            List {
-                if !model.banners.isEmpty {
-                    Section {
+            ScrollView {
+                VStack(spacing: 10) {
+                    if !model.banners.isEmpty {
                         FeaturedCarousel(items: model.banners)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                    } footer: {
-                        Text("Banners from every source you added, in a new order each time.")
+                            .padding(.horizontal, -16)
+                        CardFooter(text: "Banners from every source you added, in a new order each time.")
                     }
-                }
 
-                Section {
+                    CardHeading(title: "New and Updated", symbol: "sparkles")
+                        .padding(.top, 8)
                     if model.arrivals.isEmpty {
-                        Text(model.loaded ? emptyText : "Loading")
-                            .foregroundColor(.secondary)
-                    }
-                    ForEach(model.arrivals) { arrival in
-                        if let info = sources.info(for: arrival.package.source) {
-                            NavigationLink(destination: PackageView(source: info, identifier: arrival.package.package,
-                                                                    summary: arrival.package)) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    CatalogRow(package: arrival.package, source: info, showSource: true)
-                                    Text("\(arrival.updated ? "Updated" : "New") \(arrival.date.formatted(.relative(presentation: .named)))")
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundColor(arrival.updated ? .blue : .green)
+                        Card {
+                            Text(model.loaded ? emptyText : "Loading")
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        let rows = model.arrivals.compactMap { arrival in
+                            sources.info(for: arrival.package.source).map { ArrivalRow(arrival: arrival, info: $0) }
+                        }
+                        CardRows(items: rows, dividerInset: 72) { row in
+                            NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
+                                                                    summary: row.arrival.package)) {
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        CatalogRow(package: row.arrival.package, source: row.info, showSource: true)
+                                        Text("\(row.arrival.updated ? "Updated" : "New") \(row.arrival.date.formatted(.relative(presentation: .named)))")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundColor(row.arrival.updated ? .blue : .green)
+                                            .padding(.leading, 56)
+                                    }
+                                    Chevron()
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
                             }
+                            .buttonStyle(CardRowButtonStyle())
                         }
                     }
-                } header: {
-                    Text("New and Updated")
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .listStyle(.insetGrouped)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .navigationTitle("Featured")
             .systemButton()
             .refreshable {
@@ -114,6 +124,14 @@ struct FeaturedView: View {
     private var emptyText: String {
         "Packages your sources add or update show here, from the next refresh on. Pull down to refresh."
     }
+}
+
+/// A new or updated package with the source it is from.
+private struct ArrivalRow: Identifiable {
+    let arrival: IndexStore.Arrival
+    let info: SourceInfo
+
+    var id: String { arrival.id }
 }
 
 /// The banners side by side, all the same size, each with its source's name.
@@ -145,7 +163,7 @@ private struct FeaturedCarousel: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 6)
         }
     }
 }

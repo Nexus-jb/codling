@@ -295,19 +295,23 @@ struct PackageListView: View {
 
     var body: some View {
         let shown = filtered
-        List {
-            Section {
-                ForEach(shown) { package in
-                    NavigationLink(destination: PackageView(source: source, identifier: package.package, summary: package)) {
-                        CatalogRow(package: package, source: source, showSource: false)
+        ScrollView {
+            VStack(spacing: 8) {
+                if !shown.isEmpty {
+                    CardRows(items: shown, dividerInset: 72) { package in
+                        NavigationLink(destination: PackageView(source: source, identifier: package.package, summary: package)) {
+                            CatalogCardRow(package: package, source: source, showSource: false)
+                        }
+                        .buttonStyle(CardRowButtonStyle())
                     }
                 }
-            } footer: {
-                Text(shown.count == packages.count ? "\(packages.count.formatted()) packages"
-                     : "\(shown.count.formatted()) of \(packages.count.formatted()) packages")
+                CardFooter(text: shown.count == packages.count ? "\(packages.count.formatted()) packages"
+                           : "\(shown.count.formatted()) of \(packages.count.formatted()) packages")
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .listStyle(.plain)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .searchable(text: $query, prompt: "Filter by name, author or identifier")
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -324,6 +328,22 @@ struct PackageListView: View {
     }
 }
 
+/// A package as a row of a card: the catalog row, with a chevron.
+struct CatalogCardRow: View {
+    let package: PackageSummary
+    let source: SourceInfo
+    let showSource: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            CatalogRow(package: package, source: source, showSource: showSource)
+            Chevron()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
 /// A package in a list: icon, name, version, summary and author.
 struct CatalogRow: View {
     let package: PackageSummary
@@ -333,7 +353,7 @@ struct CatalogRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            IconView(urls: source.url(package.icon).map { [$0] } ?? [], symbol: SectionSymbol.name(for: package.section))
+            PackageIcon(urls: source.url(package.icon).map { [$0] } ?? [], section: package.section)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(package.displayName)
@@ -373,6 +393,14 @@ struct CatalogRow: View {
     }
 }
 
+/// A search result with the source it is from.
+private struct SearchRow: Identifiable {
+    let package: PackageSummary
+    let info: SourceInfo
+
+    var id: String { package.id }
+}
+
 /// Search across the packages of every source.
 struct SearchView: View {
     @EnvironmentObject private var sources: SourcesModel
@@ -381,35 +409,42 @@ struct SearchView: View {
 
     var body: some View {
         NavigationView {
-            List {
-                let trimmed = query.trimmingCharacters(in: .whitespaces)
-                if trimmed.isEmpty {
-                    Section {
-                        Text(hint)
-                            .foregroundColor(.secondary)
-                    }
-                } else if model.searchedQuery == trimmed && model.results.isEmpty {
-                    Section {
-                        Text("No package matches \u{201C}\(trimmed)\u{201D}.")
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    Section {
-                        ForEach(model.results) { package in
-                            if let info = sources.info(for: package.source) {
-                                NavigationLink(destination: PackageView(source: info, identifier: package.package, summary: package)) {
-                                    CatalogRow(package: package, source: info, showSource: true)
+            ScrollView {
+                VStack(spacing: 8) {
+                    let trimmed = query.trimmingCharacters(in: .whitespaces)
+                    if trimmed.isEmpty {
+                        Card {
+                            Text(hint)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else if model.searchedQuery == trimmed && model.results.isEmpty {
+                        Card {
+                            Text("No package matches \u{201C}\(trimmed)\u{201D}.")
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        let rows = model.results.compactMap { package in
+                            sources.info(for: package.source).map { SearchRow(package: package, info: $0) }
+                        }
+                        if !rows.isEmpty {
+                            CardRows(items: rows, dividerInset: 72) { row in
+                                NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package,
+                                                                        summary: row.package)) {
+                                    CatalogCardRow(package: row.package, source: row.info, showSource: true)
                                 }
+                                .buttonStyle(CardRowButtonStyle())
                             }
                         }
-                    } footer: {
                         if model.truncated {
-                            Text("Showing the best \(SearchModel.limit) matches. Add words to narrow the search.")
+                            CardFooter(text: "Showing the best \(SearchModel.limit) matches. Add words to narrow the search.")
                         }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .listStyle(.insetGrouped)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Name, author or identifier")
             .disableAutocorrection(true)

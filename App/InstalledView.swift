@@ -38,18 +38,22 @@ struct InstalledView: View {
             .padding()
         case .loaded(let packages):
             let shown = filtered(packages)
-            List {
-                Section {
-                    ForEach(shown) { package in
-                        NavigationLink(destination: PackageDetailView(package: package)) {
-                            PackageRow(package: package)
+            ScrollView {
+                VStack(spacing: 8) {
+                    if !shown.isEmpty {
+                        CardRows(items: shown) { package in
+                            NavigationLink(destination: PackageDetailView(package: package)) {
+                                PackageRow(package: package)
+                            }
+                            .buttonStyle(CardRowButtonStyle())
                         }
                     }
-                } footer: {
-                    Text(footer(shown: shown.count, total: packages.count))
+                    CardFooter(text: footer(shown: shown.count, total: packages.count))
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .listStyle(.insetGrouped)
+            .background(Color(.systemGroupedBackground).ignoresSafeArea())
             .searchable(text: $query, prompt: "Name, identifier or author")
             .refreshable { await model.load(statusPath: environment.dpkgStatusPath) }
         }
@@ -77,25 +81,50 @@ private struct PackageRow: View {
     let package: InstalledPackage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
+        HStack(spacing: 14) {
+            InstalledIcon(package: package)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(package.name)
-                    .font(.headline)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(.primary)
                     .lineLimit(1)
-                Spacer()
-                Text(package.version)
-                    .font(.caption.monospacedDigit())
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                if !package.summary.isEmpty {
+                    Text(package.summary)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
             }
-            if !package.summary.isEmpty {
-                Text(package.summary)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
+            Spacer(minLength: 8)
+            Text(package.version)
+                .font(.footnote.monospacedDigit())
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Chevron()
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The icon a package names, when it loads; otherwise its section's symbol
+/// on its section's color.
+private struct InstalledIcon: View {
+    let package: InstalledPackage
+    private let size: CGFloat = 40
+
+    var body: some View {
+        PackageIcon(urls: iconURL.map { [$0] } ?? [], section: package.section, size: size)
+    }
+
+    private var iconURL: URL? {
+        guard let text = package.field("Icon"), let url = URL(string: text),
+              let scheme = url.scheme?.lowercased(), ["https", "http", "file"].contains(scheme) else {
+            return nil
+        }
+        return url
     }
 }
 

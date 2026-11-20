@@ -172,6 +172,7 @@ struct TintedButtonStyle: ButtonStyle {
 struct CardRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .foregroundColor(.primary)
             .contentShape(Rectangle())
             .background(configuration.isPressed ? Color(.systemGray4).opacity(0.5) : Color.clear)
     }
@@ -324,6 +325,51 @@ private struct TabBarRoom: UIViewControllerRepresentable {
             if controller.additionalSafeAreaInsets.bottom != room {
                 controller.additionalSafeAreaInsets.bottom = room
             }
+        }
+    }
+}
+
+/// Rows in one card with a line between them, as a source's sections are
+/// shown. The rows are made as they scroll into view, for long lists.
+struct CardRows<Item: Identifiable, Row: View>: View {
+    let items: [Item]
+    /// Where the line between rows starts, past the icon.
+    var dividerInset: CGFloat = 70
+    @ViewBuilder let row: (Item) -> Row
+
+    var body: some View {
+        Card(padding: 0) {
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    row(item)
+                        .overlay(alignment: .top) {
+                            if item.id != items.first?.id {
+                                Divider()
+                                    .padding(.leading, dividerInset)
+                            }
+                        }
+                }
+            }
+        }
+    }
+}
+
+/// A package's icon when it loads; until then, or when it has none, its
+/// section's symbol on its section's color.
+struct PackageIcon: View {
+    let urls: [URL]
+    let section: String?
+    var size: CGFloat = 44
+
+    var body: some View {
+        let tile = IconTile(symbol: SectionSymbol.name(for: section), color: SectionSymbol.color(for: section), size: size)
+        if urls.isEmpty {
+            tile
+        } else {
+            RemoteImage(urls: urls, maxPixels: Int(size * 3)) { tile }
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
+                .accessibilityHidden(true)
         }
     }
 }
