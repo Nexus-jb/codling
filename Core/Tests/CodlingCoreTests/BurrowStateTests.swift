@@ -91,6 +91,27 @@ final class BurrowStateTests: XCTestCase {
         XCTAssertFalse(state.canChangeSettings)
     }
 
+    func testReadingOutput() throws {
+        // A line a library wrote before the report does not get in the way.
+        let output = "objc[123]: Class Foo is implemented in both A and B.\n" + sample + "\n"
+        guard case .success(let state) = BurrowState.decode(output: output) else {
+            return XCTFail("the report was not read")
+        }
+        XCTAssertEqual(state.tweaks.count, 5)
+
+        // A Bool written as 1 says which key.
+        let numbers = sample.replacingOccurrences(of: "\"daemonRunning\":true", with: "\"daemonRunning\":1")
+        guard case .failure(let error) = BurrowState.decode(output: numbers) else {
+            return XCTFail("1 was read as a Bool")
+        }
+        XCTAssertTrue(error.detail.hasPrefix("daemonRunning: "), error.detail)
+
+        guard case .failure(let missing) = BurrowState.decode(output: "usage: burrowctl status") else {
+            return XCTFail("text was read as a report")
+        }
+        XCTAssertTrue(missing.detail.hasPrefix("burrowctl printed no report"))
+    }
+
     func testWentBack() throws {
         let text = sample.replacingOccurrences(of: "\"wentBack\":null",
                                                with: "\"wentBack\":{\"date\":\"2026-11-18T10:00:00Z\",\"reason\":\"SpringBoard crashed twice\"}")

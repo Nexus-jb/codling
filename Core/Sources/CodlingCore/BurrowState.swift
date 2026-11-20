@@ -81,6 +81,43 @@ public struct BurrowState: Decodable, Equatable {
         return try decoder.decode(BurrowState.self, from: data)
     }
 
+    /// Reads what burrowctl printed, errors included: a library loaded into
+    /// it may write a line of its own, so the report is the last line that
+    /// is a JSON object.
+    public static func decode(output: String) -> Result<BurrowState, ReadError> {
+        let lines = output.split(whereSeparator: \.isNewline)
+        guard let line = lines.last(where: { $0.hasPrefix("{") }) else {
+            return .failure(ReadError(detail: "burrowctl printed no report: \(output.prefix(200))"))
+        }
+        do {
+            return .success(try decode(Data(line.utf8)))
+        } catch let error as DecodingError {
+            return .failure(ReadError(detail: describe(error)))
+        } catch {
+            return .failure(ReadError(detail: error.localizedDescription))
+        }
+    }
+
+    public struct ReadError: Error, Equatable {
+        public var detail: String
+    }
+
+    /// A decoding error as a line for people: the key and what was wrong.
+    static func describe(_ error: DecodingError) -> String {
+        func path(_ keys: [CodingKey]) -> String {
+            keys.map { $0.intValue.map { "[\($0)]" } ?? $0.stringValue }.joined(separator: ".")
+        }
+        switch error {
+        case .typeMismatch(_, let context), .valueNotFound(_, let context), .dataCorrupted(let context):
+            return context.codingPath.isEmpty ? context.debugDescription
+                : "\(path(context.codingPath)): \(context.debugDescription)"
+        case .keyNotFound(let key, let context):
+            return "\(path(context.codingPath + [key])) is missing"
+        @unknown default:
+            return "\(error)"
+        }
+    }
+
     public var usesBurrowLoader: Bool { loader == "Burrow" }
 
     /// Whether Codling may change the settings: Burrow's loader reads them,

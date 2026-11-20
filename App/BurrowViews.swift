@@ -66,10 +66,11 @@ final class BurrowModel: ObservableObject {
                 ? "This version of Burrow cannot report its settings. Update Burrow to see and change them here."
                 : command.output.trimmingCharacters(in: .whitespacesAndNewlines))
         case .success(let command):
-            if let state = try? BurrowState.decode(Data(command.output.utf8)) {
+            switch BurrowState.decode(output: command.output) {
+            case .success(let state):
                 phase = .ready(state)
-            } else {
-                phase = .failed("Burrow's report could not be read.")
+            case .failure(let error):
+                phase = .failed("Burrow's report could not be read. \(error.detail)")
             }
         }
         if apps.isEmpty {
