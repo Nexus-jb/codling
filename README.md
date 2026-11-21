@@ -105,7 +105,7 @@ Please report vulnerabilities privately, as described in
 
 ## License
 
-Codling is licensed under the [Apache License 2.0](LICENSE). The names
+Codling is made by Ultra Team and licensed under the [Apache License 2.0](LICENSE). The names
 "Codling" and "Burrow" and their logos are not covered by the license (see
 [NOTICE](NOTICE)).
 
