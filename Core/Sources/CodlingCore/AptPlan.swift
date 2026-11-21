@@ -41,6 +41,15 @@ public enum PackageOperation: Hashable {
         return Self.isValidName(package)
     }
 
+    /// The file name of a purchased package's download, NAME_VERSION.deb
+    /// with ":" written %3a, as the helper's take-purchase looks for it.
+    /// Nil unless the name and version are ones the helper accepts, so the
+    /// name has no "/" and does not start with ".".
+    public static func purchasedFileName(package: String, version: String) -> String? {
+        guard PackageOperation.purchased(package, version: version).isValid else { return nil }
+        return package + "_" + version.replacingOccurrences(of: ":", with: "%3a") + ".deb"
+    }
+
     /// A Debian version as the helper accepts it: a digit first, then
     /// letters, digits and ".+~:-", at most 128 characters.
     public static func isValidVersion(_ version: String) -> Bool {

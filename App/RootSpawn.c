@@ -121,15 +121,18 @@ int codling_run(const char *path, const char *const *arguments, const char *cons
     struct buffer buffers[2] = { { 0 }, { 0 } };
     struct pollfd fds[2] = { { .fd = out[0], .events = POLLIN }, { .fd = err[0], .events = POLLIN } };
     int open_pipes = 2;
-    int64_t deadline = now_ms() + timeout_ms;
+    // No time limit when timeout_ms is 0 or less: a change to the packages
+    // is never stopped half way.
+    bool limited = timeout_ms > 0;
+    int64_t deadline = now_ms() + (limited ? timeout_ms : 0);
     while (open_pipes > 0) {
-        int64_t left = deadline - now_ms();
-        if (left <= 0) {
+        int64_t left = limited ? deadline - now_ms() : -1;
+        if (limited && left <= 0) {
             result->timed_out = true;
             kill(pid, SIGKILL);
             break;
         }
-        int ready = poll(fds, 2, (int)left);
+        int ready = poll(fds, 2, limited ? (int)left : -1);
         if (ready < 0) {
             if (errno == EINTR) {
                 continue;

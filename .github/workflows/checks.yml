@@ -58,6 +58,9 @@ jobs:
       - name: Test the helper's checks of purchased packages
         run: sh scripts/test-purchases.sh
 
+      - name: Test that apt checks the signatures of purchased packages
+        run: sh scripts/test-apt-trust.sh
+
   core:
     name: Core tests
     runs-on: ubuntu-latest

@@ -24,8 +24,9 @@ struct codling_result {
 
 // Runs path with arguments (arguments[0] is the program name; the list ends
 // with NULL) and environment (NULL for a fixed PATH), stdin from /dev/null and
-// no other open files; as root when as_root is set. Returns 0 when it ran, or
-// -1 when it could not start (spawn_error says why).
+// no other open files; as root when as_root is set. After timeout_ms it is
+// killed; with 0 or less it may run as long as it needs. Returns 0 when it
+// ran, or -1 when it could not start (spawn_error says why).
 int codling_run(const char *path, const char *const *arguments, const char *const *environment, bool as_root,
                 int timeout_ms, struct codling_result *result);
 

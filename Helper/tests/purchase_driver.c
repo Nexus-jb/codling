@@ -40,9 +40,32 @@ static void hash_text(const char *text, char hex[65]) {
     codling_sha256_hex(&hash, hex);
 }
 
+// driver uris FILE PACKAGE VERSION: prints the archive name that
+// archive_name_from_uris finds in FILE, which holds what apt-get install
+// --print-uris printed, so that scripts/test-apt-trust.sh can check it
+// against a real apt.
+static int find_in_uris(const char *path, const char *package, const char *version) {
+    static char text[1 << 16];
+    FILE *input = fopen(path, "r");
+    if (!input) {
+        return 2;
+    }
+    size_t length = fread(text, 1, sizeof text, input);
+    fclose(input);
+    char file[NAME_MAX + 1];
+    if (archive_name_from_uris(text, length, package, version, file, sizeof file) != 0) {
+        return 1;
+    }
+    puts(file);
+    return 0;
+}
+
 int main(int argc, char **argv) {
+    if (argc == 5 && strcmp(argv[1], "uris") == 0) {
+        return find_in_uris(argv[2], argv[3], argv[4]);
+    }
     if (argc != 2) {
-        fprintf(stderr, "usage: %s DIRECTORY\n", argv[0]);
+        fprintf(stderr, "usage: %s DIRECTORY | uris FILE PACKAGE VERSION\n", argv[0]);
         return 2;
     }
     char hex[65];
@@ -156,6 +179,101 @@ int main(int argc, char **argv) {
     snprintf(link_path, sizeof link_path, "%s/com.example.linked_1.0.deb", directory);
     expect(symlink(copy, link_path) == 0, "a link is made");
     expect(purchase_path(root, "com.example.linked", "1.0", path) != 0, "a link is not a copy");
+
+    // What apt-get install --print-uris prints, as apt 2.8 does: the
+    // purchase, a dependency, and a version with an epoch.
+    const char *uris =
+        "'https://repo.example.com/./debs/dep.deb' com.example.dep_2.0_iphoneos-arm64.deb 1200 SHA256:ab\n"
+        "'https://repo.example.com/./paid/com.example.paid' com.example.paid_1.2.5_iphoneos-arm64.deb 498 MD5Sum:3c\n"
+        "'https://repo.example.com/./e.deb' com.example.epoch_2%3a1.0-1_all.deb 508 MD5Sum:5c\n";
+    char archive[NAME_MAX + 1];
+    expect(archive_name_from_uris(uris, strlen(uris), "com.example.paid", "1.2.5", archive, sizeof archive) == 0,
+           "the purchase's line is found");
+    expect_string(archive, "com.example.paid_1.2.5_iphoneos-arm64.deb", "apt's name for the download");
+    expect(archive_name_from_uris(uris, strlen(uris), "com.example.epoch", "2:1.0-1", archive, sizeof archive) == 0,
+           "a version with an epoch is found");
+    expect_string(archive, "com.example.epoch_2%3a1.0-1_all.deb", "the epoch is written %3a");
+    expect(archive_name_from_uris(uris, strlen(uris), "com.example.paid", "1.2", archive, sizeof archive) != 0,
+           "another version is not taken");
+    expect(archive_name_from_uris(uris, strlen(uris), "com.example", "1.2.5", archive, sizeof archive) != 0,
+           "a package whose name starts the same is not taken");
+    const char *unsafe[] = {
+        "'u' com.example.paid_1.2.5_x/../../evil.deb 1 h\n",
+        "'u' com.example.paid_1.2.5_a\"b.deb 1 h\n",
+        "com.example.paid_1.2.5_all.deb 1 h\n",
+        "'u'com.example.paid_1.2.5_all.deb 1 h\n",
+        "'unclosed com.example.paid_1.2.5_all.deb 1 h\n",
+    };
+    for (size_t i = 0; i < sizeof unsafe / sizeof *unsafe; i++) {
+        expect(archive_name_from_uris(unsafe[i], strlen(unsafe[i]), "com.example.paid", "1.2.5", archive,
+                                      sizeof archive) != 0, unsafe[i]);
+    }
+    expect(archive_name_from_uris("", 0, "com.example.paid", "1.2.5", archive, sizeof archive) != 0,
+           "nothing printed, no name");
+    expect(archive_name_from_uris(uris, strlen(uris), "com.example.paid", "1.2.5", archive, 20) != 0,
+           "a name that does not fit");
+
+    // The checked copy is placed in apt's archive cache, whole, through a
+    // partial file that does not stay.
+    char archives[PATH_MAX];
+    snprintf(archives, sizeof archives, "%s/archives", root);
+    expect(mkdir(archives, 0755) == 0, "an archive cache is made");
+    char source[PATH_MAX];
+    snprintf(source, sizeof source, "%s/source.deb", root);
+    FILE *deb = fopen(source, "w");
+    expect(deb != NULL, "a package is written");
+    if (deb) {
+        for (int i = 0; i < 20000; i++) {
+            fputc((char)(i * 31), deb);
+        }
+        fclose(deb);
+    }
+    expect(place_archive(source, archives, "com.example.paid_1.2.5_iphoneos-arm64.deb") == 0, "the copy is placed");
+    char placed[PATH_MAX];
+    snprintf(placed, sizeof placed, "%s/com.example.paid_1.2.5_iphoneos-arm64.deb", archives);
+    struct stat placed_info;
+    expect(stat(placed, &placed_info) == 0 && placed_info.st_size == 20000, "the placed copy is whole");
+    char leftover[PATH_MAX];
+    snprintf(leftover, sizeof leftover, "%s.part", placed);
+    expect(access(leftover, F_OK) != 0, "no partial file stays");
+    expect(place_archive(source, archives, "com.example.paid_1.2.5_iphoneos-arm64.deb") == 0,
+           "placing it again replaces it");
+    char linked_source[PATH_MAX];
+    snprintf(linked_source, sizeof linked_source, "%s/linked.deb", root);
+    expect(symlink(source, linked_source) == 0, "a link to the package is made");
+    expect(place_archive(linked_source, archives, "linked_1.0_all.deb") != 0, "a link is not copied");
+    snprintf(placed, sizeof placed, "%s/missing", root);
+    expect(place_archive(source, placed, "x_1.0_all.deb") != 0, "a missing cache fails cleanly");
+
+    // The inbox is reached only through real directories.
+    char home[PATH_MAX];
+    snprintf(home, sizeof home, "%s/home", root);
+    expect(mkdir(home, 0755) == 0, "a home is made");
+    expect(open_inbox(home) < 0, "no inbox yet");
+    char step[PATH_MAX];
+    snprintf(step, sizeof step, "%s", home);
+    for (size_t i = 0; i < sizeof inbox_directories / sizeof *inbox_directories; i++) {
+        size_t step_length = strlen(step);
+        snprintf(step + step_length, sizeof step - step_length, "/%s", inbox_directories[i]);
+        mkdir(step, 0755);
+    }
+    int inbox = open_inbox(home);
+    expect(inbox >= 0, "the inbox opens");
+    if (inbox >= 0) {
+        close(inbox);
+    }
+    // Library/Caches/com.nexusjb.codling becomes a link to another directory.
+    char cache[PATH_MAX];
+    char moved[PATH_MAX];
+    snprintf(cache, sizeof cache, "%s/Library/Caches/com.nexusjb.codling", home);
+    snprintf(moved, sizeof moved, "%s/Library/Caches/moved", home);
+    expect(rename(cache, moved) == 0, "the cache directory is moved away");
+    expect(symlink(moved, cache) == 0, "a link takes its place");
+    expect(open_inbox(home) < 0, "a link on the way is not followed");
+    char linked_home[PATH_MAX];
+    snprintf(linked_home, sizeof linked_home, "%s/linked-home", root);
+    expect(symlink(home, linked_home) == 0, "a link to the home is made");
+    expect(open_inbox(linked_home) < 0, "a linked home is not followed");
 
     if (failures) {
         fprintf(stderr, "[purchases] %d of %d checks failed\n", failures, checks);

@@ -116,10 +116,10 @@ struct PaymentClient {
     private var session: URLSession { .shared }
 
     func endpoint(of source: Source) async -> URL? {
-        for url in source.repositoryFileURLs("payment_endpoint") {
+        for url in PaymentProvider.endpointFileURLs(source.repositoryFileURLs("payment_endpoint")) {
             var request = URLRequest(url: url, timeoutInterval: 15)
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-            guard let (data, response) = try? await session.data(for: request),
+            guard let (data, response) = try? await session.data(for: request, delegate: HTTPSOnlyRedirects.shared),
                   (response as? HTTPURLResponse)?.statusCode == 200, data.count < 4096,
                   let text = String(data: data, encoding: .utf8),
                   let endpoint = PaymentProvider.endpoint(fromFile: text) else { continue }
@@ -143,11 +143,13 @@ struct PaymentClient {
     }
 
     /// A paid package's price, and with a token whether the user bought it.
+    /// Without one, the provider is not told the UDID.
     func price(_ endpoint: URL, package: String, token: String?) async throws -> PaymentProvider.Price {
-        var body = ["udid": udid, "device": model]
-        body["token"] = token
-        let url = PaymentProvider.url(endpoint, PaymentProvider.packagePath(package, "info"))
-        return try PaymentProvider.price(try await post(url, body))
+        let request = PaymentProvider.priceRequest(endpoint, package: package, token: token, udid: udid, device: model)
+        if let body = request.body {
+            return try PaymentProvider.price(try await post(request.url, body))
+        }
+        return try PaymentProvider.price(try await get(request.url))
     }
 
     func purchase(_ endpoint: URL, package: String, token: String, secret: String?) async throws -> PaymentProvider.Purchase {
@@ -218,7 +220,7 @@ struct PaymentClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await session.data(for: request, delegate: HTTPSOnlyRedirects.shared)
         } catch {
             throw PaymentProvider.Failure(message: RefreshError.describe(error))
         }
@@ -230,6 +232,18 @@ struct PaymentClient {
                                           + "(\(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))).")
         }
         return data
+    }
+}
+
+/// Keeps requests to payment providers on HTTPS: a redirect to plain HTTP
+/// would send the user's token where anyone on the network could read it.
+/// A refused redirect ends the request with the redirect's own answer.
+private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
+    static let shared = HTTPSOnlyRedirects()
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(PaymentProvider.allowsRedirect(to: request.url) ? request : nil)
     }
 }
 
@@ -550,13 +564,18 @@ final class PaymentAccounts: ObservableObject {
     /// keep it where only root can write.
     func fetch(package: String, name: String, request: PurchaseRequest) async throws {
         guard let client else { throw PaymentProvider.Failure(message: Self.noDeviceID) }
+        // The name and version come from the source's index, and the file
+        // is named after them: anything else could point outside the inbox.
+        guard let destination = PurchaseInbox.file(package: package, version: request.version) else {
+            throw PaymentProvider.Failure(message: "The source lists \(name) with a name or version apt does not accept, so Codling did not download it.")
+        }
         guard let token = PaymentKeychain.token(for: request.endpoint) else {
             throw PaymentProvider.Failure(message: "Sign in to \(request.providerName) to download \(name).")
         }
         let url = try await client.authorizeDownload(request.endpoint, package: package, token: token,
                                                      version: request.version, repo: request.repo,
                                                      architecture: request.architecture)
-        try await client.download(url, to: PurchaseInbox.file(package: package, version: request.version))
+        try await client.download(url, to: destination)
         let version = request.version
         let taken = await Task.detached(priority: .userInitiated) {
             RootHelper.takePurchase(package, version: version)
@@ -568,14 +587,17 @@ final class PaymentAccounts: ObservableObject {
 }
 
 /// Where Codling downloads a bought package for the helper to take. It must
-/// match purchase_inbox in Helper/codling-helper.c, which builds the same
-/// name itself.
+/// match the inbox in Helper/codling-helper.c (mobile_home and
+/// inbox_directories), which builds the same name itself.
 enum PurchaseInbox {
     static let directory = URL(fileURLWithPath: "/var/mobile/Library/Caches/com.nexusjb.codling/purchases",
                                isDirectory: true)
 
-    static func file(package: String, version: String) -> URL {
-        directory.appendingPathComponent("\(package)_\(version.replacingOccurrences(of: ":", with: "%3a")).deb")
+    /// The download's file; nil unless the name and version are ones the
+    /// helper accepts, which have no "/" and cannot start with ".".
+    static func file(package: String, version: String) -> URL? {
+        guard let name = PackageOperation.purchasedFileName(package: package, version: version) else { return nil }
+        return directory.appendingPathComponent(name)
     }
 }
 
