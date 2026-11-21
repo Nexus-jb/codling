@@ -109,6 +109,9 @@ struct PaymentClient {
     let udid: String
     let model: String
     let version: String
+    /// The device's package architecture, such as iphoneos-arm64, so that a
+    /// provider with builds for several jailbreaks sends the one apt lists.
+    let architecture: String
 
     private var session: URLSession { .shared }
 
@@ -158,7 +161,8 @@ struct PaymentClient {
     func authorizeDownload(_ endpoint: URL, package: String, token: String, version: String, repo: String) async throws -> URL {
         let url = PaymentProvider.url(endpoint, PaymentProvider.packagePath(package, "authorize_download"))
         return try PaymentProvider.downloadURL(try await post(url, ["token": token, "udid": udid, "device": model,
-                                                                    "version": version, "repo": repo]))
+                                                                    "version": version, "repo": repo,
+                                                                    "architecture": architecture]))
     }
 
     func download(_ url: URL, to destination: URL) async throws {
@@ -305,7 +309,8 @@ final class PaymentAccounts: ObservableObject {
     private lazy var udid: String? = DeviceDetails.uniqueDeviceID()
 
     private var client: PaymentClient? {
-        udid.map { PaymentClient(udid: $0, model: environment.deviceModel, version: environment.version) }
+        udid.map { PaymentClient(udid: $0, model: environment.deviceModel, version: environment.version,
+                                 architecture: environment.architecture) }
     }
 
     /// The first signed-in user, for the account circle.
