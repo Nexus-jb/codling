@@ -8,7 +8,7 @@ struct CodlingApp: App {
     @StateObject private var sources: SourcesModel
     @StateObject private var installed = InstalledPackagesModel()
     @StateObject private var health = PackageHealthModel()
-    @StateObject private var queue = QueueModel()
+    @StateObject private var queue: QueueModel
     @StateObject private var burrow: BurrowModel
     @StateObject private var systemSheet = SystemSheet()
     @StateObject private var devicePanel = DeviceInfoPanel()
@@ -27,7 +27,12 @@ struct CodlingApp: App {
         WebDepictionView.emptyAppSession()
         _sources = StateObject(wrappedValue: SourcesModel(environment: environment))
         _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
-        _accounts = StateObject(wrappedValue: PaymentAccounts(environment: environment))
+        // The queue downloads bought packages with the accounts' sign-ins.
+        let accounts = PaymentAccounts(environment: environment)
+        let queue = QueueModel()
+        queue.accounts = accounts
+        _accounts = StateObject(wrappedValue: accounts)
+        _queue = StateObject(wrappedValue: queue)
         if #unavailable(iOS 26) {
             UITabBar.appearance().isHidden = true
         }

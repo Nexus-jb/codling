@@ -68,6 +68,12 @@ final class AptPlanTests: XCTestCase {
         XCTAssertFalse(PackageOperation.restore("a.b", version: "v1").isValid)
         XCTAssertFalse(PackageOperation.restore("a.b", version: "1 0").isValid)
         XCTAssertFalse(PackageOperation.restore("a.b", version: "1/../x").isValid)
+        XCTAssertEqual(PackageOperation.purchased("com.example.paid", version: "1:1.2.5").helperArgument,
+                       "$com.example.paid=1:1.2.5")
+        XCTAssertTrue(PackageOperation.purchased("com.example.paid", version: "1.2.5").isValid)
+        XCTAssertFalse(PackageOperation.purchased("com.example.paid", version: "1.2.5 x").isValid)
+        XCTAssertFalse(PackageOperation.purchased("-paid", version: "1.0").isValid)
+        XCTAssertEqual(PackageOperation.purchased("com.example.paid", version: "1.0").package, "com.example.paid")
     }
 
     func testOperations() {

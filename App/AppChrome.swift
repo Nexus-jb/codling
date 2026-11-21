@@ -141,6 +141,25 @@ struct TintedButtonStyle: ButtonStyle {
     }
 }
 
+/// A package's action, as a full-width glass capsule with a bold label:
+/// GET, UPDATE, a price or REMOVE.
+struct CapsuleButtonStyle: ButtonStyle {
+    var color: Color = Palette.text
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.body.weight(.heavy))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .foregroundColor(isEnabled ? color : .secondary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .glassSurface(cornerRadius: 22, inset: true)
+            .contentShape(Capsule())
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
 /// A row in a card that highlights while it is pressed.
 struct CardRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

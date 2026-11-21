@@ -139,6 +139,52 @@ struct PaymentClient {
         _ = try? await post(PaymentProvider.url(endpoint, "sign_out"), ["token": token])
     }
 
+    /// A paid package's price, and with a token whether the user bought it.
+    func price(_ endpoint: URL, package: String, token: String?) async throws -> PaymentProvider.Price {
+        var body = ["udid": udid, "device": model]
+        body["token"] = token
+        let url = PaymentProvider.url(endpoint, PaymentProvider.packagePath(package, "info"))
+        return try PaymentProvider.price(try await post(url, body))
+    }
+
+    func purchase(_ endpoint: URL, package: String, token: String, secret: String?) async throws -> PaymentProvider.Purchase {
+        var body = ["token": token, "udid": udid, "device": model]
+        body["payment_secret"] = secret
+        let url = PaymentProvider.url(endpoint, PaymentProvider.packagePath(package, "purchase"))
+        return try PaymentProvider.purchase(try await post(url, body, timeout: 60))
+    }
+
+    /// The single-use address of a bought package's file.
+    func authorizeDownload(_ endpoint: URL, package: String, token: String, version: String, repo: String) async throws -> URL {
+        let url = PaymentProvider.url(endpoint, PaymentProvider.packagePath(package, "authorize_download"))
+        return try PaymentProvider.downloadURL(try await post(url, ["token": token, "udid": udid, "device": model,
+                                                                    "version": version, "repo": repo]))
+    }
+
+    func download(_ url: URL, to destination: URL) async throws {
+        var request = URLRequest(url: url, timeoutInterval: 60)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        let file: URL
+        let response: URLResponse
+        do {
+            (file, response) = try await session.download(for: request)
+        } catch {
+            throw PaymentProvider.Failure(message: RefreshError.describe(error))
+        }
+        defer { try? FileManager.default.removeItem(at: file) }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw PaymentProvider.Failure(message: "\(url.host ?? "The provider") answered \(http.statusCode) "
+                                          + "(\(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))) to the download.")
+        }
+        do {
+            try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: file, to: destination)
+        } catch {
+            throw PaymentProvider.Failure(message: "Codling could not keep the download: \(error.localizedDescription)")
+        }
+    }
+
     private var userAgent: String { "Codling/\(version) (\(model); iOS)" }
 
     private func get(_ url: URL) async throws -> Data {
@@ -148,8 +194,8 @@ struct PaymentClient {
         return try await send(request)
     }
 
-    private func post(_ url: URL, _ body: [String: String]) async throws -> Data {
-        var request = URLRequest(url: url, timeoutInterval: 20)
+    private func post(_ url: URL, _ body: [String: String], timeout: TimeInterval = 20) async throws -> Data {
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
@@ -220,7 +266,7 @@ final class WebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding
 /// each.
 @MainActor
 final class PaymentAccounts: ObservableObject {
-    struct Provider: Identifiable {
+    struct Provider: Identifiable, Equatable {
         let endpoint: URL
         /// The sources that name this provider.
         var sources: [SourceInfo]
@@ -241,11 +287,16 @@ final class PaymentAccounts: ObservableObject {
     @Published private(set) var providers: [Provider] = []
     @Published private(set) var discovering = false
     @Published private(set) var discovered = false
+    /// Changes whenever a provider or a sign-in does, so that pages showing
+    /// prices read them again.
+    @Published private(set) var revision = 0
 
     private let environment: RuntimeEnvironment
     private let webSignIn = WebSignIn()
     /// The source addresses the providers were found for.
     private var discoveredFor: [String] = []
+    /// The latest search for providers, which later callers wait for.
+    private var discovery: (addresses: [String], task: Task<Void, Never>)?
 
     init(environment: RuntimeEnvironment) {
         self.environment = environment
@@ -266,15 +317,27 @@ final class PaymentAccounts: ObservableObject {
     }
 
     /// Finds which sources have a payment provider, reads each provider's
-    /// details, and checks the sign-ins Codling keeps.
+    /// details, and checks the sign-ins Codling keeps. Waits for a search
+    /// already under way for the same sources.
     func discover(sources: SourcesModel, force: Bool = false) async {
         let infos = sources.rows.compactMap { sources.info(for: $0.id) }
         let addresses = infos.map(\.source.uri).sorted()
-        guard !discovering, force || addresses != discoveredFor else { return }
+        if let discovery, discovery.addresses == addresses {
+            await discovery.task.value
+            if !force { return }
+        }
+        guard force || addresses != discoveredFor else { return }
+        let task = Task { await self.find(infos: infos, addresses: addresses) }
+        discovery = (addresses, task)
+        await task.value
+    }
+
+    private func find(infos: [SourceInfo], addresses: [String]) async {
         discovering = true
         defer {
             discovering = false
             discovered = true
+            revision += 1
         }
         guard let client else {
             providers = []
@@ -383,7 +446,135 @@ final class PaymentAccounts: ObservableObject {
     private func set(_ state: State, for endpoint: URL) {
         guard let index = providers.firstIndex(where: { $0.endpoint == endpoint }) else { return }
         providers[index].state = state
+        revision += 1
     }
+
+    // MARK: Paid packages
+
+    /// The provider of the source with this identifier, if it has one.
+    func provider(forSource id: String) -> Provider? {
+        providers.first { $0.sources.contains { $0.id == id } }
+    }
+
+    func provider(at endpoint: URL) -> Provider? {
+        providers.first { $0.endpoint == endpoint }
+    }
+
+    func isSignedIn(_ provider: Provider) -> Bool {
+        PaymentKeychain.token(for: provider.endpoint) != nil
+    }
+
+    private static let noDeviceID = "Codling could not read this device's UDID, which payment providers need."
+
+    /// A paid package's price, and whether the signed-in user bought it.
+    func price(of package: String, at provider: Provider) async throws -> PaymentProvider.Price {
+        guard let client else { throw PaymentProvider.Failure(message: Self.noDeviceID) }
+        do {
+            return try await client.price(provider.endpoint, package: package,
+                                          token: PaymentKeychain.token(for: provider.endpoint))
+        } catch let failure as PaymentProvider.Failure where failure.invalidate {
+            // The provider no longer knows the sign-in: forget it, and ask
+            // as a guest.
+            PaymentKeychain.delete(for: provider.endpoint)
+            set(.signedOut, for: provider.endpoint)
+            return try await client.price(provider.endpoint, package: package, token: nil)
+        }
+    }
+
+    enum BuyOutcome: Equatable {
+        /// The provider took the purchase, or the user left its payment
+        /// page; the price says whether the package is bought now.
+        case done
+        case cancelled
+        case failed(String)
+    }
+
+    /// Buys a package: Face ID, Touch ID or the passcode releases the payment
+    /// secret, and the provider may ask the user to finish on its own page.
+    func buy(_ package: String, name: String, at provider: Provider) async -> BuyOutcome {
+        guard let client else { return .failed(Self.noDeviceID) }
+        guard let token = PaymentKeychain.token(for: provider.endpoint) else {
+            return .failed("Sign in to \(provider.name) to buy \(name).")
+        }
+        var secret: String?
+        if PaymentKeychain.hasSecret(for: provider.endpoint) {
+            let endpoint = provider.endpoint
+            let reason = "Buy \(name) from \(provider.name)"
+            secret = await Task.detached(priority: .userInitiated) {
+                PaymentKeychain.secret(for: endpoint, reason: reason)
+            }.value
+            guard secret != nil else { return .cancelled }
+        }
+        do {
+            switch try await client.purchase(provider.endpoint, package: package, token: token, secret: secret) {
+            case .completed:
+                break
+            case .actionRequired(let url):
+                _ = try await webSignIn.start(url)
+            case .failed:
+                return .failed("\(provider.name) did not complete the purchase. Check your account on \(provider.name)'s website.")
+            }
+            await refreshUser(provider)
+            return .done
+        } catch let failure as PaymentProvider.Failure {
+            if failure.invalidate {
+                PaymentKeychain.delete(for: provider.endpoint)
+                set(.signedOut, for: provider.endpoint)
+            }
+            return .failed(failure.message)
+        } catch {
+            return .failed("\(error)")
+        }
+    }
+
+    /// Reads the user's details again, as after a purchase, without
+    /// showing the provider as busy.
+    func refreshUser(_ provider: Provider) async {
+        guard let client else { return }
+        set(await state(of: provider.endpoint, client: client), for: provider.endpoint)
+    }
+
+    /// Downloads a bought package from the single-use address its provider
+    /// gives, and has the helper check it against the hash apt lists and
+    /// keep it where only root can write.
+    func fetch(package: String, name: String, request: PurchaseRequest) async throws {
+        guard let client else { throw PaymentProvider.Failure(message: Self.noDeviceID) }
+        guard let token = PaymentKeychain.token(for: request.endpoint) else {
+            throw PaymentProvider.Failure(message: "Sign in to \(request.providerName) to download \(name).")
+        }
+        let url = try await client.authorizeDownload(request.endpoint, package: package, token: token,
+                                                     version: request.version, repo: request.repo)
+        try await client.download(url, to: PurchaseInbox.file(package: package, version: request.version))
+        let version = request.version
+        let taken = await Task.detached(priority: .userInitiated) {
+            RootHelper.takePurchase(package, version: version)
+        }.value
+        if case .failure(let failure) = taken {
+            throw PaymentProvider.Failure(message: failure.message)
+        }
+    }
+}
+
+/// Where Codling downloads a bought package for the helper to take. It must
+/// match purchase_inbox in Helper/codling-helper.c, which builds the same
+/// name itself.
+enum PurchaseInbox {
+    static let directory = URL(fileURLWithPath: "/var/mobile/Library/Caches/com.nexusjb.codling/purchases",
+                               isDirectory: true)
+
+    static func file(package: String, version: String) -> URL {
+        directory.appendingPathComponent("\(package)_\(version.replacingOccurrences(of: ":", with: "%3a")).deb")
+    }
+}
+
+/// What the queue needs to download a bought package: its provider, the
+/// source it comes from, and the version.
+struct PurchaseRequest: Equatable {
+    let endpoint: URL
+    let providerName: String
+    /// The source's address, which the provider is told.
+    let repo: String
+    let version: String
 }
 
 // MARK: Screens
