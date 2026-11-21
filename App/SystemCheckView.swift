@@ -155,7 +155,7 @@ struct DeviceCard: View {
             .padding(.horizontal, 12)
             .frame(width: width - 2 * bezel)
             .frame(minHeight: (width - 2 * bezel) * (tablet ? 1.3 : 1.95) - 2 * band, alignment: .top)
-            .background(Palette.wallTop)
+            .background(Palette.canvas)
             .overlay(alignment: .top) { frontFeature }
             .clipShape(RoundedRectangle(cornerRadius: inner, style: .continuous))
             .padding(.horizontal, bezel)
@@ -263,8 +263,8 @@ struct DeviceCard: View {
                 content()
             }
             .padding(.horizontal, 10)
-            .background(Palette.card)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .glassSurface(cornerRadius: 10)
         }
     }
 

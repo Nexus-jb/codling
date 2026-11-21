@@ -401,29 +401,26 @@ private struct SearchRow: Identifiable {
     var id: String { package.id }
 }
 
-/// Search across the packages of every source.
+/// Search across the packages of every source, as Sileo lays it out: a
+/// field ready to type in, with Cancel, and short rows of results.
 struct SearchView: View {
     @EnvironmentObject private var sources: SourcesModel
+    @EnvironmentObject private var installed: InstalledPackagesModel
     @StateObject private var model = SearchModel()
     @State private var query = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     let trimmed = query.trimmingCharacters(in: .whitespaces)
-                    if trimmed.isEmpty {
-                        Card {
-                            Text(hint)
-                                .foregroundColor(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    } else if model.searchedQuery == trimmed && model.results.isEmpty {
-                        Card {
-                            Text("No package matches \u{201C}\(trimmed)\u{201D}.")
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
+                    if !trimmed.isEmpty && model.searchedQuery == trimmed && model.results.isEmpty {
+                        Text("No package matches \u{201C}\(trimmed)\u{201D}.")
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 24)
+                    } else if !trimmed.isEmpty {
                         let rows = model.results.compactMap { package in
                             sources.info(for: package.source).map { SearchRow(package: package, info: $0) }
                         }
@@ -431,7 +428,8 @@ struct SearchView: View {
                             CardRows(items: rows, dividerInset: 72) { row in
                                 NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package,
                                                                         summary: row.package)) {
-                                    CatalogCardRow(package: row.package, source: row.info, showSource: true)
+                                    SearchResultRow(package: row.package, source: row.info,
+                                                    installed: installed.version(of: row.package.package) != nil)
                                 }
                                 .buttonStyle(CardRowButtonStyle())
                             }
@@ -444,25 +442,132 @@ struct SearchView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
+            .safeAreaInset(edge: .top, spacing: 0) { searchField }
             .background(WallBackground())
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Name, author or identifier")
-            .disableAutocorrection(true)
-            .textInputAutocapitalization(.never)
             .navigationTitle("Search")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Text(count)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
             .systemButton()
             .task(id: "\(sources.indexGeneration) \(query)") {
                 await model.search(query, store: sources.store)
+            }
+            .onAppear {
+                // Opening Search puts the cursor in the field, as in Sileo.
+                guard query.isEmpty else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { focused = true }
             }
         }
         .navigationViewStyle(.stack)
     }
 
-    private var hint: String {
-        guard model.totalPackages > 0 else {
-            return "Refresh your sources to search their packages."
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                    .accessibilityHidden(true)
+                TextField("Search for Packages", text: $query)
+                    .focused($focused)
+                    .submitLabel(.search)
+                    .disableAutocorrection(true)
+                    .textInputAutocapitalization(.never)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .glassSurface(cornerRadius: 12, inset: true)
+            if focused || !query.isEmpty {
+                Button("Cancel") {
+                    query = ""
+                    focused = false
+                }
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        let count = sources.rows.count
-        return "Search \(model.totalPackages.formatted()) packages from your \(count == 1 ? "source" : "\(count) sources")."
+        .animation(.easeInOut(duration: 0.2), value: focused || !query.isEmpty)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .background(Palette.canvas)
+    }
+
+    /// How much there is to search, for the top of the screen.
+    private var count: String {
+        guard model.totalPackages > 0 else { return "" }
+        let sourceCount = sources.rows.count
+        return "\(model.totalPackages.formatted()) packages · \(sourceCount) \(sourceCount == 1 ? "source" : "sources")"
+    }
+}
+
+/// A search result, short as in Sileo: the icon, with a check when the
+/// package is installed; the name; the author, version and source; one line
+/// of the summary; and, when it does not run on this iOS, a red mark.
+private struct SearchResultRow: View {
+    let package: PackageSummary
+    let source: SourceInfo
+    let installed: Bool
+    @Environment(\.device) private var device
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            PackageIcon(urls: source.url(package.icon).map { [$0] } ?? [], section: package.section, size: 44)
+                .overlay(alignment: .bottomTrailing) {
+                    if installed {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.green)
+                            .background(Circle().fill(Palette.canvas).padding(2))
+                            .offset(x: 5, y: 5)
+                            .accessibilityHidden(true)
+                    }
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(package.displayName)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(1)
+                    if package.isPaid {
+                        PaidBadge()
+                    }
+                }
+                Text([package.displayAuthor, package.version, source.title].compactMap { $0 }.joined(separator: " • "))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                if let summary = package.summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                if package.compatibility(systemVersion: device.systemVersion).verdict == .unsupported {
+                    Label("Not for iOS \(device.systemVersion)", systemImage: "xmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.red)
+                        .padding(.top, 1)
+                }
+            }
+            .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(installed ? "Installed" : "")
     }
 }

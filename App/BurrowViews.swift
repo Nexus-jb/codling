@@ -546,8 +546,8 @@ struct PackageTweaksView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .background(Palette.inset)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .glassSurface(cornerRadius: 12, inset: true)
             .padding(.top, 12)
 
             Button {

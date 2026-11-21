@@ -2,82 +2,121 @@
 
 import SwiftUI
 
-/// Codling's warm colors, from the design handoff, for every screen. In
-/// Dark Mode each falls back to the system color in its place, until the
-/// design has dark colors of its own.
+/// Codling's sky glass colors, from the design handoff, in Light and Dark
+/// Mode: a plain canvas, cards of glass in a blue gradient with a bright
+/// edge, and text in one color.
 enum Palette {
-    static let wallTop = color(0xE8D0BE, dark: .systemGroupedBackground)
-    static let wallBottom = color(0xEAD2C1, dark: .systemGroupedBackground)
-    static let card = color(0xFAEFE8, dark: .secondarySystemGroupedBackground)
-    static let inset = color(0xF0E1D6, dark: .tertiarySystemGroupedBackground)
-    static let separator = color(0xEADAD0, dark: .separator)
-    static let mat = color(0xEDDDD2, dark: .tertiarySystemGroupedBackground)
-    static let frameHighlight = color(0xF8E7DA, dark: .systemGray3)
-    static let frameMetal = color(0xC4A995, dark: .systemGray2)
-    static let frameShade = color(0xB98A65, dark: .systemGray)
-    static let metadataCard = color(0xF8F3ED, dark: .secondarySystemGroupedBackground)
-    static let versionsCard = color(0xF7F2EC, dark: .secondarySystemGroupedBackground)
-    static let versionChip = color(0xE7DED2, dark: .tertiarySystemFill)
-    static let metadataDivider = color(0xE8E0DA, dark: .separator)
-    static let text = color(0x191715, dark: .label)
-    static let muted = color(0x766B63, dark: .secondaryLabel)
-    static let heading = color(0x494038, dark: .secondaryLabel)
-    static let green = color(0x147A35, dark: .systemGreen)
-    static let paid = color(0xFF9B00, dark: .systemOrange)
+    static let canvas = color(light: 0xFFFFFF, dark: 0x080D18)
+    static let text = color(light: 0x000000, dark: 0xF3F8FF)
+    static let surfaceTop = color(light: 0xE8F5FF, dark: 0x142D47)
+    static let surfaceBottom = color(light: 0xC6E5FF, dark: 0x10223A)
+    static let insetTop = color(light: 0xE1F2FF, dark: 0x1B4160)
+    static let insetBottom = color(light: 0xAED8FA, dark: 0x15304D)
+    static let highlight = color(light: 0xFFFFFF, dark: 0x7FC6FA)
+    static let edge = color(light: 0x91C9F4, dark: 0x3D82B7)
+    static let divider = color(light: 0x8CB9DE, dark: 0x36658A)
+    static let shadow = color(light: 0x3A89C3, dark: 0x00040C)
+    /// Green for what fits this device.
+    static let green = color(light: 0x147A35, dark: 0x4CD46F)
 
-    private static func color(_ hex: UInt32, dark: UIColor) -> Color {
-        let light = UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
-                            green: CGFloat((hex >> 8) & 0xFF) / 255,
-                            blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
-        return Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark ? dark : light
-        })
+    /// A flat fill for places a gradient cannot go, such as List rows.
+    static let card = surfaceTop
+    static let inset = insetTop
+    /// Secondary text, which the design draws in the text color.
+    static let muted = text
+    static let heading = text
+
+    static let uiInsetBottom = uiColor(light: 0xAED8FA, dark: 0x15304D)
+    static let uiText = uiColor(light: 0x000000, dark: 0xF3F8FF)
+    static let uiCanvas = uiColor(light: 0xFFFFFF, dark: 0x080D18)
+
+    private static func color(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor(light: light, dark: dark))
+    }
+
+    private static func uiColor(light: UInt32, dark: UInt32) -> UIColor {
+        UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                           blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        }
+    }
+
+    /// Controls UIKit draws itself, such as segmented pickers, take the
+    /// glass colors too.
+    static func applyToUIKit() {
+        let segments = UISegmentedControl.appearance()
+        segments.selectedSegmentTintColor = uiInsetBottom
+        segments.setTitleTextAttributes([.foregroundColor: uiText], for: .normal)
+        segments.setTitleTextAttributes([.foregroundColor: uiText], for: .selected)
     }
 }
 
-/// The warm wall behind every screen.
+/// A surface of glass: a blue gradient from the top left, a thin bright
+/// edge, and a soft shadow. Inset surfaces, such as buttons and chips, are
+/// a step deeper.
+private struct GlassSurface: ViewModifier {
+    let cornerRadius: CGFloat
+    let inset: Bool
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(
+                shape.fill(LinearGradient(colors: inset ? [Palette.insetTop, Palette.insetBottom]
+                                                        : [Palette.surfaceTop, Palette.surfaceBottom],
+                                          startPoint: .topLeading, endPoint: .bottomTrailing))
+            )
+            .overlay(
+                shape.strokeBorder(LinearGradient(colors: [Palette.highlight.opacity(0.88), Palette.edge.opacity(0.85)],
+                                                  startPoint: .topLeading, endPoint: .bottomTrailing),
+                                   lineWidth: 1)
+                    .allowsHitTesting(false)
+            )
+            .shadow(color: Palette.shadow.opacity(inset ? 0.13 : 0.24), radius: inset ? 3 : 7, y: inset ? 2 : 4)
+    }
+}
+
+extension View {
+    /// A card, button or bar of glass.
+    func glassSurface(cornerRadius: CGFloat = 22, inset: Bool = false) -> some View {
+        modifier(GlassSurface(cornerRadius: cornerRadius, inset: inset))
+    }
+}
+
+/// The canvas behind every screen.
 struct WallBackground: View {
     var body: some View {
-        LinearGradient(colors: [Palette.wallTop, Palette.wallBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
+        Palette.canvas
             .ignoresSafeArea()
     }
 }
 
-/// A banner in a frame: the image filling an ivory mat, inside a thin metal
-/// edge with a highlight, and a soft shadow, as the design handoff draws it.
+/// A banner in a glass frame: the image filling a 2.7:1 window with
+/// rounded corners, on a lighter mat, inside an inset glass edge.
 struct FramedPackageBanner: View {
     let url: URL
     var contentMode: ContentMode = .fill
 
     var body: some View {
         let imageShape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-        let frameShape = RoundedRectangle(cornerRadius: 16, style: .continuous)
 
         imageShape
-            .fill(Palette.mat)
+            .fill(Palette.insetTop)
             .aspectRatio(2.7, contentMode: .fit)
             .overlay {
                 GeometryReader { geometry in
                     RemoteImage(urls: [url], maxPixels: 1600, contentMode: contentMode) {
-                        Palette.mat
+                        Palette.insetTop
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
                 }
             }
             .clipShape(imageShape)
             .padding(6)
-            .background(Palette.mat, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Palette.surfaceTop, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(2)
-            .background(
-                LinearGradient(colors: [Palette.frameHighlight, Palette.frameMetal,
-                                        Palette.frameShade, Palette.frameHighlight],
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: frameShape
-            )
-            .overlay {
-                frameShape.strokeBorder(Color.white.opacity(0.42), lineWidth: 1)
-            }
-            .shadow(color: Palette.frameShade.opacity(0.30), radius: 7, y: 5)
+            .glassSurface(cornerRadius: 16, inset: true)
             .accessibilityHidden(true)
     }
 }

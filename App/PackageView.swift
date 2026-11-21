@@ -99,10 +99,10 @@ struct PackageView: View {
                         if isPaid {
                             Text("Paid")
                                 .font(.caption.weight(.semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(Palette.text)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background(Palette.paid, in: Capsule())
+                                .glassSurface(cornerRadius: 99, inset: true)
                         }
                     }
                     .font(.subheadline)
@@ -125,7 +125,7 @@ struct PackageView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassSurface(cornerRadius: 22)
     }
 
     private var author: String? {
@@ -172,7 +172,7 @@ struct PackageView: View {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(24)
-                .background(Palette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .glassSurface(cornerRadius: 22)
         default:
             // A depiction that cannot be loaded, such as one its server no
             // longer has, leaves the package's own description in the tabs.
@@ -214,8 +214,8 @@ struct PackageView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassSurface(cornerRadius: 22)
     }
 
     /// The package's web page, shown in the tab itself; without one, or
@@ -264,7 +264,7 @@ struct PackageView: View {
                         }
                         .buttonStyle(TintedButtonStyle())
                         Button {
-                            router.perform(.web(webPage))
+                            router.browser(webPage)
                         } label: {
                             Label("Open in Browser", systemImage: "safari")
                         }
@@ -311,7 +311,7 @@ struct PackageView: View {
                     detailRows
                 }
                 .padding(.vertical, 4)
-                .background(Palette.metadataCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                .glassSurface(cornerRadius: 21)
             }
             if model.versions.count > 1 {
                 let others = model.versions.dropFirst().map(\.version)
@@ -329,11 +329,11 @@ struct PackageView: View {
                                 .minimumScaleFactor(0.85)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 7)
-                                .background(Palette.versionChip, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .glassSurface(cornerRadius: 8, inset: true)
                         }
                     }
                     .padding(12)
-                    .background(Palette.versionsCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                    .glassSurface(cornerRadius: 21)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Other versions: \(others.joined(separator: ", "))")
                 }
@@ -477,7 +477,7 @@ private struct InfoRow: View {
         .overlay(alignment: .top) {
             if !first {
                 Rectangle()
-                    .fill(Palette.metadataDivider)
+                    .fill(Palette.divider.opacity(0.45))
                     .frame(height: 1)
                     .padding(.horizontal, 13)
             }

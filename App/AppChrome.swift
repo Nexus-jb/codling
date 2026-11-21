@@ -47,8 +47,8 @@ struct Card<Content: View>: View {
         }
         .padding(padding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassSurface(cornerRadius: 22)
     }
 }
 
@@ -125,7 +125,9 @@ struct StatusLine: View {
 
 /// A wide button on a tint of the accent color, the action of a card.
 struct TintedButtonStyle: ButtonStyle {
-    var color: Color = .accentColor
+    /// The label's color; the text color unless the action needs another,
+    /// such as red for removing.
+    var color: Color = Palette.text
     @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -134,8 +136,8 @@ struct TintedButtonStyle: ButtonStyle {
             .foregroundColor(isEnabled ? color : .secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(color.opacity(configuration.isPressed ? 0.22 : 0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .glassSurface(cornerRadius: 12, inset: true)
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
@@ -183,21 +185,16 @@ struct FloatingTabBar: View {
             }
             .padding(5)
             .frame(height: Self.height)
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.14), radius: 14, y: 5)
+            .glassSurface(cornerRadius: Self.height / 2)
 
             Button {
                 selection = .search
             } label: {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundColor(selection == .search ? .accentColor : .primary)
+                    .font(.system(size: 22, weight: selection == .search ? .bold : .medium))
+                    .foregroundColor(Palette.text)
                     .frame(width: Self.height, height: Self.height)
-                    .background(selection == .search ? Color.accentColor.opacity(0.15) : Color.clear, in: Circle())
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.14), radius: 14, y: 5)
+                    .glassSurface(cornerRadius: Self.height / 2, inset: selection == .search)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Search")
@@ -232,9 +229,15 @@ struct FloatingTabBar: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .foregroundColor(selected ? .accentColor : .primary)
+            .foregroundColor(Palette.text)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(selected ? Color.accentColor.opacity(0.15) : Color.clear, in: Capsule())
+            .background {
+                if selected {
+                    Capsule()
+                        .fill(Color.clear)
+                        .glassSurface(cornerRadius: 30, inset: true)
+                }
+            }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -459,7 +462,8 @@ struct CardCellBackground: View {
 
     var body: some View {
         CornerRoundedRectangle(radius: 22, corners: corners)
-            .fill(Palette.card)
+            .fill(LinearGradient(colors: [Palette.surfaceTop, Palette.surfaceBottom.opacity(0.85)],
+                                 startPoint: .topLeading, endPoint: .bottomTrailing))
     }
 
     private var corners: UIRectCorner {

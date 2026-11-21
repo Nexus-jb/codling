@@ -20,12 +20,20 @@ final class DepictionRouter: ObservableObject {
 
     @Published var package: String?
     @Published var depiction: LinkedDepiction?
+    /// A web page opened inside Codling, as a page of its own.
+    @Published var page: WebPage?
+    /// A web page opened in the browser sheet, when asked for.
     @Published var webPage: WebPage?
+
+    /// Opens a page in the browser sheet rather than inside Codling.
+    func browser(_ url: URL) {
+        webPage = WebPage(url: url)
+    }
 
     func perform(_ action: DepictionAction, title: String = "") {
         switch action {
         case .web(let url):
-            webPage = WebPage(url: url)
+            page = WebPage(url: url)
         case .depiction(let url):
             depiction = LinkedDepiction(url: url, title: title)
         case .package(let identifier):
@@ -78,6 +86,14 @@ private struct DepictionRouting: ViewModifier {
                                                      set: { if !$0 { router.depiction = nil } })) {
                         if let linked = router.depiction {
                             DepictionPageView(url: linked.url, title: linked.title)
+                        }
+                    } label: {
+                        EmptyView()
+                    }
+                    NavigationLink(isActive: Binding(get: { router.page != nil },
+                                                     set: { if !$0 { router.page = nil } })) {
+                        if let page = router.page {
+                            WebPageView(url: page.url)
                         }
                     } label: {
                         EmptyView()
@@ -174,7 +190,7 @@ struct CompatibilityCard: View {
         VStack(spacing: 0) {
             line(symbol: iosSymbol, color: iosColor, title: "iOS versions", value: iosValue, detail: iosDetail)
             Rectangle()
-                .fill(Palette.separator)
+                .fill(Palette.divider.opacity(0.45))
                 .frame(height: 1)
             line(symbol: jailbreakFits ? "checkmark.seal.fill" : "xmark.octagon.fill",
                  color: jailbreakFits ? Palette.green : .red, title: "Jailbreak",
@@ -182,7 +198,7 @@ struct CompatibilityCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Palette.inset))
+        .glassSurface(cornerRadius: 13, inset: true)
     }
 
     private func line(symbol: String, color: Color, title: String, value: String, detail: String?) -> some View {
@@ -198,7 +214,7 @@ struct CompatibilityCard: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(value)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(color == .secondary ? Palette.muted : color)
+                    .foregroundColor(color == .red ? .red : Palette.text)
                     .multilineTextAlignment(.trailing)
                 if let detail {
                     Text(detail)
@@ -328,7 +344,7 @@ struct PaidBadge: View {
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .foregroundColor(.white)
-            .background(Capsule().fill(Color.orange))
+            .foregroundColor(Palette.text)
+            .glassSurface(cornerRadius: 99, inset: true)
     }
 }

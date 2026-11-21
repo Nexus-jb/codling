@@ -265,3 +265,70 @@ struct WebDepictionView: UIViewRepresentable {
         }
     }
 }
+
+/// A web page inside Codling, as a page of its own: links tapped in a
+/// depiction, such as a changelog, open here rather than in a browser.
+/// Links on it open further pages.
+struct WebPageView: View {
+    let url: URL
+    @State private var height: CGFloat = 1
+    @State private var state: WebLoadState = .loading
+    @State private var reload = 0
+    @StateObject private var router = DepictionRouter()
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                switch state {
+                case .failed(let message):
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "exclamationmark.triangle", color: .orange, title: "The page did not load") {
+                            ToolNote(text: message)
+                        }
+                        HStack(spacing: 8) {
+                            Button("Try Again") {
+                                state = .loading
+                                reload += 1
+                            }
+                            .buttonStyle(TintedButtonStyle())
+                            Button {
+                                router.browser(url)
+                            } label: {
+                                Label("Open in Browser", systemImage: "safari")
+                            }
+                            .buttonStyle(TintedButtonStyle())
+                        }
+                        .padding(.top, 12)
+                    }
+                    .padding(16)
+                default:
+                    ZStack(alignment: .top) {
+                        WebDepictionView(url: url, height: $height, state: $state, reload: reload) { link in
+                            router.open(link, base: url)
+                        }
+                        .frame(height: max(height, 1))
+                        .opacity(state == .loaded ? 1 : 0)
+                        if state == .loading {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .padding(32)
+                        }
+                    }
+                }
+            }
+        }
+        .background(WallBackground())
+        .navigationTitle(url.host ?? "Page")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    router.browser(url)
+                } label: {
+                    Label("Open in Browser", systemImage: "safari")
+                }
+            }
+        }
+        .depictionRouting(router, base: url)
+    }
+}

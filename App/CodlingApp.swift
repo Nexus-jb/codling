@@ -32,6 +32,7 @@ struct CodlingApp: App {
         if #unavailable(iOS 16) {
             UITableView.appearance().backgroundColor = .clear
         }
+        Palette.applyToUIKit()
     }
 
     /// Featured, Sources, Queue and Installed, with Search apart as a round
@@ -110,6 +111,8 @@ struct CodlingApp: App {
                         .environmentObject(sources)
                         .environmentObject(installed)
                         .environmentObject(queue)
+                        .tint(Palette.text)
+                        .accentColor(Palette.text)
                 }
                 .environmentObject(systemSheet)
                 .environmentObject(devicePanel)
@@ -117,6 +120,10 @@ struct CodlingApp: App {
                 .environmentObject(installed)
                 .environmentObject(queue)
                 .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                // The design draws buttons, links and the selected tab in
+                // the text color.
+                .tint(Palette.text)
+                .accentColor(Palette.text)
                 .task { await installed.load(statusPath: environment.dpkgStatusPath) }
                 .task {
                     // Read and refresh the sources at launch, whichever tab
