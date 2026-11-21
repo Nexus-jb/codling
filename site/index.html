@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#080d18" media="(prefers-color-scheme: dark)">
   <title>Codling: an open-source package manager for jailbroken iOS</title>
-  <meta name="description" content="Codling is an open-source package manager for jailbroken iPhones and iPads. It records your packages before every change, so one tap undoes the last one.">
+  <meta name="description" content="Codling is an open-source package manager for jailbroken iPhones and iPads. It records your packages before every change, so you can undo the last one.">
   <meta name="author" content="Ultra Team">
   <link rel="icon" type="image/png" href="images/favicon.png">
   <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
@@ -31,6 +31,7 @@
         <ul>
           <li class="optional"><a href="#features">Features</a></li>
           <li class="optional"><a href="#devices">Devices</a></li>
+          <li class="optional"><a href="#docs">Docs</a></li>
           <li><a href="https://github.com/Nexus-jb/codling">GitHub</a></li>
         </ul>
       </nav>
@@ -42,7 +43,7 @@
       <div class="wrap hero-grid">
         <div class="hero-text">
           <h1 id="hero-title">Install with a way back.</h1>
-          <p class="lead">Codling is an open-source package manager for jailbroken iPhones and iPads. It records your packages before every change, so one tap undoes the last one.</p>
+          <p class="lead">Codling is an open-source package manager for jailbroken iPhones and iPads. It records your packages before every change, so you can undo the last one.</p>
           <p class="status">Codling is in early development and isn’t ready for everyday use yet. Version 1.0 will follow a closed and a public beta.</p>
           <p class="actions">
             <a class="button" href="#get">Get Codling</a>
@@ -107,12 +108,12 @@
           <article class="glass feature-main">
             <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
             <h3>Undo the last change</h3>
-            <p>Before every change, Codling records which packages you have. If an install or a removal goes wrong, Undo Last Change takes you back to how things were.</p>
+            <p>Before every change, Codling records which packages you have and keeps a copy of each one it removes or replaces. If an install or a removal goes wrong, Undo Last Change shows you what it will put back, and puts it back.</p>
           </article>
           <article class="glass">
             <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
             <h3>Safe Mode, with Burrow</h3>
-            <p>Codling works with <a href="https://github.com/Nexus-jb/burrow">Burrow</a>, our open-source tweak injection platform. When a tweak crashes an app, Safe Mode turns that tweak off in that app only, and Codling shows you which one it was. You can also turn any tweak off in a single app yourself.</p>
+            <p>Codling works with <a href="https://github.com/Nexus-jb/burrow">Burrow</a>, our open-source tweak injection platform. Once you switch from ElleKit to Burrow’s tweak loader, Safe Mode turns a tweak that crashes an app off in that app only, and Codling shows you which one it was. You can also turn any tweak off in a single app yourself. Burrow runs on rootless jailbreaks for now; <a href="https://github.com/Nexus-jb/burrow/blob/main/docs/migrating-from-ellekit.md">moving from ElleKit</a> explains the switch and how to go back.</p>
           </article>
           <article class="glass">
             <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="m9.5 12 1.8 1.8 3.2-3.6"/></svg>
@@ -165,7 +166,7 @@
         <h2 id="ios-title">Made for iOS</h2>
         <div class="prose">
           <p>Codling is written from scratch in Swift and SwiftUI, on top of apt and dpkg. It follows Light and Dark Mode, grows with the largest text sizes, works with VoiceOver and respects Reduce Motion.</p>
-          <p>It opens at once on the packages it already knows, and refreshes your sources behind it.</p>
+          <p>It opens at once on the packages it already knows, and refreshes your sources behind it. On the same iPhone, mobile network and 14 sources, Codling refreshed them in 2.2 seconds on average, where Sileo took 4.0 (<a href="https://github.com/Nexus-jb/codling/blob/main/docs/speed-0.1.md">how we measured</a>).</p>
         </div>
       </div>
     </section>
@@ -185,8 +186,28 @@
               </tbody>
             </table>
           </div>
-          <p class="note">Rootful jailbreaks aren’t planned for 1.0. So far Codling has been tested on an iPhone 14 Pro Max with iOS 16.3.1 and Dopamine (rootless); RootHide and other iOS versions are covered by automated tests for now.</p>
+          <p class="note">Rootful jailbreaks aren’t planned for 1.0. So far Codling has been tested on an iPhone 14 Pro Max with iOS 16.3.1 and Dopamine (rootless). RootHide and other iOS versions are covered by automated tests, and are next to be tried on devices in the closed beta.</p>
         </div>
+      </div>
+    </section>
+
+    <section id="docs" class="band" aria-labelledby="docs-title">
+      <div class="wrap split">
+        <h2 id="docs-title">Read how it works</h2>
+        <ul class="facts">
+          <li>
+            <h3>Security review</h3>
+            <p>What we checked in Codling’s root helper, links, payments and signature checks, what we found, and how each finding was fixed: <a href="https://github.com/Nexus-jb/codling/blob/main/docs/security-review-0.1.md">the review</a>.</p>
+          </li>
+          <li>
+            <h3>For repository owners</h3>
+            <p>What Codling reads from your repository, how it checks it, and what to publish so your packages show and sell well: <a href="https://github.com/Nexus-jb/codling/blob/main/docs/repository-owners.md">the guide</a>.</p>
+          </li>
+          <li>
+            <h3>For tweak developers</h3>
+            <p>Your tweaks run on Burrow unchanged. Burrow’s own functions report why a hook failed and install batches of hooks all at once or not at all: <a href="https://github.com/Nexus-jb/burrow/blob/main/docs/api.md">Burrow for developers</a>.</p>
+          </li>
+        </ul>
       </div>
     </section>
 
