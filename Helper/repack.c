@@ -11,6 +11,7 @@
 #endif
 
 #include "repack.h"
+#include "tool-path.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -512,9 +513,17 @@ static int stage_files(const struct codling_repack_paths *paths, const char *lis
 }
 
 // Runs dpkg-deb, keeping the start of what it prints for the message.
-static int build(const struct codling_repack_paths *paths, const char *staged, const char *target, char *message,
-                 size_t message_size) {
-    char *const arguments[] = { "dpkg-deb", "-Zgzip", "-b", (char *)staged, (char *)target, NULL };
+static int build(const struct codling_repack_paths *paths, const char *real_staged, const char *real_target,
+                 char *message, size_t message_size) {
+    // dpkg-deb opens both paths itself, so it gets them as it sees them.
+    char staged[PATH_MAX];
+    char target[PATH_MAX];
+    if (codling_tool_path(paths->tool_root, real_staged, staged, sizeof staged) != 0
+        || codling_tool_path(paths->tool_root, real_target, target, sizeof target) != 0) {
+        say(message, message_size, "the package's paths are too long");
+        return -1;
+    }
+    char *const arguments[] = { "dpkg-deb", "-Zgzip", "-b", staged, target, NULL };
     char *environment[] = { (char *)paths->path_variable, "LANG=C", "LC_ALL=C", NULL };
     int pipe_ends[2];
     if (pipe(pipe_ends) != 0) {

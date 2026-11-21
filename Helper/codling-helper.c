@@ -120,6 +120,7 @@
 // stage_purchases. Nothing else from the caller reaches apt.
 
 #include "repack.h"
+#include "tool-path.h"
 #include "sha256.h"
 
 #include <ctype.h>
@@ -211,6 +212,24 @@ static void print_json_string(const char *text, size_t length) {
     putchar('"');
 }
 
+// The PATH the jailbreak's programs run with: the jailbreak's directories,
+// then the system's, each written as those programs see it (tool-path.h).
+static void tool_search_path(const char *root, char *out, size_t size) {
+    static const char *const directories[] = { "/usr/sbin", "/usr/bin", "/sbin", "/bin" };
+    size_t used = (size_t)snprintf(out, size, "PATH=");
+    for (int pass = 0; pass < 2; pass++) {
+        for (size_t i = 0; i < sizeof directories / sizeof *directories && used < size; i++) {
+            char real[PATH_MAX];
+            char seen[PATH_MAX];
+            snprintf(real, sizeof real, "%s%s", pass == 0 ? root : "", directories[i]);
+            if (codling_tool_path(root, real, seen, sizeof seen) != 0) {
+                continue;
+            }
+            used += (size_t)snprintf(out + used, size - used, "%s%s", used > 5 ? ":" : "", seen);
+        }
+    }
+}
+
 // Runs a program from the jailbreak with its output and errors together.
 // Returns its exit status, or -1 when it did not start. *output holds what
 // it printed, at most output_limit bytes, or why it did not start; the
@@ -224,9 +243,8 @@ static int run_collect(const char *root, const char *program, const char *const 
     }
     char path[PATH_MAX];
     snprintf(path, sizeof path, "%s%s", root, program);
-    char search[4 * PATH_MAX];
-    snprintf(search, sizeof search,
-             "PATH=%s/usr/sbin:%s/usr/bin:%s/sbin:%s/bin:/usr/sbin:/usr/bin:/sbin:/bin", root, root, root, root);
+    char search[8 * PATH_MAX];
+    tool_search_path(root, search, sizeof search);
     char *const environment[] = { search, "DEBIAN_FRONTEND=noninteractive", "LANG=C", "LC_ALL=C", NULL };
 
     int pipe_ends[2];
@@ -690,7 +708,11 @@ static void stage_purchases(const char *root, int count, char **operations) {
     char option[PATH_MAX + 32];
     snprintf(uris, sizeof uris, "%s%s", root, uris_suffix);
     snprintf(partial, sizeof partial, "%s/partial", uris);
-    snprintf(option, sizeof option, "Dir::Cache::Archives=%s/", uris);
+    char seen[PATH_MAX];
+    if (codling_tool_path(root, uris, seen, sizeof seen) != 0) {
+        return;
+    }
+    snprintf(option, sizeof option, "Dir::Cache::Archives=%s/", seen);
     arguments[used++] = "apt-get";
     arguments[used++] = "install";
     arguments[used++] = "-qq";
@@ -755,8 +777,13 @@ static size_t add_operations(const char *root, int count, char **operations, con
             if (split_versioned(name, package, &version) != 0) {
                 usage_error("A restore is not @package=version with a valid package and version.");
             }
-            if (backup_path(root, package, version, buffer[i]) != 0) {
+            char found[backup_path_size];
+            if (backup_path(root, package, version, found) != 0) {
                 usage_error("There is no backup of that version of the package.");
+            }
+            // apt opens the file itself, so it gets the path as it sees it.
+            if (codling_tool_path(root, found, buffer[i], backup_path_size) != 0) {
+                usage_error("The backup's path is too long.");
             }
             arguments[used++] = buffer[i];
             *restores = 1;
@@ -943,14 +970,13 @@ static int backup(int count, char **names) {
     char staging[PATH_MAX];
     char admin[PATH_MAX];
     char dpkg_deb[PATH_MAX];
-    char search[4 * PATH_MAX];
+    char search[8 * PATH_MAX];
     snprintf(codling, sizeof codling, "%s/var/lib/codling", root);
     snprintf(directory, sizeof directory, "%s%s", root, backups_suffix);
     snprintf(staging, sizeof staging, "%s/var/lib/codling/staging", root);
     snprintf(admin, sizeof admin, "%s/var/lib/dpkg", root);
     snprintf(dpkg_deb, sizeof dpkg_deb, "%s/usr/bin/dpkg-deb", root);
-    snprintf(search, sizeof search,
-             "PATH=%s/usr/sbin:%s/usr/bin:%s/sbin:%s/bin:/usr/sbin:/usr/bin:/sbin:/bin", root, root, root, root);
+    tool_search_path(root, search, sizeof search);
     for (const char *made = codling; made; made = made == codling ? directory : NULL) {
         if (mkdir(made, 0755) != 0 && errno != EEXIST) {
             usage_error("The backup directory cannot be created.");
@@ -962,7 +988,7 @@ static int backup(int count, char **names) {
     }
     struct codling_repack_paths paths = {
         .admin = admin, .files = "", .staging = staging, .output = directory,
-        .dpkg_deb = dpkg_deb, .path_variable = search,
+        .dpkg_deb = dpkg_deb, .path_variable = search, .tool_root = root,
     };
     fputs("{\"backups\":[", stdout);
     for (int i = 0; i < count; i++) {
