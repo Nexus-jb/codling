@@ -8,8 +8,7 @@ struct InstalledView: View {
     @ObservedObject var model: InstalledPackagesModel
     @EnvironmentObject private var sources: SourcesModel
     @State private var query = ""
-    /// The newer versions the sources offer of installed packages.
-    @State private var updates: [PackageSummary] = []
+    @EnvironmentObject private var updates: UpdatesModel
 
     var body: some View {
         NavigationView {
@@ -62,7 +61,6 @@ struct InstalledView: View {
             .background(WallBackground())
             .searchable(text: $query, prompt: "Name, identifier or author")
             .refreshable { await model.load(statusPath: environment.dpkgStatusPath) }
-            .task(id: "\(sources.indexGeneration) \(model.versions.hashValue)") { await findUpdates() }
         }
     }
 
@@ -70,7 +68,7 @@ struct InstalledView: View {
     /// none.
     @ViewBuilder
     private var updatesSection: some View {
-        let rows = updates.compactMap { package in
+        let rows = updates.updates.compactMap { package in
             sources.info(for: package.source).map { UpdateRow(package: package, info: $0) }
         }
         if !rows.isEmpty {
@@ -87,15 +85,6 @@ struct InstalledView: View {
             CardHeading(title: "Installed", symbol: "shippingbox")
                 .padding(.top, 6)
         }
-    }
-
-    private func findUpdates() async {
-        guard let store = sources.store, !model.versions.isEmpty else {
-            updates = []
-            return
-        }
-        let offers = (try? await store.offers(ofAny: Array(model.versions.keys))) ?? []
-        updates = AvailableUpdates.find(installed: model.versions, offers: offers)
     }
 
     private func filtered(_ packages: [InstalledPackage]) -> [InstalledPackage] {

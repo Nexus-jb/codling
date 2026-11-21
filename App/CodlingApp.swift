@@ -13,6 +13,7 @@ struct CodlingApp: App {
     @StateObject private var systemSheet = SystemSheet()
     @StateObject private var devicePanel = DeviceInfoPanel()
     @StateObject private var accounts: PaymentAccounts
+    @StateObject private var updates = UpdatesModel()
     @State private var tab: AppTab = .featured
     /// The queue, opened from the queue bar over the current page.
     @State private var queueShown = false
@@ -67,6 +68,7 @@ struct CodlingApp: App {
                 Tab("Installed", systemImage: "shippingbox", value: AppTab.installed) {
                     InstalledView(environment: environment, model: installed)
                 }
+                .badge(updates.updates.count)
                 Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                     SearchView()
                 }
@@ -113,7 +115,8 @@ struct CodlingApp: App {
                                 .padding(.horizontal, 14)
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
-                        FloatingTabBar(selection: $tab, queueCount: queue.items.count)
+                        FloatingTabBar(selection: $tab, queueCount: queue.items.count,
+                                       updateCount: updates.updates.count)
                     }
                     .animation(.spring(response: 0.35, dampingFraction: 0.85), value: queueBarShown)
                     .transition(.opacity)
@@ -160,6 +163,7 @@ struct CodlingApp: App {
                         .environmentObject(sources)
                         .environmentObject(installed)
                         .environmentObject(queue)
+                        .environmentObject(updates)
                         .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
                         .tint(Palette.text)
                         .accentColor(Palette.text)
@@ -178,6 +182,7 @@ struct CodlingApp: App {
                 .environmentObject(sources)
                 .environmentObject(installed)
                 .environmentObject(queue)
+                .environmentObject(updates)
                 .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
                 // The design draws buttons, links and the selected tab in
                 // the text color.
@@ -188,6 +193,10 @@ struct CodlingApp: App {
                 // that a review need not update them first.
                 .onChange(of: sources.indexGeneration) { _ in
                     queue.sourcesChanged(sources.rows.map(\.source.uri))
+                }
+                // The updates follow the index and the installed packages.
+                .task(id: "\(sources.indexGeneration) \(sources.rows.count) \(installed.versions.hashValue)") {
+                    await updates.refresh(store: sources.store, installed: installed.versions)
                 }
                 .task {
                     // Codling opens on the index it has, and refreshes the

@@ -191,6 +191,8 @@ enum AppTab: Hashable {
 struct FloatingTabBar: View {
     @Binding var selection: AppTab
     let queueCount: Int
+    /// The updates waiting, on the Installed tab.
+    var updateCount = 0
 
     static let height: CGFloat = 64
 
@@ -200,7 +202,7 @@ struct FloatingTabBar: View {
                 item(.featured, "Featured", "star")
                 item(.sources, "Sources", "tray.full")
                 item(.queue, "Queue", "tray.and.arrow.down", badge: queueCount)
-                item(.installed, "Installed", "shippingbox")
+                item(.installed, "Installed", "shippingbox", badge: updateCount)
             }
             .padding(5)
             .frame(height: Self.height)
