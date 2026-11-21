@@ -37,11 +37,22 @@ struct RuntimeEnvironment {
     static func current(bundle: Bundle = .main, fileManager: FileManager = .default) -> RuntimeEnvironment {
         let info = bundle.infoDictionary ?? [:]
         let path = bundle.bundlePath
-        let scheme = detectScheme(bundlePath: path, fileManager: fileManager)
         let short = info["CFBundleShortVersionString"] as? String ?? "?"
         let build = info["CFBundleVersion"] as? String ?? "?"
+        let version = info["CodlingPackageVersion"] as? String ?? "\(short) (\(build))"
+        #if targetEnvironment(simulator)
+        // Simulator builds only, for the layout screenshots (see
+        // ScreenshotTests): a folder laid out like a rootless jailbreak's
+        // root stands in for /var/jb. Builds for devices leave this out.
+        if let root = ProcessInfo.processInfo.environment["CODLING_SIMULATOR_ROOT"], root.hasPrefix("/") {
+            return RuntimeEnvironment(version: version, systemVersion: UIDevice.current.systemVersion,
+                                      deviceModel: hardwareModel(), bundlePath: path, scheme: .rootless,
+                                      jailbreakRoot: root)
+        }
+        #endif
+        let scheme = detectScheme(bundlePath: path, fileManager: fileManager)
         return RuntimeEnvironment(
-            version: info["CodlingPackageVersion"] as? String ?? "\(short) (\(build))",
+            version: version,
             systemVersion: UIDevice.current.systemVersion,
             deviceModel: hardwareModel(),
             bundlePath: path,

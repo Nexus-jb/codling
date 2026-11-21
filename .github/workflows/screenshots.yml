@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Screenshots of Codling's main pages on simulators of every screen size
+# that can be jailbroken, upright and on their side, for checking the layout
+# on iPhones and iPads nobody on the team has. Started by hand; the
+# screenshots are published as the layout-screenshots prerelease, which
+# each run replaces. See scripts/layout-screenshots.sh.
+name: Layout screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ipad-layout]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Take the screenshots
+    runs-on: macos-15-intel
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: brew install xcodegen gnupg
+
+      - name: Use Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -iv beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then
+            echo "Xcode 26 is not installed on this runner. Installed:" >&2
+            ls -d /Applications/Xcode*.app >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          xcrun simctl list runtimes
+
+      - name: Generate the Xcode project
+        run: xcodegen generate
+
+      - name: Take the screenshots
+        run: scripts/layout-screenshots.sh screenshots
+
+      - name: Upload the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layout-screenshots
+          path: screenshots/
+          if-no-files-found: warn
+
+  publish:
+    name: Publish the screenshots
+    needs: screenshots
+    if: always() && needs.screenshots.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: layout-screenshots
+          path: screenshots
+
+      - name: Replace the layout-screenshots prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          (cd screenshots && zip -qr ../layout-screenshots.zip .)
+          notes="Simulator screenshots of $REF_NAME ($SHA), for checking the layout. Not a release."
+          gh release delete layout-screenshots --repo "$REPO" --yes --cleanup-tag || true
+          gh release create layout-screenshots --repo "$REPO" --prerelease --latest=false --target "$SHA" \
+            --title "Layout screenshots" --notes "$notes" layout-screenshots.zip

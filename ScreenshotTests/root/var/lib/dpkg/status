@@ -1,0 +1,54 @@
+Package: apt
+Status: install ok installed
+Priority: important
+Section: Packaging
+Installed-Size: 4096
+Maintainer: Procursus Team
+Architecture: iphoneos-arm64
+Version: 2.7.0
+Description: commandline package manager
+
+Package: bash
+Essential: yes
+Status: install ok installed
+Priority: required
+Section: Terminal_Support
+Installed-Size: 3200
+Maintainer: Procursus Team
+Architecture: iphoneos-arm64
+Version: 5.2.15
+Description: GNU Bourne Again SHell
+
+Package: coreutils
+Essential: yes
+Status: install ok installed
+Priority: required
+Section: Terminal_Support
+Installed-Size: 6100
+Maintainer: Procursus Team
+Architecture: iphoneos-arm64
+Version: 9.4
+Description: GNU core utilities
+
+Package: dpkg
+Essential: yes
+Status: install ok installed
+Priority: required
+Section: Packaging
+Installed-Size: 5200
+Maintainer: Procursus Team
+Architecture: iphoneos-arm64
+Version: 1.21.22
+Description: Debian package management system
+
+Package: com.nexusjb.codling
+Status: install ok installed
+Priority: optional
+Section: Packaging
+Installed-Size: 9800
+Maintainer: Ultra Team
+Author: Ultra Team
+Architecture: iphoneos-arm64
+Version: 0.1.0~dev.133
+Name: Codling
+Description: Open-source package manager for jailbroken iOS
