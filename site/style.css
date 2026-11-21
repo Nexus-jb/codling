@@ -320,6 +320,37 @@ h1 {
   max-width: 40rem;
 }
 
+/* What it looks like: real screenshots, side by side on wide screens and
+   in a row that scrolls sideways on phones. */
+
+.shot-row {
+  list-style: none;
+  margin: 2rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(1rem, 2.5vw, 1.75rem);
+}
+
+.shot-row figure {
+  margin: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+/* An iPhone screen's rounded corners, as a share of its width and height. */
+.shot-row img {
+  width: 100%;
+  border-radius: 12.5% / 5.8%;
+  border: 1px solid var(--edge);
+  box-shadow: 0 24px 50px -28px var(--shadow);
+  background: var(--surface-top);
+}
+
+.shot-row figcaption {
+  font-size: 0.9375rem;
+}
+
 /* Keep your device working: Undo leads, the other three follow. */
 
 .working {
@@ -530,6 +561,24 @@ td code {
 
   .split {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .shot-row {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: min(62vw, 260px);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 1.25rem;
+    padding-bottom: 1rem;
+    margin-inline: -1.25rem;
+    padding-inline: 1.25rem;
+  }
+
+  .shot-row li {
+    scroll-snap-align: start;
   }
 }
 

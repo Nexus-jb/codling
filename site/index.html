@@ -54,6 +54,39 @@
       </div>
     </section>
 
+    <section class="band shots" aria-labelledby="shots-title">
+      <div class="wrap">
+        <h2 id="shots-title">What it looks like</h2>
+        <ul class="shot-row" tabindex="0" aria-label="Screenshots">
+          <li>
+            <figure>
+              <img src="images/screens/featured.webp" width="600" height="1300" loading="lazy" alt="Codling’s Featured tab: banners from the user’s sources, the Tweaks, Themes and Development categories, and a list of new and updated packages.">
+              <figcaption>Featured: banners from your sources, categories, and what’s new.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <figure>
+              <img src="images/screens/queue.webp" width="600" height="1300" loading="lazy" alt="Codling’s Queue tab: the last change, Removed Ultra Live Widgets, with an Undo Last Change button.">
+              <figcaption>Queue: the last change, and the button that undoes it.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <figure>
+              <img src="images/screens/system.webp" width="600" height="1300" loading="lazy" alt="Codling’s System page: an iPhone 14 Pro Max with iOS 16.3.1 and a rootless jailbreak, then Burrow and the root helper, which is running as root.">
+              <figcaption>System: your device, Burrow, and a check of the root helper.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <figure>
+              <img src="images/screens/device-info.webp" width="600" height="1300" loading="lazy" alt="Codling’s Device Info sheet: device, model, iOS, Codling version, jailbreak and bootstrap, with the UDID hidden.">
+              <figcaption>Device Info: your UDID stays hidden until you tap it.</figcaption>
+            </figure>
+          </li>
+        </ul>
+        <p class="note">Screenshots from Codling 0.1.0~dev.116 on an iPhone 14 Pro Max.</p>
+      </div>
+    </section>
+
     <section id="features" class="band" aria-labelledby="working-title">
       <div class="wrap">
         <h2 id="working-title">Keep your device working</h2>
@@ -93,6 +126,10 @@
           <li>
             <h3>Errors in plain words</h3>
             <p>When a change doesn’t finish, Codling explains what happened and offers to finish the job, instead of showing raw apt output.</p>
+          </li>
+          <li>
+            <h3>System check</h3>
+            <p>Codling can check that its root helper is running as root, and that every package is fully installed with its dependencies met. Neither check changes anything.</p>
           </li>
           <li>
             <h3>Paid packages</h3>
