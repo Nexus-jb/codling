@@ -398,7 +398,8 @@ private struct PackageActions: View {
                     Button("Take Off Queue") {
                         queue.remove(identifier)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(TintedButtonStyle())
+                    .frame(maxWidth: 160)
                 }
                 Text("Review it in the Queue tab.")
                     .font(.footnote)
@@ -407,14 +408,13 @@ private struct PackageActions: View {
                 HStack(spacing: 10) {
                     if installedVersion == nil {
                         if !isPaid && available != nil {
-                            action("Install", .install(identifier), prominent: true)
+                            action("Install", .install(identifier))
                         }
                     } else {
                         if upgradable && !isPaid {
-                            action("Upgrade", .install(identifier), prominent: true)
+                            action("Upgrade", .install(identifier))
                         }
-                        action("Remove", .remove(identifier), prominent: false)
-                            .tint(.red)
+                        action("Remove", .remove(identifier), destructive: true)
                     }
                 }
                 if isPaid && (installedVersion == nil || upgradable) {
@@ -426,21 +426,17 @@ private struct PackageActions: View {
         }
     }
 
-    @ViewBuilder
-    private func action(_ title: String, _ operation: PackageOperation, prominent: Bool) -> some View {
-        let button = Button {
+    /// An action as a glass button, its label in the text color, or red for
+    /// removing: a filled button in the text color would hide its label.
+    private func action(_ title: String, _ operation: PackageOperation, destructive: Bool = false) -> some View {
+        Button {
             queue.add(operation, name: name)
         } label: {
             Text(title)
-                .font(.body.weight(.semibold))
-                .frame(minWidth: 90)
+                .font(.body.weight(.bold))
+                .padding(.vertical, 3)
         }
-        .controlSize(.large)
-        if prominent {
-            button.buttonStyle(.borderedProminent)
-        } else {
-            button.buttonStyle(.bordered)
-        }
+        .buttonStyle(TintedButtonStyle(color: destructive ? .red : Palette.text))
     }
 
     private func queuedText(_ operation: PackageOperation, installed: Bool) -> String {

@@ -442,15 +442,16 @@ struct SearchView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .safeAreaInset(edge: .top, spacing: 0) { searchField }
+            .safeAreaInset(edge: .top, spacing: 0) { header }
             .background(WallBackground())
+            // The title is part of the header above the field, which stays in
+            // place while the results scroll under it.
             .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Text(count)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                ToolbarItem(placement: .principal) {
+                    Text("")
+                        .accessibilityHidden(true)
                 }
             }
             .systemButton()
@@ -464,6 +465,26 @@ struct SearchView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    /// The title with the count beside it, and the field.
+    private var header: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Search")
+                    .font(.largeTitle.bold())
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                Text(count)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 16)
+            searchField
+        }
+        .padding(.bottom, 8)
+        .background(Palette.canvas)
     }
 
     private var searchField: some View {
@@ -501,9 +522,6 @@ struct SearchView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: focused || !query.isEmpty)
         .padding(.horizontal, 16)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
-        .background(Palette.canvas)
     }
 
     /// How much there is to search, for the top of the screen.
