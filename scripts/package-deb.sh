@@ -104,9 +104,10 @@ Name: Codling
 Version: $version
 Architecture: $arch
 Description: A modern, open-source package manager for jailbroken iOS.
- Early development build. Package management is not available yet.
-Maintainer: Nexus-jb
-Author: Nexus-jb
+ Installs, upgrades and removes packages from your sources, buys paid ones,
+ and can undo a change.
+Maintainer: Ultra Team
+Author: Ultra Team
 Section: Packaging
 Depends: firmware (>= 15.0), uikittools
 Homepage: https://github.com/Nexus-jb/codling
