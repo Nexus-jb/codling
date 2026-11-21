@@ -2,8 +2,9 @@
 
 import SwiftUI
 
-/// A package's page: its header, its depiction and its details. Installing
-/// comes in a later version of Codling, so this page has no Install button.
+/// A package's page: its header with the actions, its depiction and its
+/// details. Paid packages have no Install or Upgrade button until buying
+/// works.
 struct PackageView: View {
     let source: SourceInfo
     let identifier: String
@@ -416,11 +417,6 @@ private struct PackageActions: View {
                         }
                         action("Remove", .remove(identifier), destructive: true)
                     }
-                }
-                if isPaid && (installedVersion == nil || upgradable) {
-                    Text("Installing and upgrading paid packages comes in a later version of Codling.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
                 }
             }
         }

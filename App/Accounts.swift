@@ -483,10 +483,12 @@ private struct ProviderCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(provider.name)
                         .font(.headline)
-                    Text(provider.sources.map(\.title).joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
+                    if let names = sourceNames {
+                        Text(names)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
                     if let description = provider.info?.description {
                         ToolNote(text: description)
                             .padding(.top, 2)
@@ -497,6 +499,26 @@ private struct ProviderCard: View {
             status
                 .padding(.top, 12)
         }
+    }
+
+    /// The sources that use this provider, unless that is only the
+    /// provider's own name.
+    private var sourceNames: String? {
+        let names = provider.sources.map(\.title)
+        if names.count == 1, names[0].caseInsensitiveCompare(provider.name) == .orderedSame {
+            return nil
+        }
+        return names.joined(separator: ", ")
+    }
+
+    /// The provider's sign-in prompt, unless its description already says
+    /// the same.
+    private var signInPrompt: String? {
+        guard let message = provider.info?.bannerMessage else {
+            return provider.info?.description == nil
+                ? "Sign in to buy packages from \(provider.name) and to download the ones you bought." : nil
+        }
+        return message.caseInsensitiveCompare(provider.info?.description ?? "") == .orderedSame ? nil : message
     }
 
     @ViewBuilder
@@ -539,8 +561,9 @@ private struct ProviderCard: View {
             }
         case .signedOut:
             VStack(alignment: .leading, spacing: 10) {
-                ToolNote(text: provider.info?.bannerMessage
-                         ?? "Sign in to buy packages from \(provider.name) and to download the ones you bought.")
+                if let prompt = signInPrompt {
+                    ToolNote(text: prompt)
+                }
                 Button(provider.info?.bannerButton.map { $0.capitalized } ?? "Sign In") {
                     Task {
                         if let message = await accounts.signIn(provider) {
