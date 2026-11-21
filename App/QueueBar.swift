@@ -18,7 +18,7 @@ struct QueueBar: View {
         Button(action: open) {
             HStack(spacing: 12) {
                 Image(systemName: symbol)
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold)) // fixed: the bar's symbol
                     .foregroundColor(Palette.text)
                     .frame(width: 26)
                     .accessibilityHidden(true)
@@ -26,12 +26,12 @@ struct QueueBar: View {
                     Text(title)
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(Palette.text)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                     if !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(growing: 1)
                     }
                 }
                 Spacer(minLength: 8)
@@ -60,8 +60,10 @@ struct QueueBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens the queue")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(subtitle.isEmpty ? title : "\(title), \(subtitle)")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(working ? "Opens the queue." : "Opens the queue to confirm.")
     }
 
     /// Whether the bar has something to show.

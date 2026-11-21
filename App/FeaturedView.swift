@@ -85,6 +85,7 @@ struct FeaturedView: View {
     @EnvironmentObject private var installed: InstalledPackagesModel
     @StateObject private var model = FeaturedModel()
     @EnvironmentObject private var devicePanel: DeviceInfoPanel
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         NavigationView {
@@ -101,27 +102,7 @@ struct FeaturedView: View {
 
                     CardHeading(title: "Browse Categories", symbol: "square.grid.2x2")
                         .padding(.top, 6)
-                    Card(padding: 14) {
-                        HStack(spacing: 8) {
-                            ForEach(PackageCategory.all) { category in
-                                NavigationLink(destination: CategoryPackagesView(category: category)) {
-                                    VStack(spacing: 8) {
-                                        IconTile(symbol: SectionSymbol.name(for: category.name),
-                                                 color: SectionSymbol.color(for: category.name), size: 50)
-                                        Text(category.name)
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundColor(.primary)
-                                            .lineLimit(1)
-                                            .minimumScaleFactor(0.8)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 4)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
+                    categoriesCard
 
                     CardHeading(title: "New & Updated", symbol: "clock")
                         .padding(.top, 6)
@@ -145,7 +126,7 @@ struct FeaturedView: View {
                                 Spacer(minLength: 8)
                                 Text(DeviceModel.name(for: environment.deviceModel))
                                     .foregroundColor(.secondary)
-                                    .lineLimit(1)
+                                    .lineLimit(growing: 1)
                                 Chevron()
                             }
                             .padding(.horizontal, 16)
@@ -177,6 +158,51 @@ struct FeaturedView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    /// Three tiles side by side, or a list at the accessibility text sizes,
+    /// where the names would not fit a third of the width.
+    @ViewBuilder
+    private var categoriesCard: some View {
+        if typeSize.isAccessibilitySize {
+            CardRows(items: PackageCategory.all, dividerInset: 66) { category in
+                NavigationLink(destination: CategoryPackagesView(category: category)) {
+                    HStack(spacing: 14) {
+                        IconTile(symbol: SectionSymbol.name(for: category.name),
+                                 color: SectionSymbol.color(for: category.name), size: 36)
+                        Text(category.name)
+                            .font(.body.weight(.semibold))
+                        Spacer(minLength: 4)
+                        Chevron()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+                .buttonStyle(CardRowButtonStyle())
+            }
+        } else {
+            Card(padding: 14) {
+                HStack(spacing: 8) {
+                    ForEach(PackageCategory.all) { category in
+                        NavigationLink(destination: CategoryPackagesView(category: category)) {
+                            VStack(spacing: 8) {
+                                IconTile(symbol: SectionSymbol.name(for: category.name),
+                                         color: SectionSymbol.color(for: category.name), size: 50)
+                                Text(category.name)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -294,7 +320,7 @@ struct CompactPackageRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(package.displayName)
                         .font(.body.weight(.semibold))
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                     if package.isPaid {
                         PaidBadge()
                     }
@@ -302,13 +328,13 @@ struct CompactPackageRow: View {
                     Text(package.version)
                         .font(.caption.monospacedDigit())
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                 }
                 if let summary = package.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                 }
                 if !status.isEmpty {
                     Text(status)
@@ -531,7 +557,7 @@ private struct FeaturedCarousel: View {
                         Text(item.source.title)
                             .font(.caption)
                             .foregroundColor(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(growing: 1)
                             .padding(.leading, 4)
                     }
                     .frame(width: size.width)

@@ -163,7 +163,7 @@ private struct LabelElement: View {
 
     var body: some View {
         Text(label.text)
-            .font(.system(size: scaledSize, weight: weight))
+            .font(.system(size: scaledSize, weight: weight)) // fixed: scaled with the text size below
             .foregroundColor(label.color.map(\.color) ?? .primary)
             .multilineTextAlignment(label.alignment.text)
             .frame(maxWidth: .infinity, alignment: label.alignment.frame)

@@ -95,7 +95,7 @@ struct IconTile: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: size * 0.46, weight: .medium))
+            .font(.system(size: size * 0.46, weight: .medium)) // fixed: a symbol sized to its tile
             .foregroundColor(color)
             .frame(width: size, height: size)
             .background(color.opacity(0.14))
@@ -212,7 +212,7 @@ struct FloatingTabBar: View {
                 selection = .search
             } label: {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 22, weight: selection == .search ? .bold : .medium))
+                    .font(.system(size: 22, weight: selection == .search ? .bold : .medium)) // fixed: tab bar symbol
                     .foregroundColor(Palette.text)
                     .frame(width: Self.height, height: Self.height)
                     .glassSurface(cornerRadius: Self.height / 2, inset: selection == .search)
@@ -220,6 +220,9 @@ struct FloatingTabBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Search")
             .accessibilityAddTraits(selection == .search ? .isSelected : [])
+            .accessibilityShowsLargeContentViewer {
+                Label("Search", systemImage: "magnifyingglass")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 2)
@@ -232,7 +235,7 @@ struct FloatingTabBar: View {
         } label: {
             VStack(spacing: 3) {
                 Image(systemName: selected ? symbol + ".fill" : symbol)
-                    .font(.system(size: 19, weight: .medium))
+                    .font(.system(size: 19, weight: .medium)) // fixed: tab bar symbol
                     .frame(height: 22)
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
@@ -246,7 +249,7 @@ struct FloatingTabBar: View {
                         }
                     }
                 Text(title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold)) // fixed: tab bar label, large in the Large Content Viewer
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -264,6 +267,11 @@ struct FloatingTabBar: View {
         .buttonStyle(.plain)
         .accessibilityLabel(badge > 0 ? "\(title), \(badge)" : title)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        // Its label stays small, as in UIKit's tab bar; holding it shows
+        // it large at the accessibility text sizes.
+        .accessibilityShowsLargeContentViewer {
+            Label(title, systemImage: symbol)
+        }
     }
 }
 
@@ -570,7 +578,7 @@ struct CollapsibleCard<Content: View>: View {
                     IconTile(symbol: symbol, color: color, size: 36)
                     Text(title)
                         .font(.body.weight(.semibold))
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                     Spacer(minLength: 8)
                     Text(count.formatted())
                         .foregroundColor(.secondary)
@@ -695,5 +703,50 @@ extension View {
         } else {
             self
         }
+    }
+}
+
+// MARK: Large text
+
+/// A name with its value beside it, or under it at the accessibility text
+/// sizes, where side by side squeezes both into narrow columns.
+struct NameValue<Name: View, Value: View>: View {
+    @ViewBuilder let name: () -> Name
+    @ViewBuilder let value: () -> Value
+    @Environment(\.dynamicTypeSize) private var size
+
+    var body: some View {
+        if size.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 3) {
+                name()
+                value()
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                name()
+                Spacer(minLength: 8)
+                value()
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+    }
+}
+
+/// A line limit that grows at the accessibility text sizes, so that names
+/// wrap there instead of ending in an ellipsis after a word or two.
+private struct GrowingLineLimit: ViewModifier {
+    let lines: Int
+    @Environment(\.dynamicTypeSize) private var size
+
+    func body(content: Content) -> some View {
+        content.lineLimit(size.isAccessibilitySize ? lines + 2 : lines)
+    }
+}
+
+extension View {
+    func lineLimit(growing lines: Int) -> some View {
+        modifier(GrowingLineLimit(lines: lines))
     }
 }

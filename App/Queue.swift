@@ -625,7 +625,7 @@ struct QueueView: View {
                                 .accessibilityHidden(true)
                             Text(item.name)
                                 .font(.subheadline.weight(.semibold))
-                                .lineLimit(1)
+                                .lineLimit(growing: 1)
                             Spacer(minLength: 6)
                             Text(verb(item.operation))
                                 .font(.subheadline)

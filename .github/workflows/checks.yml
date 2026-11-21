@@ -37,6 +37,9 @@ jobs:
           python3 -I scripts/check-text-policy.py --commits "$range" \
             --text-env PR_TITLE --text-env PR_BODY --text-env REF_NAME
 
+      - name: Check that text follows the user's text size
+        run: python3 -I scripts/check-accessibility.py
+
   packaging:
     name: Packaging scripts
     runs-on: ubuntu-latest

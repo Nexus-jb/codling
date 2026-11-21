@@ -76,6 +76,7 @@ final class DeviceInfoPanel: ObservableObject {
 struct DeviceInfoOverlay: View {
     @ObservedObject var panel: DeviceInfoPanel
     @State private var drag: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -86,6 +87,8 @@ struct DeviceInfoOverlay: View {
                     .accessibilityHidden(true)
                     .transition(.opacity)
                 DeviceInfoCard(details: details, close: { panel.close() })
+                    .accessibilityAddTraits(.isModal)
+                    .accessibilityAction(.escape) { panel.close() }
                     .offset(y: max(drag, 0))
                     .gesture(DragGesture()
                         .onChanged { drag = $0.translation.height }
@@ -95,10 +98,11 @@ struct DeviceInfoOverlay: View {
                             }
                             drag = 0
                         })
-                    .transition(.move(edge: .bottom))
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom))
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.9), value: panel.details == nil)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: 0.35, dampingFraction: 0.9),
+                   value: panel.details == nil)
     }
 }
 
@@ -174,12 +178,11 @@ private struct DeviceInfoCard: View {
     }
 
     private func line(_ title: String, _ value: String) -> some View {
-        HStack {
+        NameValue {
             Text(title)
                 .foregroundColor(.secondary)
-            Spacer(minLength: 12)
+        } value: {
             Text(value)
-                .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
         }
         .padding(.horizontal, 16)
@@ -193,14 +196,13 @@ private struct DeviceInfoCard: View {
             Button {
                 showsUDID.toggle()
             } label: {
-                HStack {
+                NameValue {
                     Text("UDID")
                         .foregroundColor(.secondary)
-                    Spacer(minLength: 12)
+                } value: {
                     Text(showsUDID ? udid : String(repeating: "•", count: 12))
                         .font(showsUDID ? .footnote.monospaced() : .body)
-                        .multilineTextAlignment(.trailing)
-                        .lineLimit(2)
+                        .lineLimit(growing: 2)
                         .minimumScaleFactor(0.7)
                 }
                 .padding(.horizontal, 16)

@@ -277,11 +277,11 @@ private struct AllPackagesRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("All Packages")
                     .font(.body.weight(.semibold))
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
                 Text("See all packages from your sources")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
             }
             Spacer(minLength: 4)
             if let count {
@@ -304,11 +304,11 @@ struct CompactSourceRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
                     .font(.body.weight(.semibold))
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
                 Text(row.source.uri)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
                     .truncationMode(.middle)
             }
             Spacer(minLength: 4)
@@ -385,11 +385,11 @@ struct SourceHeader: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(row.title)
                     .font(.title2.bold())
-                    .lineLimit(2)
+                    .lineLimit(growing: 2)
                 Text(row.source.uri + (row.source.isFlat ? "" : " \(row.source.suite) \(row.source.components.joined(separator: " "))"))
                     .font(.footnote.monospaced())
                     .foregroundColor(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(growing: 2)
                 status
                 ForEach(row.warnings, id: \.self) { warning in
                     IconLine(symbol: "exclamationmark.triangle", text: warning)

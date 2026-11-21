@@ -605,11 +605,11 @@ struct AccountCircle: View {
         ZStack {
             if let initials = user.flatMap({ PaymentProvider.initials(name: $0.name, email: $0.email) }) {
                 Text(initials)
-                    .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
+                    .font(.system(size: size * 0.38, weight: .bold, design: .rounded)) // fixed: initials sized to the circle
                     .foregroundColor(Palette.text)
             } else {
                 Image(systemName: "person.fill")
-                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .font(.system(size: size * 0.42, weight: .semibold)) // fixed: a symbol sized to the circle
                     .foregroundColor(Palette.text)
             }
         }
