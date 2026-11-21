@@ -82,6 +82,18 @@ final class QueueModel: ObservableObject {
     /// Downloads bought packages; set when the app starts.
     weak var accounts: PaymentAccounts?
 
+    // apt's lists, brought up to date in the background (AptListsFreshness).
+    private var lists = AptListsFreshness()
+    /// The sources apt reads, as Codling last saw them.
+    private var sourceAddresses: [String] = []
+    /// apt-get update under way in the background; a review waits for it.
+    private var listsUpdate: Task<Void, Never>?
+    /// Another update is due once the current one, or the change apt is
+    /// making, is over.
+    private var listsUpdateDue = false
+    /// What the last apt-get update said about sources it could not read.
+    private var listsWarnings: [AptDiagnosis] = []
+
     var lastChange: ChangeRecord? { history.last }
 
     func contains(_ package: String) -> Bool {
@@ -126,6 +138,7 @@ final class QueueModel: ObservableObject {
 
     func backToEditing() {
         reviewed = []
+        defer { updateListsInBackground() }
         if undoing != nil, case .review = phase {
             items = []
             undoing = nil
@@ -155,25 +168,73 @@ final class QueueModel: ObservableObject {
         await review()
     }
 
-    /// Brings apt's lists up to date, downloads the packages the user
-    /// bought, then asks apt what the queue would do.
+    // MARK: apt's lists
+
+    /// Codling refreshed, added or removed sources: apt's lists are brought
+    /// up to date in the background, so that a review need not wait.
+    func sourcesChanged(_ addresses: [String]) {
+        sourceAddresses = addresses.sorted()
+        listsUpdateDue = true
+        updateListsInBackground()
+    }
+
+    /// Starts the update that is due, unless one is under way or the queue is
+    /// being reviewed or applied: apt's lists stay as the review read them,
+    /// and apt-get holds apt's lock. It starts after them.
+    private func updateListsInBackground() {
+        guard listsUpdateDue, listsUpdate == nil else { return }
+        switch phase {
+        case .preparing, .review, .applying:
+            return
+        case .editing, .blocked, .finished:
+            break
+        }
+        listsUpdate = Task {
+            while listsUpdateDue {
+                listsUpdateDue = false
+                _ = await updateListsNow()
+            }
+            listsUpdate = nil
+        }
+    }
+
+    /// Runs apt-get update. Sources that could not be read keep their last
+    /// lists, and their warnings show in the review. Returns the helper's
+    /// failure when apt could not run at all.
+    private func updateListsNow() async -> RootHelper.Failure? {
+        let sources = sourceAddresses
+        switch await Task.detached(priority: .userInitiated, operation: { RootHelper.updateLists() }).value {
+        case .failure(let failure):
+            return failure
+        case .success(let result):
+            listsWarnings = result.status == 0 ? [] : AptDiagnostics.diagnose(result.output)
+            lists.recordUpdate(at: Date(), sources: sources)
+            return nil
+        }
+    }
+
+    // MARK: Review and apply
+
+    /// Downloads the packages the user bought, then asks apt what the queue
+    /// would do. apt's lists are updated first only when they are not fresh,
+    /// or when apt does not know a package the queue names.
     func review() async {
         let queued = items
         guard !queued.isEmpty else { return }
         reviewed = []
-        phase = .preparing("Updating apt's package lists")
-        let update = await Task.detached(priority: .userInitiated) { RootHelper.updateLists() }.value
-        var warnings: [AptDiagnosis] = []
-        switch update {
-        case .failure(let failure):
-            phase = .blocked([], output: failure.message)
-            return
-        case .success(let result) where result.status != 0:
-            // Sources that could not be refreshed keep their last lists:
-            // the change may still work, so it goes on with a warning.
-            warnings = AptDiagnostics.diagnose(result.output)
-        default:
-            break
+        defer { updateListsInBackground() }
+        if let running = listsUpdate {
+            phase = .preparing("Updating apt's package lists")
+            await running.value
+        }
+        var updated = false
+        if !lists.isFresh(now: Date(), sources: sourceAddresses) {
+            phase = .preparing("Updating apt's package lists")
+            if let failure = await updateListsNow() {
+                phase = .blocked([], output: failure.message)
+                return
+            }
+            updated = true
         }
         // Bought packages come from their provider's single-use address,
         // after apt's lists are fresh, as the helper checks each download
@@ -189,7 +250,19 @@ final class QueueModel: ObservableObject {
                 guard let accounts else {
                     throw PaymentProvider.Failure(message: "Codling cannot download bought packages right now.")
                 }
-                try await accounts.fetch(package: package, name: item.name, request: purchase)
+                do {
+                    try await accounts.fetch(package: package, name: item.name, request: purchase)
+                } catch where !updated {
+                    // The helper checks the download against apt's lists,
+                    // which may not have this version yet.
+                    phase = .preparing("Updating apt's package lists")
+                    if let failure = await updateListsNow() {
+                        throw PaymentProvider.Failure(message: failure.message)
+                    }
+                    updated = true
+                    phase = .preparing("Downloading \(item.name) from \(purchase.providerName)")
+                    try await accounts.fetch(package: package, name: item.name, request: purchase)
+                }
                 operations.append(.purchased(package, version: purchase.version))
             } catch {
                 let message = (error as? PaymentProvider.Failure)?.message ?? "\(error)"
@@ -199,7 +272,25 @@ final class QueueModel: ObservableObject {
         }
 
         phase = .preparing("Working out the changes")
-        let simulation = await Task.detached(priority: .userInitiated) { RootHelper.simulate(operations) }.value
+        let planned = operations
+        var simulation = await Task.detached(priority: .userInitiated) { RootHelper.simulate(planned) }.value
+        if !updated, case .success(let result) = simulation, result.status != 0,
+           AptListsFreshness.mentionsMissingPackage(result.output) {
+            // A source published it after apt's lists were read.
+            phase = .preparing("Updating apt's package lists")
+            if let failure = await updateListsNow() {
+                phase = .blocked([], output: failure.message)
+                return
+            }
+            phase = .preparing("Working out the changes")
+            simulation = await Task.detached(priority: .userInitiated) { RootHelper.simulate(planned) }.value
+        }
+        show(simulation, operations: planned, notes: undoing == nil ? [] : undoNotes)
+    }
+
+    /// The review, or why apt cannot make the change.
+    private func show(_ simulation: Result<RootHelper.CommandResult, RootHelper.Failure>, operations: [PackageOperation],
+                      notes: [String]) {
         switch simulation {
         case .failure(let failure):
             phase = .blocked([], output: failure.message)
@@ -207,7 +298,7 @@ final class QueueModel: ObservableObject {
             phase = .blocked(AptDiagnostics.diagnose(result.output), output: result.output)
         case .success(let result):
             reviewed = operations
-            phase = .review(AptPlan.parse(result.output), warnings: warnings, notes: undoing == nil ? [] : undoNotes)
+            phase = .review(AptPlan.parse(result.output), warnings: listsWarnings, notes: notes)
         }
     }
 
@@ -223,6 +314,10 @@ final class QueueModel: ObservableObject {
             UIApplication.shared.isIdleTimerDisabled = false
         }
 
+        if let running = listsUpdate {
+            phase = .applying("Waiting for apt's package lists")
+            await running.value
+        }
         phase = .applying("Reading the installed packages")
         await installed.load(statusPath: statusPath)
         let before = installed.versions
@@ -263,6 +358,25 @@ final class QueueModel: ObservableObject {
             ChangeHistory.save(history)
         }
 
+        if case .success(let command) = result, command.status != 0, after == before,
+           AptListsFreshness.mentionsFailedDownload(command.output) {
+            // A source replaced a file after apt's lists were read. apt
+            // downloads before it changes anything, so nothing changed: read
+            // the lists again and review the change again.
+            lists.invalidate()
+            phase = .preparing("A source changed its files. Updating apt's package lists")
+            if let failure = await updateListsNow() {
+                phase = .blocked([], output: failure.message)
+            } else {
+                phase = .preparing("Working out the changes")
+                let simulation = await Task.detached(priority: .userInitiated) { RootHelper.simulate(operations) }.value
+                show(simulation, operations: operations,
+                     notes: ["A source changed its files while you reviewed, so Codling read them again. Nothing was installed yet; confirm again."])
+            }
+            updateListsInBackground()
+            return
+        }
+
         switch result {
         case .failure(let failure):
             phase = .finished(succeeded: false, plan: plan, diagnoses: [], output: failure.message, notes: notes)
@@ -277,6 +391,7 @@ final class QueueModel: ObservableObject {
                 reviewed = []
             }
         }
+        updateListsInBackground()
     }
 
     /// Undoing a change titles the undo after it; undoing an undo makes
@@ -309,19 +424,48 @@ final class QueueModel: ObservableObject {
     }
 }
 
-/// The Queue tab: what is queued, then the review, then the result.
+/// The Queue tab: what is queued, then the review, then the result. The
+/// queue bar opens the same in a sheet, with close, and starts the review.
 struct QueueView: View {
     let environment: RuntimeEnvironment
     @ObservedObject var queue: QueueModel
+    /// Closes the sheet; nil in the Queue tab.
+    var close: (() -> Void)?
     @EnvironmentObject private var installed: InstalledPackagesModel
 
     var body: some View {
         NavigationView {
-            content
-                .navigationTitle("Queue")
-                .systemButton()
+            if let close {
+                content
+                    .navigationTitle("Queue")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Close", action: close)
+                                .disabled(busy)
+                        }
+                    }
+            } else {
+                content
+                    .navigationTitle("Queue")
+                    .systemButton()
+            }
         }
         .navigationViewStyle(.stack)
+        .interactiveDismissDisabled(busy)
+        .task {
+            if close != nil, queue.phase == .editing, !queue.items.isEmpty {
+                await queue.review()
+            }
+        }
+    }
+
+    /// apt is at work: the sheet stays until it is done.
+    private var busy: Bool {
+        switch queue.phase {
+        case .preparing, .applying: return true
+        default: return queue.restarting
+        }
     }
 
     @ViewBuilder
@@ -483,9 +627,12 @@ struct QueueView: View {
                             }
                         }
                     }
-                    Button("Done") { queue.backToEditing() }
-                        .buttonStyle(TintedButtonStyle())
-                        .padding(.top, 12)
+                    Button("Done") {
+                        queue.backToEditing()
+                        close?()
+                    }
+                    .buttonStyle(TintedButtonStyle())
+                    .padding(.top, 12)
                 }
                 if succeeded {
                     Card(padding: 14) {

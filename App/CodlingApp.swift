@@ -14,6 +14,8 @@ struct CodlingApp: App {
     @StateObject private var devicePanel = DeviceInfoPanel()
     @StateObject private var accounts: PaymentAccounts
     @State private var tab: AppTab = .featured
+    /// The queue, opened from the queue bar over the current page.
+    @State private var queueShown = false
     /// The floating tab bar steps aside while the keyboard is up.
     @State private var keyboardShown = false
     /// The launch screen stays until the sources have refreshed once.
@@ -48,48 +50,70 @@ struct CodlingApp: App {
     @ViewBuilder
     private var tabs: some View {
         if #available(iOS 26, *) {
-            TabView {
-                Tab("Featured", systemImage: "star") {
+            let native = TabView(selection: $tab) {
+                Tab("Featured", systemImage: "star", value: AppTab.featured) {
                     FeaturedView(environment: environment)
                 }
-                Tab("Sources", systemImage: "tray.full") {
+                Tab("Sources", systemImage: "tray.full", value: AppTab.sources) {
                     SourcesView(model: sources)
                 }
-                Tab("Queue", systemImage: "tray.and.arrow.down") {
+                Tab("Queue", systemImage: "tray.and.arrow.down", value: AppTab.queue) {
                     QueueView(environment: environment, queue: queue)
                 }
                 .badge(queue.items.count)
-                Tab("Installed", systemImage: "shippingbox") {
+                Tab("Installed", systemImage: "shippingbox", value: AppTab.installed) {
                     InstalledView(environment: environment, model: installed)
                 }
-                Tab("Search", systemImage: "magnifyingglass", role: .search) {
+                Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                     SearchView()
+                }
+            }
+            // The queue bar sits above the tab bar, where the system puts
+            // a tab view's accessory.
+            if #available(iOS 26.1, *) {
+                native.tabViewBottomAccessory(isEnabled: queueBarShown) {
+                    queueBar(glass: false)
+                }
+            } else {
+                native.tabViewBottomAccessory {
+                    if queueBarShown {
+                        queueBar(glass: false)
+                    }
                 }
             }
         } else {
             // The system tab bar is hidden, and the floating bar drawn after
-            // iOS 26's takes its place.
+            // iOS 26's takes its place, with the queue bar above it.
+            let room = queueBarShown ? QueueBar.height + 8 : 0
             TabView(selection: $tab) {
                 FeaturedView(environment: environment)
-                    .floatingTabBarSpace()
+                    .floatingTabBarSpace(extra: room)
                     .tag(AppTab.featured)
                 SourcesView(model: sources)
-                    .floatingTabBarSpace()
+                    .floatingTabBarSpace(extra: room)
                     .tag(AppTab.sources)
                 QueueView(environment: environment, queue: queue)
-                    .floatingTabBarSpace()
+                    .floatingTabBarSpace(extra: 0)
                     .tag(AppTab.queue)
                 InstalledView(environment: environment, model: installed)
-                    .floatingTabBarSpace()
+                    .floatingTabBarSpace(extra: room)
                     .tag(AppTab.installed)
                 SearchView()
-                    .floatingTabBarSpace()
+                    .floatingTabBarSpace(extra: room)
                     .tag(AppTab.search)
             }
             .overlay(alignment: .bottom) {
                 if !keyboardShown {
-                    FloatingTabBar(selection: $tab, queueCount: queue.items.count)
-                        .transition(.opacity)
+                    VStack(spacing: 8) {
+                        if queueBarShown {
+                            queueBar(glass: true)
+                                .padding(.horizontal, 14)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        FloatingTabBar(selection: $tab, queueCount: queue.items.count)
+                    }
+                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: queueBarShown)
+                    .transition(.opacity)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -98,6 +122,18 @@ struct CodlingApp: App {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardShown = false
             }
+        }
+    }
+
+    /// The queue bar shows while packages wait or apt is at work, except on
+    /// the Queue tab, which shows the same, and under the queue sheet.
+    private var queueBarShown: Bool {
+        QueueBar.shows(queue) && tab != .queue && !queueShown
+    }
+
+    private func queueBar(glass: Bool) -> some View {
+        QueueBar(queue: queue, glass: glass) {
+            queueShown = true
         }
     }
 
@@ -112,6 +148,18 @@ struct CodlingApp: App {
                         }
                         .transition(.opacity)
                     }
+                }
+                .sheet(isPresented: $queueShown) {
+                    QueueView(environment: environment, queue: queue, close: { queueShown = false })
+                        .environmentObject(systemSheet)
+                        .environmentObject(devicePanel)
+                        .environmentObject(accounts)
+                        .environmentObject(sources)
+                        .environmentObject(installed)
+                        .environmentObject(queue)
+                        .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                        .tint(Palette.text)
+                        .accentColor(Palette.text)
                 }
                 .sheet(isPresented: $systemSheet.shown) {
                     SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
@@ -133,6 +181,11 @@ struct CodlingApp: App {
                 .tint(Palette.text)
                 .accentColor(Palette.text)
                 .task { await installed.load(statusPath: environment.dpkgStatusPath) }
+                // apt's lists follow Codling's sources in the background, so
+                // that a review need not update them first.
+                .onChange(of: sources.indexGeneration) { _ in
+                    queue.sourcesChanged(sources.rows.map(\.source.uri))
+                }
                 .task {
                     // Read and refresh the sources at launch, whichever tab
                     // opens first, before Featured shows.
