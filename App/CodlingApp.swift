@@ -15,6 +15,8 @@ struct CodlingApp: App {
     @State private var tab: AppTab = .featured
     /// The floating tab bar steps aside while the keyboard is up.
     @State private var keyboardShown = false
+    /// The launch screen stays until the sources have refreshed once.
+    @State private var launched = false
 
     init() {
         let environment = RuntimeEnvironment.current()
@@ -92,6 +94,14 @@ struct CodlingApp: App {
         WindowGroup {
             tabs
                 .overlay { DeviceInfoOverlay(panel: devicePanel) }
+                .overlay {
+                    if !launched {
+                        LaunchView(sources: sources) {
+                            withAnimation(.easeOut(duration: 0.25)) { launched = true }
+                        }
+                        .transition(.opacity)
+                    }
+                }
                 .sheet(isPresented: $systemSheet.shown) {
                     SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
                         .environmentObject(sources)
@@ -105,6 +115,12 @@ struct CodlingApp: App {
                 .environmentObject(queue)
                 .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
                 .task { await installed.load(statusPath: environment.dpkgStatusPath) }
+                .task {
+                    // Read and refresh the sources at launch, whichever tab
+                    // opens first, before Featured shows.
+                    await sources.start()
+                    withAnimation(.easeOut(duration: 0.25)) { launched = true }
+                }
         }
     }
 }

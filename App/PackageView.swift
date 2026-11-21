@@ -176,12 +176,9 @@ struct PackageView: View {
                 .frame(maxWidth: .infinity)
                 .padding(24)
                 .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        case .failed(let message):
-            problem(message) {
-                Task { await model.reloadDepiction(source: source) }
-            }
-            tabbedContent
         default:
+            // A depiction that cannot be loaded, such as one its server no
+            // longer has, leaves the package's own description in the tabs.
             tabbedContent
         }
     }
@@ -286,20 +283,6 @@ struct PackageView: View {
     private var webFailed: Bool {
         if case .failed = webLoad { return true }
         return false
-    }
-
-    private func problem(_ message: String, retry: @escaping () -> Void) -> some View {
-        Card(padding: 14) {
-            ToolHeader(symbol: "exclamationmark.triangle", color: .orange, title: "The description did not load") {
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Button("Try Again", action: retry)
-                .buttonStyle(TintedButtonStyle())
-                .padding(.top, 12)
-        }
     }
 
     // MARK: Details

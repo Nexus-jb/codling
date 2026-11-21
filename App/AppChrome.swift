@@ -480,3 +480,59 @@ struct CornerRoundedRectangle: Shape {
                           cornerRadii: CGSize(width: radius, height: radius)).cgPath)
     }
 }
+
+// MARK: Launch
+
+/// The first screen at launch: Codling's icon while the sources refresh,
+/// so that Featured opens with what the sources have now. It can be
+/// skipped; the refresh goes on.
+struct LaunchView: View {
+    @ObservedObject var sources: SourcesModel
+    let skip: () -> Void
+    @State private var canSkip = false
+
+    var body: some View {
+        let total = sources.rows.count
+        let done = sources.rows.filter { $0.activity == .idle }.count
+        VStack(spacing: 18) {
+            Spacer()
+            Image("CodlingIcon")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 104, height: 104)
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
+                .accessibilityHidden(true)
+            Text("Codling")
+                .font(.largeTitle.bold())
+            VStack(spacing: 8) {
+                if total > 0 && sources.isRefreshing {
+                    ProgressView(value: Double(done), total: Double(total))
+                        .frame(maxWidth: 220)
+                    Text("Refreshing sources · \(done) of \(total)")
+                        .font(.footnote.monospacedDigit())
+                        .foregroundColor(.secondary)
+                } else {
+                    ProgressView()
+                    Text("Reading your sources")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(height: 50)
+            Spacer()
+            Button("Skip", action: skip)
+                .font(.body.weight(.semibold))
+                .opacity(canSkip ? 1 : 0)
+                .disabled(!canSkip)
+                .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .task {
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            withAnimation { canSkip = true }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
