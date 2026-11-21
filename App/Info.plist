@@ -28,6 +28,11 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- Codling is installed as a system app. Without this key iOS keeps no
+	     notification settings for it, so the number of updates on its icon
+	     is never shown and the permission is asked again and again. -->
+	<key>SBAppUsesLocalNotifications</key>
+	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Codling asks for Face ID before it uses your payment details to buy a package.</string>
 	<key>LSRequiresIPhoneOS</key>

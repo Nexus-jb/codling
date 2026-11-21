@@ -21,11 +21,16 @@ final class UpdatesModel: ObservableObject {
         await showOnIcon(updates.count)
     }
 
+    private static let askedKey = "AskedToBadgeIcon"
+
     /// iOS shows a number on an app's icon only with the user's permission,
-    /// which Codling asks for the first time there are updates.
+    /// which Codling asks for once, the first time there are updates.
     private func showOnIcon(_ count: Int) async {
         let center = UNUserNotificationCenter.current()
-        if count > 0, await center.notificationSettings().authorizationStatus == .notDetermined {
+        let defaults = UserDefaults.standard
+        if count > 0, !defaults.bool(forKey: Self.askedKey),
+           await center.notificationSettings().authorizationStatus == .notDetermined {
+            defaults.set(true, forKey: Self.askedKey)
             _ = try? await center.requestAuthorization(options: [.badge])
         }
         if #available(iOS 16, *) {
