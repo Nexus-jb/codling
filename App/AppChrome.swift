@@ -357,6 +357,7 @@ private struct TabBarRoom: UIViewControllerRepresentable {
                 controller = parent
             }
             guard controller.parent is UITabBarController else { return }
+            let room = self.room
             if controller.additionalSafeAreaInsets.bottom != room {
                 UIView.animate(withDuration: 0.3) {
                     controller.additionalSafeAreaInsets.bottom = room
