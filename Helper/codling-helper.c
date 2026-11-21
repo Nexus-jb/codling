@@ -37,7 +37,11 @@
 //                          do not name is refused. Essential packages are
 //                          never removed.
 //   codling-helper respring
-//                          restarts SpringBoard, so that tweaks load.
+//                          stops SpringBoard with SIGKILL, and launchd starts
+//                          it again at once, so that tweaks load. Codling
+//                          signals SpringBoard itself first; this is for when
+//                          it cannot. sbreload is not used: it restarts the
+//                          render server too, which closes every app.
 //   codling-helper backup PACKAGE...
 //                          rebuilds the .deb of each installed package from
 //                          dpkg's database and the files on disk (repack.c),
@@ -58,6 +62,15 @@
 //                          Comments and the other sources stay. An emptied
 //                          codling.sources is deleted; other files stay, as
 //                          their package manager may own them.
+//   codling-helper take-purchase PACKAGE VERSION
+//                          takes the .deb Codling downloaded after a
+//                          purchase from its caches (PACKAGE_VERSION.deb in
+//                          purchase_inbox below, a name the helper makes
+//                          itself), checks it against the SHA256 hash apt
+//                          lists for that version, and keeps it in
+//                          JAILBREAK/var/lib/codling/purchases, which only
+//                          root can write. The download is deleted either
+//                          way.
 //   codling-helper burrow-state
 //                          runs Burrow's burrowctl json, which prints the
 //                          tweak loader in use, the loader settings, every
@@ -77,11 +90,13 @@
 //
 // Operations name packages only: letters, digits, "+", "-" and ".", starting
 // with a letter or digit and ending with a letter, a digit or "+". A third
-// operation, @package=version, installs that version from its backup; the
-// version is checked too, and the helper finds the file itself. Nothing else
-// from the caller reaches apt.
+// operation, @package=version, installs that version from its backup, and a
+// fourth, $package=version, installs a purchased package that take-purchase
+// checked; the version is checked too, and the helper finds the file itself.
+// Nothing else from the caller reaches apt.
 
 #include "repack.h"
+#include "sha256.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -172,9 +187,17 @@ static void print_json_string(const char *text, size_t length) {
     putchar('"');
 }
 
-// Runs a program from the jailbreak with its output and errors together,
-// and prints {"status":N,"output":"..."}.
-static void run_and_report(const char *root, const char *program, const char *const *arguments) {
+// Runs a program from the jailbreak with its output and errors together.
+// Returns its exit status, or -1 when it did not start. *output holds what
+// it printed, at most output_limit bytes, or why it did not start; the
+// caller frees it.
+static int run_collect(const char *root, const char *program, const char *const *arguments, char **output,
+                       size_t *length) {
+    *length = 0;
+    *output = malloc(output_limit);
+    if (!*output) {
+        return -1;
+    }
     char path[PATH_MAX];
     snprintf(path, sizeof path, "%s%s", root, program);
     char search[4 * PATH_MAX];
@@ -184,8 +207,8 @@ static void run_and_report(const char *root, const char *program, const char *co
 
     int pipe_ends[2];
     if (pipe(pipe_ends) != 0) {
-        printf("{\"status\":-1,\"output\":\"pipe failed\"}");
-        return;
+        *length = (size_t)snprintf(*output, output_limit, "pipe failed");
+        return -1;
     }
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
@@ -198,42 +221,43 @@ static void run_and_report(const char *root, const char *program, const char *co
     int spawned = posix_spawn(&pid, path, &actions, NULL, (char *const *)arguments, environment);
     posix_spawn_file_actions_destroy(&actions);
     close(pipe_ends[1]);
+    if (spawned != 0) {
+        close(pipe_ends[0]);
+        *length = (size_t)snprintf(*output, output_limit, "%s", strerror(spawned));
+        return -1;
+    }
 
-    char *output = malloc(output_limit);
-    size_t length = 0;
-    if (spawned == 0 && output) {
-        for (;;) {
-            char chunk[4096];
-            ssize_t got = read(pipe_ends[0], chunk, sizeof chunk);
-            if (got < 0 && errno == EINTR) {
-                continue;
-            }
-            if (got <= 0) {
-                break;
-            }
-            size_t keep = (size_t)got;
-            if (length + keep > output_limit) {
-                keep = output_limit - length;
-            }
-            memcpy(output + length, chunk, keep);
-            length += keep;
+    for (;;) {
+        char chunk[4096];
+        ssize_t got = read(pipe_ends[0], chunk, sizeof chunk);
+        if (got < 0 && errno == EINTR) {
+            continue;
         }
+        if (got <= 0) {
+            break;
+        }
+        size_t keep = (size_t)got;
+        if (*length + keep > output_limit) {
+            keep = output_limit - *length;
+        }
+        memcpy(*output + *length, chunk, keep);
+        *length += keep;
     }
     close(pipe_ends[0]);
-    int status = -1;
-    if (spawned == 0) {
-        int raw = 0;
-        while (waitpid(pid, &raw, 0) < 0 && errno == EINTR) {
-        }
-        status = WIFEXITED(raw) ? WEXITSTATUS(raw) : 128 + WTERMSIG(raw);
+    int raw = 0;
+    while (waitpid(pid, &raw, 0) < 0 && errno == EINTR) {
     }
+    return WIFEXITED(raw) ? WEXITSTATUS(raw) : 128 + WTERMSIG(raw);
+}
+
+// Runs a program from the jailbreak with its output and errors together,
+// and prints {"status":N,"output":"..."}.
+static void run_and_report(const char *root, const char *program, const char *const *arguments) {
+    char *output = NULL;
+    size_t length = 0;
+    int status = run_collect(root, program, arguments, &output, &length);
     printf("{\"status\":%d,\"output\":", status);
-    if (spawned != 0) {
-        const char *reason = strerror(spawned);
-        print_json_string(reason, strlen(reason));
-    } else {
-        print_json_string(output ? output : "", length);
-    }
+    print_json_string(output ? output : "", length);
     putchar('}');
     free(output);
 }
@@ -252,6 +276,16 @@ static void usage_error(const char *message) {
     puts("}");
     fprintf(stderr, "%s\n", message);
     exit(64);
+}
+
+// Prints {"error":...} and the message, and exits with status 1: the
+// command was understood but could not be done.
+static void failure(const char *message) {
+    printf("{\"error\":");
+    print_json_string(message, strlen(message));
+    puts("}");
+    fprintf(stderr, "%s\n", message);
+    exit(1);
 }
 
 enum { name_limit = 128, operation_limit = 200, backups_kept = 60 };
@@ -299,6 +333,91 @@ static int valid_version(const char *version) {
 
 enum { backup_path_size = PATH_MAX };
 
+// Splits name=version into the package name, in package, and the version,
+// checking both. 0 when they are valid.
+static int split_versioned(const char *text, char package[name_limit + 1], const char **version) {
+    const char *equals = strchr(text, '=');
+    size_t name_length = equals ? (size_t)(equals - text) : 0;
+    if (!equals || name_length > name_limit) {
+        return -1;
+    }
+    memcpy(package, text, name_length);
+    package[name_length] = '\0';
+    if (!valid_package(package) || !valid_version(equals + 1)) {
+        return -1;
+    }
+    *version = equals + 1;
+    return 0;
+}
+
+static const char purchases_suffix[] = "/var/lib/codling/purchases";
+
+// Where Codling, which runs as mobile, leaves a package it downloaded after
+// a purchase. The helper takes it from here into purchases_suffix.
+static const char purchase_inbox[] = "/var/mobile/Library/Caches/com.nexusjb.codling/purchases";
+
+enum { mobile_uid = 501, sha256_hex_size = 65, hashes_limit = 16 };
+
+// A purchased package's file name: NAME_VERSION.deb, with ":" in the
+// version escaped as in backups. 0 when it fits.
+static int purchase_file_name(const char *name, const char *version, char *file, size_t size) {
+    char escaped[512];
+    codling_escape_version(version, escaped, sizeof escaped);
+    int written = snprintf(file, size, "%s_%s.deb", name, escaped);
+    return written > 0 && (size_t)written < size ? 0 : -1;
+}
+
+// The checked copy of a purchased package. 0 when it exists.
+static int purchase_path(const char *root, const char *name, const char *version, char path[backup_path_size]) {
+    char file[NAME_MAX + 1];
+    struct stat info;
+    if (purchase_file_name(name, version, file, sizeof file) != 0) {
+        return -1;
+    }
+    int written = snprintf(path, backup_path_size, "%s%s/%s", root, purchases_suffix, file);
+    if (written < 0 || written >= backup_path_size) {
+        return -1;
+    }
+    return lstat(path, &info) == 0 && S_ISREG(info.st_mode) && info.st_uid == 0 ? 0 : -1;
+}
+
+// The SHA256 fields of the records apt-cache show printed, in lower case.
+// Returns how many it found, at most limit.
+static size_t listed_sha256(const char *text, size_t length, char hashes[][sha256_hex_size], size_t limit) {
+    static const char field[] = "SHA256:";
+    const size_t field_length = sizeof field - 1;
+    size_t found = 0;
+    size_t start = 0;
+    while (start < length && found < limit) {
+        size_t end = start;
+        while (end < length && text[end] != '\n') {
+            end++;
+        }
+        if (end - start > field_length && strncmp(text + start, field, field_length) == 0) {
+            size_t first = start + field_length;
+            size_t last = end;
+            while (first < last && (text[first] == ' ' || text[first] == '\t')) {
+                first++;
+            }
+            while (last > first && (text[last - 1] == ' ' || text[last - 1] == '\t' || text[last - 1] == '\r')) {
+                last--;
+            }
+            int valid = last - first == 64;
+            for (size_t i = 0; valid && i < 64; i++) {
+                char c = (char)tolower((unsigned char)text[first + i]);
+                valid = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+                hashes[found][i] = c;
+            }
+            if (valid) {
+                hashes[found][64] = '\0';
+                found++;
+            }
+        }
+        start = end + 1;
+    }
+    return found;
+}
+
 // The backup of name at version: NAME_VERSION_ARCH.deb in the backups
 // directory, found by listing it. 0 when it exists.
 static int backup_path(const char *root, const char *name, const char *version, char path[backup_path_size]) {
@@ -328,7 +447,8 @@ static int backup_path(const char *root, const char *name, const char *version, 
 }
 
 // Turns operations into apt-get install arguments: +name installs name,
-// -name removes it (name-), @name=version installs the backup's file. The
+// -name removes it (name-), @name=version installs the backup's file, and
+// $name=version the checked download of a purchased package. The
 // strings stay owned by argv or the buffer. Sets *restores when any
 // operation restores a backup.
 static size_t add_operations(const char *root, int count, char **operations, const char **arguments, size_t used,
@@ -345,25 +465,31 @@ static size_t add_operations(const char *root, int count, char **operations, con
         const char *name = operation + (kind ? 1 : 0);
         if (kind == '@') {
             char package[name_limit + 1];
-            const char *equals = strchr(name, '=');
-            size_t name_length = equals ? (size_t)(equals - name) : 0;
-            if (!equals || name_length > name_limit) {
-                usage_error("A restore is not @package=version.");
+            const char *version;
+            if (split_versioned(name, package, &version) != 0) {
+                usage_error("A restore is not @package=version with a valid package and version.");
             }
-            memcpy(package, name, name_length);
-            package[name_length] = '\0';
-            if (!valid_package(package) || !valid_version(equals + 1)) {
-                usage_error("A restore names a package or version that is not valid.");
-            }
-            if (backup_path(root, package, equals + 1, buffer[i]) != 0) {
+            if (backup_path(root, package, version, buffer[i]) != 0) {
                 usage_error("There is no backup of that version of the package.");
             }
             arguments[used++] = buffer[i];
             *restores = 1;
             continue;
         }
+        if (kind == '$') {
+            char package[name_limit + 1];
+            const char *version;
+            if (split_versioned(name, package, &version) != 0) {
+                usage_error("A purchase is not $package=version with a valid package and version.");
+            }
+            if (purchase_path(root, package, version, buffer[i]) != 0) {
+                usage_error("Codling has no checked download of that version of the purchased package.");
+            }
+            arguments[used++] = buffer[i];
+            continue;
+        }
         if ((kind != '+' && kind != '-') || !valid_package(name)) {
-            usage_error("An operation is not +package, -package or @package=version with valid names.");
+            usage_error("An operation is not +package, -package, @package=version or $package=version with valid names.");
         }
         if (kind == '+') {
             arguments[used++] = name;
@@ -455,7 +581,8 @@ static int apply(int count, char **words) {
     return 0;
 }
 
-// Deletes all but the newest backups_kept backups.
+// Deletes all but the newest backups_kept packages in a directory of
+// backups or purchases.
 static void prune_backups(const char *directory) {
     DIR *listing = opendir(directory);
     if (!listing) {
@@ -557,18 +684,136 @@ static int backup(int count, char **names) {
     return 0;
 }
 
+enum { purchase_size_limit = 1 << 30 };
+
+static int take_purchase(const char *package, const char *version) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (!valid_package(package) || !valid_version(version)) {
+        usage_error("The package or version is not valid.");
+    }
+    char file[NAME_MAX + 1];
+    char inbox[PATH_MAX];
+    if (purchase_file_name(package, version, file, sizeof file) != 0
+        || snprintf(inbox, sizeof inbox, "%s/%s", purchase_inbox, file) >= (int)sizeof inbox) {
+        usage_error("The package's name and version are too long.");
+    }
+
+    // The hashes apt lists for that version, from the sources' indexes,
+    // which apt checked against their signed Release files where they have
+    // them.
+    char request[name_limit + 140];
+    snprintf(request, sizeof request, "%s=%s", package, version);
+    const char *const arguments[] = { "apt-cache", "show", "-q", request, NULL };
+    char *output = NULL;
+    size_t length = 0;
+    int status = run_collect(root, "/usr/bin/apt-cache", arguments, &output, &length);
+    static char hashes[hashes_limit][sha256_hex_size];
+    size_t listed = status == 0 && output ? listed_sha256(output, length, hashes, hashes_limit) : 0;
+    free(output);
+
+    // The download is used once, whatever happens next: it is unlinked as
+    // soon as it is open, and read through the open file.
+    int in = open(inbox, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    unlink(inbox);
+    if (listed == 0) {
+        failure("apt lists no SHA256 hash for this version of the package, so Codling cannot check the "
+                "download. Refresh your sources and try again.");
+    }
+    struct stat info;
+    if (in < 0 || fstat(in, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != mobile_uid
+        || info.st_size <= 0 || info.st_size > purchase_size_limit) {
+        failure("Codling's download of the package is missing, or is not a file Codling made.");
+    }
+
+    char codling[PATH_MAX];
+    char directory[PATH_MAX];
+    char target[PATH_MAX];
+    char partial[PATH_MAX];
+    snprintf(codling, sizeof codling, "%s/var/lib/codling", root);
+    snprintf(directory, sizeof directory, "%s%s", root, purchases_suffix);
+    for (const char *made = codling; made; made = made == codling ? directory : NULL) {
+        // Root's alone, whoever made it.
+        if ((mkdir(made, 0755) != 0 && errno != EEXIST) || chown(made, 0, 0) != 0 || chmod(made, 0755) != 0) {
+            failure("The directory for purchased packages cannot be made root's.");
+        }
+    }
+    if (snprintf(target, sizeof target, "%s/%s", directory, file) >= (int)sizeof target
+        || snprintf(partial, sizeof partial, "%s.part", target) >= (int)sizeof partial) {
+        failure("The package's name and version are too long.");
+    }
+    unlink(partial);
+    int out = open(partial, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+    if (out < 0) {
+        failure("The checked copy of the package cannot be written.");
+    }
+
+    codling_sha256 hash;
+    codling_sha256_init(&hash);
+    static char chunk[1 << 16];
+    long long total = 0;
+    int copied = 1;
+    while (copied) {
+        ssize_t got = read(in, chunk, sizeof chunk);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        if (got <= 0) {
+            copied = got == 0;
+            break;
+        }
+        total += got;
+        if (total > purchase_size_limit) {
+            copied = 0;
+            break;
+        }
+        codling_sha256_update(&hash, chunk, (size_t)got);
+        ssize_t done = 0;
+        while (done < got) {
+            ssize_t wrote = write(out, chunk + done, (size_t)(got - done));
+            if (wrote < 0 && errno == EINTR) {
+                continue;
+            }
+            if (wrote <= 0) {
+                copied = 0;
+                break;
+            }
+            done += wrote;
+        }
+    }
+    close(in);
+    if (close(out) != 0) {
+        copied = 0;
+    }
+    char digest[sha256_hex_size];
+    codling_sha256_hex(&hash, digest);
+    int matches = 0;
+    for (size_t i = 0; i < listed; i++) {
+        matches = matches || strcmp(hashes[i], digest) == 0;
+    }
+    if (!copied || !matches || rename(partial, target) != 0) {
+        unlink(partial);
+        failure(!copied    ? "The download could not be copied."
+                : !matches ? "The download does not match the package your source lists, so Codling did not keep it."
+                           : "The checked copy of the package cannot be kept.");
+    }
+    prune_backups(directory);
+    fputs("{\"package\":", stdout);
+    print_json_string(package, strlen(package));
+    fputs(",\"version\":", stdout);
+    print_json_string(version, strlen(version));
+    fputs(",\"sha256\":", stdout);
+    print_json_string(digest, strlen(digest));
+    puts("}");
+    return 0;
+}
+
 static int respring(void) {
     char root[PATH_MAX];
     require_root(root);
-    char sbreload[PATH_MAX];
-    snprintf(sbreload, sizeof sbreload, "%s/usr/bin/sbreload", root);
-    if (access(sbreload, X_OK) == 0) {
-        const char *const arguments[] = { "sbreload", NULL };
-        run_and_report(root, "/usr/bin/sbreload", arguments);
-    } else {
-        const char *const arguments[] = { "killall", "-9", "SpringBoard", NULL };
-        run_and_report(root, "/usr/bin/killall", arguments);
-    }
+    // At once: SIGTERM lets SpringBoard take seconds to finish.
+    const char *const arguments[] = { "killall", "-KILL", "SpringBoard", NULL };
+    run_and_report(root, "/usr/bin/killall", arguments);
     putchar('\n');
     return 0;
 }
@@ -1119,6 +1364,9 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "remove-source") == 0) {
         return remove_source(argv[2]);
     }
+    if (argc == 4 && strcmp(argv[1], "take-purchase") == 0) {
+        return take_purchase(argv[2], argv[3]);
+    }
     if (argc == 2 && strcmp(argv[1], "burrow-state") == 0) {
         return burrow_state();
     }
@@ -1130,7 +1378,7 @@ int main(int argc, char **argv) {
     }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
           "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
-          "       add-source URI | remove-source URI |\n"
+          "       add-source URI | remove-source URI | take-purchase PACKAGE VERSION |\n"
           "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
     return 64;
 }

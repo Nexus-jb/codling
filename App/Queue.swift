@@ -51,6 +51,9 @@ final class QueueModel: ObservableObject {
         let operation: PackageOperation
         /// The package's name as lists show it.
         let name: String
+        /// For a package the user bought: where to download it, which the
+        /// review does before asking apt.
+        var purchase: PurchaseRequest?
 
         var id: String { operation.package }
     }
@@ -73,6 +76,11 @@ final class QueueModel: ObservableObject {
     /// The title of the change the queue undoes, while it does.
     @Published private(set) var undoing: String?
     private var undoNotes: [String] = []
+    /// The operations the last review asked apt about, with bought packages
+    /// as their checked downloads; what apply makes.
+    private var reviewed: [PackageOperation] = []
+    /// Downloads bought packages; set when the app starts.
+    weak var accounts: PaymentAccounts?
 
     var lastChange: ChangeRecord? { history.last }
 
@@ -86,20 +94,22 @@ final class QueueModel: ObservableObject {
 
     /// Queues an operation; a package is queued once, so a new operation
     /// replaces an earlier one for the same package.
-    func add(_ operation: PackageOperation, name: String) {
+    func add(_ operation: PackageOperation, name: String, purchase: PurchaseRequest? = nil) {
         guard operation.isValid else { return }
         if undoing != nil {
             items = []
             undoing = nil
         }
+        reviewed = []
         items.removeAll { $0.id == operation.package }
-        items.append(Item(operation: operation, name: name))
+        items.append(Item(operation: operation, name: name, purchase: purchase))
         if case .finished = phase {
             phase = .editing
         }
     }
 
     func remove(_ package: String) {
+        reviewed = []
         items.removeAll { $0.id == package }
         if items.isEmpty {
             undoing = nil
@@ -107,6 +117,7 @@ final class QueueModel: ObservableObject {
     }
 
     func remove(atOffsets offsets: IndexSet) {
+        reviewed = []
         items.remove(atOffsets: offsets)
         if items.isEmpty {
             undoing = nil
@@ -114,6 +125,7 @@ final class QueueModel: ObservableObject {
     }
 
     func backToEditing() {
+        reviewed = []
         if undoing != nil, case .review = phase {
             items = []
             undoing = nil
@@ -143,10 +155,12 @@ final class QueueModel: ObservableObject {
         await review()
     }
 
-    /// Brings apt's lists up to date, then asks apt what the queue would do.
+    /// Brings apt's lists up to date, downloads the packages the user
+    /// bought, then asks apt what the queue would do.
     func review() async {
-        let operations = items.map(\.operation)
-        guard !operations.isEmpty else { return }
+        let queued = items
+        guard !queued.isEmpty else { return }
+        reviewed = []
         phase = .preparing("Updating apt's package lists")
         let update = await Task.detached(priority: .userInitiated) { RootHelper.updateLists() }.value
         var warnings: [AptDiagnosis] = []
@@ -161,6 +175,29 @@ final class QueueModel: ObservableObject {
         default:
             break
         }
+        // Bought packages come from their provider's single-use address,
+        // after apt's lists are fresh, as the helper checks each download
+        // against the hash they list.
+        var operations: [PackageOperation] = []
+        for item in queued {
+            guard let purchase = item.purchase, case .install(let package) = item.operation else {
+                operations.append(item.operation)
+                continue
+            }
+            phase = .preparing("Downloading \(item.name) from \(purchase.providerName)")
+            do {
+                guard let accounts else {
+                    throw PaymentProvider.Failure(message: "Codling cannot download bought packages right now.")
+                }
+                try await accounts.fetch(package: package, name: item.name, request: purchase)
+                operations.append(.purchased(package, version: purchase.version))
+            } catch {
+                let message = (error as? PaymentProvider.Failure)?.message ?? "\(error)"
+                phase = .blocked([], output: "\(item.name) could not be downloaded: \(message)")
+                return
+            }
+        }
+
         phase = .preparing("Working out the changes")
         let simulation = await Task.detached(priority: .userInitiated) { RootHelper.simulate(operations) }.value
         switch simulation {
@@ -169,6 +206,7 @@ final class QueueModel: ObservableObject {
         case .success(let result) where result.status != 0:
             phase = .blocked(AptDiagnostics.diagnose(result.output), output: result.output)
         case .success(let result):
+            reviewed = operations
             phase = .review(AptPlan.parse(result.output), warnings: warnings, notes: undoing == nil ? [] : undoNotes)
         }
     }
@@ -176,7 +214,7 @@ final class QueueModel: ObservableObject {
     /// Backs up what the change removes or replaces, makes the reviewed
     /// change, and records it.
     func apply(_ plan: AptPlan, installed: InstalledPackagesModel, statusPath: String?, names: [String: String]) async {
-        let operations = items.map(\.operation)
+        let operations = reviewed.isEmpty ? items.map(\.operation) : reviewed
         UIApplication.shared.isIdleTimerDisabled = true
         // Asks iOS for time to finish if the user leaves Codling meanwhile.
         let background = UIApplication.shared.beginBackgroundTask(withName: "Apply package changes")
@@ -236,6 +274,7 @@ final class QueueModel: ObservableObject {
             if succeeded {
                 items = []
                 undoing = nil
+                reviewed = []
             }
         }
     }
@@ -265,7 +304,7 @@ final class QueueModel: ObservableObject {
 
     func restartSpringBoard() async {
         restarting = true
-        _ = await Task.detached(priority: .userInitiated) { RootHelper.respring() }.value
+        await Respring.now()
         restarting = false
     }
 }
@@ -275,7 +314,6 @@ struct QueueView: View {
     let environment: RuntimeEnvironment
     @ObservedObject var queue: QueueModel
     @EnvironmentObject private var installed: InstalledPackagesModel
-    @State private var confirmingRestart = false
 
     var body: some View {
         NavigationView {
@@ -455,7 +493,7 @@ struct QueueView: View {
                             ToolNote(text: "Tweaks that were installed, upgraded or removed take effect after SpringBoard restarts.")
                         }
                         Button(queue.restarting ? "Restarting SpringBoard" : "Restart SpringBoard") {
-                            confirmingRestart = true
+                            Task { await queue.restartSpringBoard() }
                         }
                         .buttonStyle(TintedButtonStyle(color: .orange))
                         .disabled(queue.restarting)
@@ -469,13 +507,6 @@ struct QueueView: View {
             .padding(.vertical, 8)
         }
         .background(WallBackground())
-        .confirmationDialog("Restart SpringBoard?", isPresented: $confirmingRestart, titleVisibility: .visible) {
-            Button("Restart SpringBoard") {
-                Task { await queue.restartSpringBoard() }
-            }
-        } message: {
-            Text("The Home Screen closes for a moment and every open app restarts.")
-        }
     }
 
     @ViewBuilder
@@ -519,6 +550,7 @@ struct QueueView: View {
         case .install: return "arrow.down.circle"
         case .remove: return "trash"
         case .restore: return "arrow.uturn.backward.circle"
+        case .purchased: return "arrow.down.circle"
         }
     }
 
@@ -527,6 +559,7 @@ struct QueueView: View {
         case .install(let package): return installed.version(of: package) == nil ? "Install" : "Upgrade"
         case .remove: return "Remove"
         case .restore(_, let version): return "Restore \(version)"
+        case .purchased(let package, _): return installed.version(of: package) == nil ? "Install" : "Upgrade"
         }
     }
 }

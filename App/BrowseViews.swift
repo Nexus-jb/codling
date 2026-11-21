@@ -374,7 +374,7 @@ struct CatalogRow: View {
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
-                if package.compatibility(systemVersion: device.systemVersion).verdict == .unsupported {
+                if CompatibilityMemo.unsupported(package, systemVersion: device.systemVersion) {
                     Label("Not for iOS \(device.systemVersion)", systemImage: "xmark.circle.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.red)
@@ -573,7 +573,7 @@ private struct SearchResultRow: View {
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
-                if package.compatibility(systemVersion: device.systemVersion).verdict == .unsupported {
+                if CompatibilityMemo.unsupported(package, systemVersion: device.systemVersion) {
                     Label("Not for iOS \(device.systemVersion)", systemImage: "xmark.circle.fill")
                         .font(.caption.weight(.semibold))
                         .foregroundColor(.red)
@@ -587,5 +587,26 @@ private struct SearchResultRow: View {
         .padding(.vertical, 9)
         .accessibilityElement(children: .combine)
         .accessibilityValue(installed ? "Installed" : "")
+    }
+}
+
+/// Whether packages are made for another iOS, worked out once per package
+/// version: rows ask again each time they appear while scrolling, and the
+/// check reads names and summaries with regular expressions.
+@MainActor
+enum CompatibilityMemo {
+    private static var verdicts: [String: Bool] = [:]
+
+    static func unsupported(_ package: PackageSummary, systemVersion: String) -> Bool {
+        let key = "\(package.id)\n\(package.version)\n\(systemVersion)"
+        if let known = verdicts[key] {
+            return known
+        }
+        if verdicts.count > 20_000 {
+            verdicts.removeAll()
+        }
+        let verdict = package.compatibility(systemVersion: systemVersion).verdict == .unsupported
+        verdicts[key] = verdict
+        return verdict
     }
 }

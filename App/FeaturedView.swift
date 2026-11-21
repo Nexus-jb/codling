@@ -3,8 +3,8 @@
 import SwiftUI
 
 /// The Featured tab: the banners every source publishes, with equal
-/// standing, the updates for installed packages, and the packages sources
-/// added or updated since Codling first read them.
+/// standing, and the packages sources added or updated since Codling first
+/// read them.
 @MainActor
 final class FeaturedModel: ObservableObject {
     struct Item: Identifiable {
@@ -17,19 +17,16 @@ final class FeaturedModel: ObservableObject {
 
     @Published private(set) var banners: [Item] = []
     @Published private(set) var arrivals: [IndexStore.Arrival] = []
-    @Published private(set) var updates: [PackageSummary] = []
     @Published private(set) var loaded = false
 
     static let arrivalLimit = 60
 
-    func load(sources: SourcesModel, installed: [String: String], reloadBanners: Bool) async {
+    func load(sources: SourcesModel, reloadBanners: Bool) async {
         guard let store = sources.store else { return }
 
         // What the index holds shows at once; the banners come from the
         // sources over the network, and follow.
         arrivals = (try? await store.arrivals(limit: Self.arrivalLimit)) ?? []
-        let offers = (try? await store.offers(ofAny: Array(installed.keys))) ?? []
-        updates = AvailableUpdates.find(installed: installed, offers: offers)
         loaded = true
 
         let infos = sources.rows.compactMap { sources.info(for: $0.id) }
@@ -122,10 +119,6 @@ struct FeaturedView: View {
                         }
                     }
 
-                    CardHeading(title: "Updates", symbol: "arrow.down.circle")
-                        .padding(.top, 6)
-                    updatesCard
-
                     CardHeading(title: "New & Updated", symbol: "clock")
                         .padding(.top, 6)
                     arrivalsCard
@@ -173,37 +166,13 @@ struct FeaturedView: View {
             .systemButton()
             .refreshable {
                 await sources.refresh(force: false)
-                await model.load(sources: sources, installed: installed.versions, reloadBanners: true)
+                await model.load(sources: sources, reloadBanners: true)
             }
-            .task(id: "\(sources.indexGeneration) \(installed.versions.count)") {
-                await model.load(sources: sources, installed: installed.versions, reloadBanners: false)
+            .task(id: sources.indexGeneration) {
+                await model.load(sources: sources, reloadBanners: false)
             }
         }
         .navigationViewStyle(.stack)
-    }
-
-    @ViewBuilder
-    private var updatesCard: some View {
-        let rows = model.updates.compactMap { package in
-            sources.info(for: package.source).map { UpdateRow(package: package, info: $0) }
-        }
-        if rows.isEmpty {
-            Card(padding: 14) {
-                Text(model.loaded ? "Everything installed is up to date with your sources." : "Loading")
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        } else {
-            CardRows(items: rows, dividerInset: 72) { row in
-                NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package, summary: row.package)) {
-                    CompactPackageRow(package: row.package, source: row.info,
-                                      status: installed.version(of: row.package.package)
-                                          .map { "Installed \($0), \(row.package.version) available" } ?? "",
-                                      statusColor: .blue)
-                }
-                .buttonStyle(CardRowButtonStyle())
-            }
-        }
     }
 
     @ViewBuilder
@@ -218,42 +187,97 @@ struct FeaturedView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } else {
-            Card(padding: 0) {
-                ForEach(ArrivalDay.group(rows)) { day in
-                    Text(day.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 2)
-                        .accessibilityAddTraits(.isHeader)
-                    Divider()
-                        .padding(.leading, 16)
-                    DividedRows(items: day.rows, dividerInset: 72) { row in
-                        NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
-                                                                summary: row.arrival.package)) {
-                            CompactPackageRow(package: row.arrival.package, source: row.info,
-                                              status: row.arrival.updated
-                                                  ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
-                                                  : "New",
-                                              statusColor: row.arrival.updated ? .blue : .green)
-                        }
-                        .buttonStyle(CardRowButtonStyle())
-                    }
-                }
-            }
+            ArrivalsCard(rows: Array(rows.prefix(Self.arrivalsShown)),
+                         all: rows.count > Self.arrivalsShown ? rows : nil)
         }
     }
+
+    /// How many new and updated packages the tab shows; See All opens the
+    /// rest.
+    private static let arrivalsShown = 6
 
     private var emptyText: String {
         "Packages your sources add or update show here, from the next refresh on. Pull down to refresh."
     }
 }
 
+/// New and updated packages in one card, under a heading for each day,
+/// and a See All row when the card shows only some of them.
+struct ArrivalsCard: View {
+    let rows: [ArrivalRow]
+    /// All of them, when the card shows only the first few.
+    var all: [ArrivalRow]?
+
+    var body: some View {
+        Card(padding: 0) {
+            ForEach(ArrivalDay.group(rows)) { day in
+                Text(day.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
+                    .accessibilityAddTraits(.isHeader)
+                Divider()
+                    .padding(.leading, 16)
+                DividedRows(items: day.rows, dividerInset: 72) { row in
+                    NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
+                                                            summary: row.arrival.package)) {
+                        CompactPackageRow(package: row.arrival.package, source: row.info,
+                                          status: row.arrival.updated
+                                              ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
+                                              : "New",
+                                          statusColor: row.arrival.updated ? .blue : .green)
+                    }
+                    .buttonStyle(CardRowButtonStyle())
+                }
+            }
+            if let all {
+                Divider()
+                    .padding(.leading, 16)
+                NavigationLink(destination: ArrivalsView(rows: all)) {
+                    HStack(spacing: 8) {
+                        Text("See All")
+                            .font(.body.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Text(all.count.formatted())
+                            .foregroundColor(.secondary)
+                        Chevron()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(CardRowButtonStyle())
+                .accessibilityLabel("See all \(all.count) new and updated packages")
+            }
+        }
+    }
+}
+
+/// Every new and updated package Codling knows of, newest first.
+struct ArrivalsView: View {
+    let rows: [ArrivalRow]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                ArrivalsCard(rows: rows)
+                CardFooter(text: "Versions your sources added since Codling started following them, newest first.")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(WallBackground())
+        .navigationTitle("New & Updated")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 /// A package in a short row: its icon, name and version, one line of its
 /// summary, and a status line.
-private struct CompactPackageRow: View {
+struct CompactPackageRow: View {
     let package: PackageSummary
     let source: SourceInfo
     let status: String
@@ -296,14 +320,6 @@ private struct CompactPackageRow: View {
     }
 }
 
-/// An installed package's newer version, with the source it is from.
-private struct UpdateRow: Identifiable {
-    let package: PackageSummary
-    let info: SourceInfo
-
-    var id: String { package.id }
-}
-
 /// A new or updated package with the source it is from.
 struct ArrivalRow: Identifiable {
     let arrival: IndexStore.Arrival
@@ -341,8 +357,11 @@ struct ArrivalDay: Identifiable {
     }
 }
 
-/// The top of the Featured tab.
+/// The top of the Featured tab, with the account circle, which opens the
+/// accounts of the user's sources.
 private struct WelcomeCard: View {
+    @EnvironmentObject private var accounts: PaymentAccounts
+
     var body: some View {
         Card(padding: 16) {
             HStack(spacing: 14) {
@@ -359,11 +378,15 @@ private struct WelcomeCard: View {
                     Text("Codling")
                         .font(.largeTitle.bold())
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
+                NavigationLink(destination: AccountsView()) {
+                    AccountCircle(user: accounts.signedInUser, size: 52)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 

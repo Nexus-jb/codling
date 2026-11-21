@@ -40,7 +40,7 @@ struct DeviceDetails {
 
     /// The device's UDID, from MobileGestalt, which payment providers also
     /// ask for when you sign in.
-    private static func uniqueDeviceID() -> String? {
+    static func uniqueDeviceID() -> String? {
         guard let library = dlopen("/usr/lib/libMobileGestalt.dylib", RTLD_LAZY),
               let symbol = dlsym(library, "MGCopyAnswer") else {
             return nil

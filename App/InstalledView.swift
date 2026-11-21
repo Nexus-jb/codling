@@ -6,7 +6,10 @@ import SwiftUI
 struct InstalledView: View {
     let environment: RuntimeEnvironment
     @ObservedObject var model: InstalledPackagesModel
+    @EnvironmentObject private var sources: SourcesModel
     @State private var query = ""
+    /// The newer versions the sources offer of installed packages.
+    @State private var updates: [PackageSummary] = []
 
     var body: some View {
         NavigationView {
@@ -40,6 +43,9 @@ struct InstalledView: View {
             let shown = filtered(packages)
             ScrollView {
                 VStack(spacing: 8) {
+                    if query.isEmpty {
+                        updatesSection
+                    }
                     if !shown.isEmpty {
                         CardRows(items: shown) { package in
                             NavigationLink(destination: PackageDetailView(package: package)) {
@@ -56,7 +62,40 @@ struct InstalledView: View {
             .background(WallBackground())
             .searchable(text: $query, prompt: "Name, identifier or author")
             .refreshable { await model.load(statusPath: environment.dpkgStatusPath) }
+            .task(id: "\(sources.indexGeneration) \(model.versions.hashValue)") { await findUpdates() }
         }
+    }
+
+    /// The updates, above the installed packages; nothing when there are
+    /// none.
+    @ViewBuilder
+    private var updatesSection: some View {
+        let rows = updates.compactMap { package in
+            sources.info(for: package.source).map { UpdateRow(package: package, info: $0) }
+        }
+        if !rows.isEmpty {
+            CardHeading(title: rows.count == 1 ? "1 Update" : "\(rows.count) Updates", symbol: "arrow.down.circle")
+            CardRows(items: rows, dividerInset: 72) { row in
+                NavigationLink(destination: PackageView(source: row.info, identifier: row.package.package, summary: row.package)) {
+                    CompactPackageRow(package: row.package, source: row.info,
+                                      status: model.version(of: row.package.package)
+                                          .map { "Installed \($0), \(row.package.version) available" } ?? "",
+                                      statusColor: .blue)
+                }
+                .buttonStyle(CardRowButtonStyle())
+            }
+            CardHeading(title: "Installed", symbol: "shippingbox")
+                .padding(.top, 6)
+        }
+    }
+
+    private func findUpdates() async {
+        guard let store = sources.store, !model.versions.isEmpty else {
+            updates = []
+            return
+        }
+        let offers = (try? await store.offers(ofAny: Array(model.versions.keys))) ?? []
+        updates = AvailableUpdates.find(installed: model.versions, offers: offers)
     }
 
     private func filtered(_ packages: [InstalledPackage]) -> [InstalledPackage] {
@@ -250,4 +289,12 @@ private struct FieldRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// An installed package's newer version, with the source it is from.
+private struct UpdateRow: Identifiable {
+    let package: PackageSummary
+    let info: SourceInfo
+
+    var id: String { package.id }
 }

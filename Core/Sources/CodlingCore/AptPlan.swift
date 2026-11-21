@@ -8,27 +8,35 @@ public enum PackageOperation: Hashable {
     case install(String)
     case remove(String)
     case restore(String, version: String)
+    /// Installs a purchased package from the download the helper checked
+    /// with take-purchase.
+    case purchased(String, version: String)
 
     public var package: String {
         switch self {
-        case .install(let name), .remove(let name), .restore(let name, _): return name
+        case .install(let name), .remove(let name), .restore(let name, _), .purchased(let name, _): return name
         }
     }
 
-    /// The form the root helper takes: +name, -name or @name=version.
+    /// The form the root helper takes: +name, -name, @name=version or
+    /// $name=version.
     public var helperArgument: String {
         switch self {
         case .install(let name): return "+" + name
         case .remove(let name): return "-" + name
         case .restore(let name, let version): return "@" + name + "=" + version
+        case .purchased(let name, let version): return "$" + name + "=" + version
         }
     }
 
-    /// Whether the helper accepts it: a valid name, and for a restore a
-    /// valid version.
+    /// Whether the helper accepts it: a valid name, and for a restore or a
+    /// purchase a valid version.
     public var isValid: Bool {
-        if case .restore(_, let version) = self, !Self.isValidVersion(version) {
-            return false
+        switch self {
+        case .restore(_, let version), .purchased(_, let version):
+            guard Self.isValidVersion(version) else { return false }
+        case .install, .remove:
+            break
         }
         return Self.isValidName(package)
     }

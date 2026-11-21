@@ -134,7 +134,8 @@ enum RootHelper {
         return run(["backup"] + packages, timeoutMilliseconds: 900_000).flatMap { decode(BackupReport.self, from: $0) }
     }
 
-    /// Restarts SpringBoard.
+    /// Stops SpringBoard, which launchd starts again: what Respring falls
+    /// back to when Codling cannot signal SpringBoard itself.
     static func respring() -> Result<CommandResult, Failure> {
         run(["respring"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
     }
@@ -153,6 +154,24 @@ enum RootHelper {
     /// Takes a repository out of every sources file apt reads.
     static func removeSource(_ uri: String) -> Result<SourceChange, Failure> {
         run(["remove-source", uri], timeoutMilliseconds: 30_000).flatMap { decode(SourceChange.self, from: $0) }
+    }
+
+    /// What take-purchase reports about the download it checked and kept.
+    struct PurchaseCopy: Decodable, Equatable {
+        let package: String
+        let version: String
+        let sha256: String
+    }
+
+    /// Has the helper take the package Codling downloaded after a purchase
+    /// (PurchaseInbox), check it against the SHA256 hash apt lists for the
+    /// version, and keep it for a $package=version operation.
+    static func takePurchase(_ package: String, version: String) -> Result<PurchaseCopy, Failure> {
+        guard PackageOperation.purchased(package, version: version).isValid else {
+            return .failure(.failed(status: 64, message: "The package name or version is not one apt accepts."))
+        }
+        return run(["take-purchase", package, version], timeoutMilliseconds: 120_000)
+            .flatMap { decode(PurchaseCopy.self, from: $0) }
     }
 
     /// Runs Burrow's `burrowctl json`, which reports the tweak loader, the

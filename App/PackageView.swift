@@ -2,8 +2,9 @@
 
 import SwiftUI
 
-/// A package's page: its header, its depiction and its details. Installing
-/// comes in a later version of Codling, so this page has no Install button.
+/// A package's page: its header with the actions, its depiction and its
+/// details. A paid package shows its price from its source's payment
+/// provider, and GET once the user bought it.
 struct PackageView: View {
     let source: SourceInfo
     let identifier: String
@@ -120,7 +121,8 @@ struct PackageView: View {
                                   architecture: record.architecture)
             }
             if model.loaded {
-                PackageActions(identifier: identifier, name: name, available: record?.version, isPaid: isPaid)
+                PackageActions(source: source, identifier: identifier, name: name, available: record?.version,
+                               architecture: record?.architecture, isPaid: isPaid)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -375,14 +377,35 @@ struct PackageView: View {
 /// Install, Upgrade and Remove. Each queues the change; the Queue tab
 /// reviews it with apt before anything happens.
 private struct PackageActions: View {
+    let source: SourceInfo
     let identifier: String
     let name: String
     /// The newest version this source offers; nil when it no longer lists
     /// the package.
     let available: String?
+    /// The Architecture field of that version's record.
+    let architecture: String?
     let isPaid: Bool
     @EnvironmentObject private var installed: InstalledPackagesModel
     @EnvironmentObject private var queue: QueueModel
+    @EnvironmentObject private var accounts: PaymentAccounts
+    @EnvironmentObject private var sources: SourcesModel
+    @State private var offer: PaidOffer = .loading
+    @State private var buying = false
+    @State private var confirming = false
+    @State private var problem: String?
+
+    /// What Codling knows about buying a paid package.
+    enum PaidOffer: Equatable {
+        case loading
+        /// The source sells it on its own website, not to package managers.
+        case noProvider
+        /// The request did not get through; it can be tried again.
+        case failed(String)
+        /// The provider answered that it does not sell it, with its reason.
+        case refused(String)
+        case ready(endpoint: URL, price: PaymentProvider.Price)
+    }
 
     var body: some View {
         let installedVersion = installed.version(of: identifier)
@@ -407,41 +430,192 @@ private struct PackageActions: View {
             } else {
                 HStack(spacing: 10) {
                     if installedVersion == nil {
-                        if !isPaid && available != nil {
-                            action("Install", .install(identifier))
+                        if available != nil {
+                            if isPaid {
+                                paidButton(update: false)
+                            } else {
+                                action("GET", .install(identifier))
+                            }
                         }
                     } else {
-                        if upgradable && !isPaid {
-                            action("Upgrade", .install(identifier))
+                        if upgradable {
+                            if isPaid {
+                                paidButton(update: true)
+                            } else {
+                                action("UPDATE", .install(identifier))
+                            }
                         }
-                        action("Remove", .remove(identifier), destructive: true)
+                        action("REMOVE", .remove(identifier), destructive: true)
                     }
                 }
-                if isPaid && (installedVersion == nil || upgradable) {
-                    Text("Installing and upgrading paid packages comes in a later version of Codling.")
+                if isPaid, let note = paidNote(needed: available != nil && (installedVersion == nil || upgradable)) {
+                    Text(note)
                         .font(.footnote)
                         .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+        }
+        .task(id: accounts.revision) {
+            if isPaid {
+                await loadOffer()
+            }
+        }
+        .alert(confirmTitle, isPresented: $confirming) {
+            Button(confirmButton) {
+                Task { await buy() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(confirmMessage)
+        }
+        .alert("Purchase", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(problem ?? "")
+        }
+    }
+
+    /// An action as a glass capsule, its label in the text color, or red
+    /// for removing.
+    private func action(_ title: String, _ operation: PackageOperation, destructive: Bool = false,
+                        purchase: PurchaseRequest? = nil) -> some View {
+        Button(title) {
+            queue.add(operation, name: name, purchase: purchase)
+        }
+        .buttonStyle(CapsuleButtonStyle(color: destructive ? .red : Palette.text))
+    }
+
+    // MARK: Paid packages
+
+    private var provider: PaymentAccounts.Provider? {
+        if case .ready(let endpoint, _) = offer {
+            return accounts.provider(at: endpoint)
+        }
+        return nil
+    }
+
+    private var price: PaymentProvider.Price? {
+        if case .ready(_, let price) = offer {
+            return price
+        }
+        return nil
+    }
+
+    /// The paid package's button: GET or UPDATE once bought, its price
+    /// before, which signs in first when needed.
+    @ViewBuilder
+    private func paidButton(update: Bool) -> some View {
+        if buying || offer == .loading {
+            Button {} label: {
+                ProgressView()
+            }
+            .buttonStyle(CapsuleButtonStyle())
+            .disabled(true)
+            .accessibilityLabel("Loading the price")
+        } else if case .failed = offer {
+            Button("TRY AGAIN") {
+                Task { await loadOffer() }
+            }
+            .buttonStyle(CapsuleButtonStyle())
+        } else if let provider, let price, let available {
+            if price.purchased {
+                action(update ? "UPDATE" : "GET", .install(identifier),
+                       purchase: PurchaseRequest(endpoint: provider.endpoint, providerName: provider.name,
+                                                 repo: source.source.uri, version: available,
+                                                 architecture: architecture))
+            } else if price.available {
+                Button(price.price ?? "BUY") {
+                    if accounts.isSignedIn(provider) {
+                        confirming = true
+                    } else {
+                        Task { await signIn(provider) }
+                    }
+                }
+                .buttonStyle(CapsuleButtonStyle())
+                .accessibilityLabel(price.price.map { "Buy for \($0)" } ?? "Buy")
             }
         }
     }
 
-    /// An action as a glass button, its label in the text color, or red for
-    /// removing: a filled button in the text color would hide its label.
-    private func action(_ title: String, _ operation: PackageOperation, destructive: Bool = false) -> some View {
-        Button {
-            queue.add(operation, name: name)
-        } label: {
-            Text(title)
-                .font(.body.weight(.bold))
-                .padding(.vertical, 3)
+    /// A line under the paid package's button, when it needs one.
+    private func paidNote(needed: Bool) -> String? {
+        guard needed else { return nil }
+        switch offer {
+        case .loading:
+            return nil
+        case .noProvider:
+            return "\(source.title) does not sell this package to package managers. Buy it on the source's website."
+        case .failed(let message), .refused(let message):
+            return message
+        case .ready(_, let price):
+            guard let provider else { return nil }
+            if !price.available && !price.purchased {
+                return "\(provider.name) does not sell this package right now."
+            }
+            if !price.purchased && !accounts.isSignedIn(provider) {
+                return "Sign in to \(provider.name) to buy it, or to download it if you already did."
+            }
+            return nil
         }
-        .buttonStyle(TintedButtonStyle(color: destructive ? .red : Palette.text))
+    }
+
+    private func loadOffer() async {
+        await accounts.discover(sources: sources)
+        guard let provider = accounts.provider(forSource: source.id) else {
+            offer = accounts.discovered ? .noProvider : .loading
+            return
+        }
+        do {
+            offer = .ready(endpoint: provider.endpoint, price: try await accounts.price(of: identifier, at: provider))
+        } catch let failure as PaymentProvider.Failure {
+            offer = failure.fromProvider ? .refused(failure.message) : .failed(failure.message)
+        } catch {
+            offer = .failed("\(error)")
+        }
+    }
+
+    private func signIn(_ provider: PaymentAccounts.Provider) async {
+        if let message = await accounts.signIn(provider) {
+            problem = message
+        }
+    }
+
+    private var confirmTitle: String {
+        "Buy \(name)?"
+    }
+
+    private var confirmButton: String {
+        price?.price.map { "Buy for \($0)" } ?? "Buy"
+    }
+
+    private var confirmMessage: String {
+        guard let provider else { return "" }
+        let cost = price?.price.map { " charges you \($0) and" } ?? ""
+        return "\(provider.name)\(cost) adds \(name) to your account there. Then tap GET to install it."
+    }
+
+    private func buy() async {
+        guard let provider else { return }
+        buying = true
+        let outcome = await accounts.buy(identifier, name: name, at: provider)
+        await loadOffer()
+        buying = false
+        switch outcome {
+        case .done:
+            if price?.purchased == false {
+                problem = "\(provider.name) has not confirmed the purchase yet. If you paid, open this page again in a moment."
+            }
+        case .cancelled:
+            break
+        case .failed(let message):
+            problem = message
+        }
     }
 
     private func queuedText(_ operation: PackageOperation, installed: Bool) -> String {
         switch operation {
-        case .install: return installed ? "Queued to upgrade" : "Queued to install"
+        case .install, .purchased: return installed ? "Queued to upgrade" : "Queued to install"
         case .remove: return "Queued to remove"
         case .restore: return "Queued to restore"
         }

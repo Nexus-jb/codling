@@ -8,10 +8,11 @@ struct CodlingApp: App {
     @StateObject private var sources: SourcesModel
     @StateObject private var installed = InstalledPackagesModel()
     @StateObject private var health = PackageHealthModel()
-    @StateObject private var queue = QueueModel()
+    @StateObject private var queue: QueueModel
     @StateObject private var burrow: BurrowModel
     @StateObject private var systemSheet = SystemSheet()
     @StateObject private var devicePanel = DeviceInfoPanel()
+    @StateObject private var accounts: PaymentAccounts
     @State private var tab: AppTab = .featured
     /// The floating tab bar steps aside while the keyboard is up.
     @State private var keyboardShown = false
@@ -26,6 +27,12 @@ struct CodlingApp: App {
         WebDepictionView.emptyAppSession()
         _sources = StateObject(wrappedValue: SourcesModel(environment: environment))
         _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
+        // The queue downloads bought packages with the accounts' sign-ins.
+        let accounts = PaymentAccounts(environment: environment)
+        let queue = QueueModel()
+        queue.accounts = accounts
+        _accounts = StateObject(wrappedValue: accounts)
+        _queue = StateObject(wrappedValue: queue)
         if #unavailable(iOS 26) {
             UITabBar.appearance().isHidden = true
         }
@@ -116,6 +123,7 @@ struct CodlingApp: App {
                 }
                 .environmentObject(systemSheet)
                 .environmentObject(devicePanel)
+                .environmentObject(accounts)
                 .environmentObject(sources)
                 .environmentObject(installed)
                 .environmentObject(queue)
@@ -130,6 +138,7 @@ struct CodlingApp: App {
                     // opens first, before Featured shows.
                     await sources.start()
                     withAnimation(.easeOut(duration: 0.25)) { launched = true }
+                    await accounts.discover(sources: sources)
                 }
         }
     }
