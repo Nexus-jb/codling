@@ -50,6 +50,9 @@ ads, no tracking and no paid placement. Purchases use the payment provider API
 that other package managers already support, so paid repositories work in
 Codling without extra setup.
 
+If you run a repository, [docs/repository-owners.md](docs/repository-owners.md)
+explains what Codling reads from it and what to publish.
+
 ## Supported jailbreaks
 
 | Scheme   | Package architecture | Examples                             |
