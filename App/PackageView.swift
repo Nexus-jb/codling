@@ -38,10 +38,9 @@ struct PackageView: View {
                     details
                 }
             }
-            .frame(maxWidth: 560)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
+            .pageColumn(maxWidth: PageLayout.packageWidth)
         }
         .foregroundColor(Palette.text)
         .background(WallBackground())
@@ -726,6 +725,7 @@ struct DepictionPageView: View {
             case .loaded(let depiction):
                 NativeDepictionContent(depiction: depiction)
                     .padding(.vertical, 8)
+                    .pageColumn(maxWidth: PageLayout.packageWidth)
             case .failed(let message):
                 VStack(spacing: 10) {
                     Text(message)

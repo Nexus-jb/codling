@@ -194,7 +194,21 @@ struct FloatingTabBar: View {
     /// The updates waiting, on the Installed tab.
     var updateCount = 0
 
-    static let height: CGFloat = 64
+    static let regularHeight: CGFloat = 64
+    /// On an iPhone on its side, where the window is short.
+    static let compactHeight: CGFloat = 50
+    /// The widest the bar gets, Search included, on an iPad or an iPhone on
+    /// its side: four tabs do not need the whole width.
+    static let maxWidth: CGFloat = 520
+
+    static func height(compact: Bool) -> CGFloat {
+        compact ? compactHeight : regularHeight
+    }
+
+    @Environment(\.verticalSizeClass) private var verticalSize
+
+    private var compact: Bool { verticalSize == .compact }
+    private var height: CGFloat { Self.height(compact: compact) }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -204,18 +218,18 @@ struct FloatingTabBar: View {
                 item(.queue, "Queue", "tray.and.arrow.down", badge: queueCount)
                 item(.installed, "Installed", "shippingbox", badge: updateCount)
             }
-            .padding(5)
-            .frame(height: Self.height)
-            .glassSurface(cornerRadius: Self.height / 2)
+            .padding(compact ? 4 : 5)
+            .frame(height: height)
+            .glassSurface(cornerRadius: height / 2)
 
             Button {
                 selection = .search
             } label: {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 22, weight: selection == .search ? .bold : .medium)) // fixed: tab bar symbol
+                    .font(.system(size: compact ? 19 : 22, weight: selection == .search ? .bold : .medium)) // fixed: tab bar symbol
                     .foregroundColor(Palette.text)
-                    .frame(width: Self.height, height: Self.height)
-                    .glassSurface(cornerRadius: Self.height / 2, inset: selection == .search)
+                    .frame(width: height, height: height)
+                    .glassSurface(cornerRadius: height / 2, inset: selection == .search)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Search")
@@ -224,6 +238,7 @@ struct FloatingTabBar: View {
                 Label("Search", systemImage: "magnifyingglass")
             }
         }
+        .frame(maxWidth: Self.maxWidth)
         .padding(.horizontal, 14)
         .padding(.bottom, 2)
     }
@@ -233,10 +248,10 @@ struct FloatingTabBar: View {
         return Button {
             selection = tab
         } label: {
-            VStack(spacing: 3) {
+            VStack(spacing: compact ? 1 : 3) {
                 Image(systemName: selected ? symbol + ".fill" : symbol)
-                    .font(.system(size: 19, weight: .medium)) // fixed: tab bar symbol
-                    .frame(height: 22)
+                    .font(.system(size: compact ? 16 : 19, weight: .medium)) // fixed: tab bar symbol
+                    .frame(height: compact ? 18 : 22)
                     .overlay(alignment: .topTrailing) {
                         if badge > 0 {
                             Text(badge.formatted())
@@ -284,8 +299,18 @@ extension View {
         if #available(iOS 26, *) {
             self
         } else {
-            background(TabBarRoom(extra: extra))
+            modifier(FloatingTabBarSpace(extra: extra))
         }
+    }
+}
+
+/// The room for the floating tab bar at its height in this window.
+private struct FloatingTabBarSpace: ViewModifier {
+    let extra: CGFloat
+    @Environment(\.verticalSizeClass) private var verticalSize
+
+    func body(content: Content) -> some View {
+        content.background(TabBarRoom(room: FloatingTabBar.height(compact: verticalSize == .compact) + 6 + extra))
     }
 }
 
@@ -293,21 +318,21 @@ extension View {
 /// with SwiftUI around a NavigationView does not reach the pages it pushes;
 /// the safe area of the tab's own controller reaches all of them.
 private struct TabBarRoom: UIViewControllerRepresentable {
-    let extra: CGFloat
+    let room: CGFloat
 
     func makeUIViewController(context: Context) -> Probe {
         let probe = Probe()
-        probe.extra = extra
+        probe.room = room
         return probe
     }
 
     func updateUIViewController(_ controller: Probe, context: Context) {
-        controller.extra = extra
+        controller.room = room
         controller.apply()
     }
 
     final class Probe: UIViewController {
-        var extra: CGFloat = 0
+        var room: CGFloat = 0
 
         override func loadView() {
             view = UIView()
@@ -332,7 +357,6 @@ private struct TabBarRoom: UIViewControllerRepresentable {
                 controller = parent
             }
             guard controller.parent is UITabBarController else { return }
-            let room = FloatingTabBar.height + 6 + extra
             if controller.additionalSafeAreaInsets.bottom != room {
                 UIView.animate(withDuration: 0.3) {
                     controller.additionalSafeAreaInsets.bottom = room
@@ -553,6 +577,90 @@ extension View {
     func toolColumn() -> some View {
         frame(maxWidth: 380)
             .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: Wide windows
+
+/// How wide pages get. On an iPad, or an iPhone on its side, a page's cards
+/// and rows stay in a column in the middle of the window instead of
+/// stretching across it; on an iPhone held upright the column is the
+/// window.
+enum PageLayout {
+    /// Lists and cards, padding included.
+    static let readableWidth: CGFloat = 760
+    /// A package's page, padding included.
+    static let packageWidth: CGFloat = 592
+    /// What views size themselves by before the column has been measured.
+    static let assumedWidth: CGFloat = 390
+}
+
+private struct ColumnWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat?
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = value ?? nextValue()
+    }
+}
+
+private struct ColumnWidthEnvironmentKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+extension EnvironmentValues {
+    /// The width of the page's column, padding included, once measured:
+    /// the window's or a split view pane's on an iPad, never the screen's.
+    var columnWidth: CGFloat? {
+        get { self[ColumnWidthEnvironmentKey.self] }
+        set { self[ColumnWidthEnvironmentKey.self] = newValue }
+    }
+}
+
+/// Centers its content in a column at most maxWidth wide, and tells the
+/// views inside how wide the column turned out.
+private struct PageColumn: ViewModifier {
+    let maxWidth: CGFloat
+    @State private var width: CGFloat?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.columnWidth, width)
+            .frame(maxWidth: maxWidth)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: ColumnWidthKey.self, value: proxy.size.width)
+            })
+            .onPreferenceChange(ColumnWidthKey.self) { measured in
+                if let measured, measured > 0, measured != width {
+                    width = measured
+                }
+            }
+            .frame(maxWidth: .infinity)
+    }
+}
+
+/// A large title on an iPhone held upright; over a centered column, in a
+/// regular-width window, the title sits in the middle of the bar above it.
+private struct TitleOverColumn: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var horizontalSize
+
+    func body(content: Content) -> some View {
+        if horizontalSize == .regular {
+            content.navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    /// The page's content in a centered column; see PageLayout.
+    func pageColumn(maxWidth: CGFloat = PageLayout.readableWidth) -> some View {
+        modifier(PageColumn(maxWidth: maxWidth))
+    }
+
+    /// For a page with a large title whose content is in a column.
+    func titleOverColumn() -> some View {
+        modifier(TitleOverColumn())
     }
 }
 

@@ -57,10 +57,15 @@ final class LayoutScreenshots: XCTestCase {
         let all = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'All Packages'")).firstMatch
         if all.waitForExistence(timeout: 10) {
             all.tap()
-            settle(3)
+            // The list reads the index first.
+            let rows = app.scrollViews.firstMatch.buttons
+            let deadline = Date().addingTimeInterval(30)
+            while rows.count == 0 && Date() < deadline {
+                settle(1)
+            }
+            settle(2)
             shoot("3-all-packages")
             // The first package in the list.
-            let rows = app.scrollViews.firstMatch.buttons
             if rows.count > 0 {
                 rows.element(boundBy: 0).tap()
                 settle(5)
@@ -76,13 +81,18 @@ final class LayoutScreenshots: XCTestCase {
 
         tab("Search").tap()
         settle(1)
-        let field = app.searchFields.firstMatch
-        if field.waitForExistence(timeout: 5) {
+        // Codling's own search field before iOS 26, the system's on it.
+        let field = [app.searchFields.firstMatch, app.textFields.firstMatch].first { $0.waitForExistence(timeout: 3) }
+        if let field {
             field.tap()
-            field.typeText("theme")
-            settle(3)
+            field.typeText("theme\n")
+            settle(4)
+            // The floating tab bar steps aside while the keyboard is up.
+            if app.keyboards.firstMatch.exists {
+                app.swipeDown()
+                settle(1)
+            }
             shoot("6-search")
-            app.buttons["Cancel"].firstMatch.tapIfPresent()
         }
     }
 
@@ -128,10 +138,3 @@ final class LayoutScreenshots: XCTestCase {
     }
 }
 
-private extension XCUIElement {
-    func tapIfPresent() {
-        if exists && isHittable {
-            tap()
-        }
-    }
-}

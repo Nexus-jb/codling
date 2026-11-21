@@ -83,6 +83,7 @@ struct SourceDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            .pageColumn()
         }
         .background(WallBackground())
         .navigationTitle(row.title)
@@ -230,6 +231,7 @@ private struct BannerCarousel: View {
     let featured: FeaturedBanners
     let source: SourceInfo
     @ObservedObject var model: SourceDetailModel
+    @Environment(\.columnWidth) private var columnWidth
 
     var body: some View {
         let size = fitted(featured.itemSize)
@@ -253,7 +255,7 @@ private struct BannerCarousel: View {
     }
 
     private func fitted(_ size: DepictionSize) -> CGSize {
-        let available = UIScreen.main.bounds.width - 64
+        let available = (columnWidth ?? PageLayout.assumedWidth) - 64
         let scale = min(1, available / size.width)
         return CGSize(width: size.width * scale, height: size.height * scale)
     }
@@ -311,6 +313,7 @@ struct PackageListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .pageColumn()
         }
         .background(WallBackground())
         .searchable(text: $query, prompt: "Filter by name, author or identifier")
@@ -442,6 +445,7 @@ struct SearchView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                .pageColumn()
             }
             .safeAreaInset(edge: .top, spacing: 0) { header }
             .background(WallBackground())
@@ -485,6 +489,8 @@ struct SearchView: View {
             searchField
         }
         .padding(.bottom, 8)
+        .frame(maxWidth: PageLayout.readableWidth)
+        .frame(maxWidth: .infinity)
         .background(Palette.canvas)
     }
 

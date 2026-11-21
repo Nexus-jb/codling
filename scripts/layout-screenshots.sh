@@ -1,57 +1,70 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# Takes screenshots of Codling's main pages on simulators of every screen
-# size that can be jailbroken (A12 and newer), upright and on its side:
+# Screenshots of Codling's main pages on simulators of every screen size that
+# can be jailbroken (A12 and newer), upright and on their side:
 #
-#   scripts/layout-screenshots.sh <out-dir>
+#   scripts/layout-screenshots.sh build <products-dir>
+#   scripts/layout-screenshots.sh shoot <products-dir> <iOS major> <device name> <out-dir>
 #
-# Needs Xcode, XcodeGen's project (xcodegen generate) and gpgv. Each
-# simulator's screenshots go into <out-dir>/<iOS>-<device>/. The app reads
-# real sources from the internet, through ScreenshotTests/root.
+# build makes the app and its screenshot test for the simulator, with
+# XcodeGen's project (xcodegen generate) already there. shoot runs the test
+# on a new simulator of that device, with the newest runtime of that major
+# iOS version, and saves the screenshots in <out-dir>, upright. It needs
+# gpgv: the app reads real sources from the internet, through
+# ScreenshotTests/root. The Layout screenshots workflow runs one shoot per
+# device, side by side.
 
 set -eu
 
-if [ "$#" -ne 1 ]; then
-    echo "usage: $0 <out-dir>" >&2
+usage() {
+    echo "usage: $0 build <products-dir>" >&2
+    echo "       $0 shoot <products-dir> <iOS major> <device name> <out-dir>" >&2
     exit 2
-fi
-out=$(mkdir -p "$1" && cd "$1" && pwd)
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+}
 
-# A folder laid out like a rootless jailbreak's root, with gpgv for the
-# sources' signatures.
-root="$work/root"
-cp -R ScreenshotTests/root "$root"
-mkdir -p "$root/usr/bin"
-ln -s "$(command -v gpgv)" "$root/usr/bin/gpgv"
+[ "$#" -ge 2 ] || usage
+command=$1
+products=$2
 
-derived="$work/derived"
-xcodebuild build-for-testing -project Codling.xcodeproj -scheme Codling \
-    -destination 'generic/platform=iOS Simulator' -derivedDataPath "$derived" \
-    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet
+case "$command" in
+build)
+    [ "$#" -eq 2 ] || usage
+    derived=$(mktemp -d)
+    xcodebuild build-for-testing -project Codling.xcodeproj -scheme Codling \
+        -destination 'generic/platform=iOS Simulator' -derivedDataPath "$derived" \
+        CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -quiet
+    rm -rf "$products"
+    mkdir -p "$products"
+    cp -R "$derived/Build/Products/." "$products/"
+    rm -rf "$derived"
+    ls "$products"
+    ;;
+shoot)
+    [ "$#" -eq 5 ] || usage
+    major=$3
+    name=$4
+    out=$(mkdir -p "$5" && cd "$5" && pwd)
+    work=$(mktemp -d)
+    udid=
+    cleanup() {
+        if [ -n "$udid" ]; then
+            xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
+            xcrun simctl delete "$udid" >/dev/null 2>&1 || true
+        fi
+        rm -rf "$work"
+    }
+    trap cleanup EXIT
 
-# Before iOS 26 Codling draws its own tab bar; on iOS 26 it uses the system's.
-# The newest runtime of each major version is used.
-devices="
-18 iPhone SE (3rd generation)
-18 iPhone 12 mini
-18 iPhone 11 Pro Max
-18 iPhone 16 Pro Max
-18 iPad mini (6th generation)
-18 iPad (10th generation)
-18 iPad Pro 13-inch (M4)
-26 iPhone 17 Pro Max
-26 iPad Pro 13-inch (M5)
-"
+    # A folder laid out like a rootless jailbreak's root, with gpgv for the
+    # sources' signatures.
+    root="$work/root"
+    cp -R ScreenshotTests/root "$root"
+    mkdir -p "$root/usr/bin"
+    ln -s "$(command -v gpgv)" "$root/usr/bin/gpgv"
 
-xcrun simctl list runtimes --json > "$work/runtimes.json"
-xcrun simctl list devicetypes --json > "$work/devicetypes.json"
-
-failed=0
-while read -r major name; do
-    [ -n "$major" ] || continue
+    xcrun simctl list runtimes --json > "$work/runtimes.json"
+    xcrun simctl list devicetypes --json > "$work/devicetypes.json"
     ids=$(python3 -I - "$work/runtimes.json" "$work/devicetypes.json" "$major" "$name" <<'PY'
 import json, sys
 runtimes = json.load(open(sys.argv[1]))["runtimes"]
@@ -70,29 +83,34 @@ if fitting and kind:
 PY
 )
     if [ -z "$ids" ]; then
-        echo "Skipped: iOS $major $name (not on this runner)"
-        continue
+        echo "iOS $major $name is not on this machine. Runtimes:" >&2
+        xcrun simctl list runtimes >&2
+        exit 1
     fi
     set -- $ids
     label=$(printf 'iOS%s-%s' "$3" "$name" | tr -c 'A-Za-z0-9.\n' '-' | sed 's/--*/-/g; s/-$//')
-    udid=$(xcrun simctl create "$label" "$2" "$1" </dev/null)
-    echo "== $label"
-    if ! TEST_RUNNER_SCREENSHOT_ROOT="$root" TEST_RUNNER_SCREENSHOT_DIR="$out/$label" \
-        xcodebuild test-without-building -project Codling.xcodeproj -scheme Codling \
-        -destination "id=$udid" -derivedDataPath "$derived" \
-        -only-testing:LayoutScreenshots -quiet </dev/null; then
-        echo "The screenshots on $label did not all succeed." >&2
-        failed=1
-    fi
-    xcrun simctl shutdown "$udid" </dev/null >/dev/null 2>&1 || true
-    xcrun simctl delete "$udid" </dev/null >/dev/null 2>&1 || true
-done <<LIST
-$devices
-LIST
-
-ls -R "$out"
-# A simulator that failed still leaves the screenshots it took; the
-# workflow publishes them either way.
-if [ "$failed" -ne 0 ]; then
-    echo "Some simulators did not finish; see the log above." >&2
-fi
+    udid=$(xcrun simctl create "$label" "$2" "$1")
+    xctestrun=$(ls "$products"/*.xctestrun | head -n 1)
+    status=0
+    TEST_RUNNER_SCREENSHOT_ROOT="$root" TEST_RUNNER_SCREENSHOT_DIR="$out/$label" \
+        xcodebuild test-without-building -xctestrun "$xctestrun" -destination "id=$udid" \
+        -only-testing:LayoutScreenshots > "$work/test.log" 2>&1 || status=$?
+    # What went wrong, without the rest of xcodebuild's output.
+    grep -E "error:|failed|Skipped|Executed" "$work/test.log" | tail -n 40 || true
+    # The screenshots come in the screen's own orientation: one taken on
+    # the device's side is turned upright here.
+    for file in "$out/$label"/landscape-*.png; do
+        [ -f "$file" ] || continue
+        width=$(sips -g pixelWidth "$file" | awk '/pixelWidth/ { print $2 }')
+        height=$(sips -g pixelHeight "$file" | awk '/pixelHeight/ { print $2 }')
+        if [ "$height" -gt "$width" ]; then
+            sips --rotate 270 "$file" >/dev/null
+        fi
+    done
+    ls "$out/$label" 2>/dev/null || true
+    exit "$status"
+    ;;
+*)
+    usage
+    ;;
+esac

@@ -112,6 +112,7 @@ struct CodlingApp: App {
                     VStack(spacing: 8) {
                         if queueBarShown {
                             queueBar(glass: true)
+                                .frame(maxWidth: FloatingTabBar.maxWidth)
                                 .padding(.horizontal, 14)
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }

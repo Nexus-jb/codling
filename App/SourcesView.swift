@@ -101,12 +101,15 @@ struct SourcesView: View {
                     }
                     .listStyle(.insetGrouped)
                     .hiddenListBackground()
+                    .frame(maxWidth: PageLayout.readableWidth)
+                    .frame(maxWidth: .infinity)
                     .background(WallBackground())
                     .refreshable { await model.refresh(force: false) }
                     .environment(\.editMode, $editMode)
                 }
             }
             .navigationTitle("Sources")
+            .titleOverColumn()
             .toolbar { toolbar }
             .overlay(alignment: .bottom) { banner }
         }
