@@ -529,6 +529,10 @@ td code {
   max-width: 38rem;
 }
 
+.get-card p + p {
+  margin-top: 0.75rem;
+}
+
 .get-card .actions {
   margin-top: 1.25rem;
 }
