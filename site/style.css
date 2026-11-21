@@ -338,6 +338,11 @@ h1 {
   gap: 0.85rem;
 }
 
+/* Light screenshots in Light Mode and dark ones in Dark Mode. */
+.shot-row picture {
+  display: block;
+}
+
 /* An iPhone screen's rounded corners, as a share of its width and height. */
 .shot-row img {
   width: 100%;
