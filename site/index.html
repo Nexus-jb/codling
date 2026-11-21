@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- Kept out of search results until the public beta. See docs/website.md. -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#080d18" media="(prefers-color-scheme: dark)">
+  <title>Codling: an open-source package manager for jailbroken iOS</title>
+  <meta name="description" content="Codling is an open-source package manager for jailbroken iPhones and iPads. It records your packages before every change, so one tap undoes the last one.">
+  <link rel="icon" type="image/png" href="images/favicon.png">
+  <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="wrap top-row">
+      <a class="brand" href="./">
+        <img src="images/favicon.png" width="32" height="32" alt="">
+        <span>Codling</span>
+      </a>
+      <nav aria-label="Main">
+        <ul>
+          <li class="optional"><a href="#features">Features</a></li>
+          <li class="optional"><a href="#devices">Devices</a></li>
+          <li><a href="https://github.com/Nexus-jb/codling">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="wrap hero-grid">
+        <div class="hero-text">
+          <h1 id="hero-title">Install with a way back.</h1>
+          <p class="lead">Codling is an open-source package manager for jailbroken iPhones and iPads. It records your packages before every change, so one tap undoes the last one.</p>
+          <p class="status">Codling is in early development and isn’t ready for everyday use yet. Version 1.0 will follow a closed and a public beta.</p>
+          <p class="actions">
+            <a class="button" href="#get">Get Codling</a>
+            <a class="button quiet" href="https://github.com/Nexus-jb/codling">Source code on GitHub</a>
+          </p>
+        </div>
+        <div class="hero-art">
+          <img class="app-icon" src="images/codling-icon.webp" width="512" height="512" alt="Codling’s icon: a white box with a lid of blue glass floating above it">
+        </div>
+      </div>
+    </section>
+
+    <section class="band shots" aria-labelledby="shots-title">
+      <div class="wrap">
+        <h2 id="shots-title">What it looks like</h2>
+        <ul class="shot-row" tabindex="0" aria-label="Screenshots">
+          <li>
+            <figure>
+              <picture>
+                <source srcset="images/screens/featured-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="images/screens/featured.webp" width="600" height="1300" loading="lazy" alt="Codling’s Featured tab: banners from the user’s sources, the Tweaks, Themes and Development categories, and a list of new and updated packages.">
+              </picture>
+              <figcaption>Featured: banners from your sources, categories, and what’s new.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <figure>
+              <picture>
+                <source srcset="images/screens/queue-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="images/screens/queue.webp" width="600" height="1300" loading="lazy" alt="Codling’s Queue tab: the last change, Removed Ultra Live Widgets, with an Undo Last Change button.">
+              </picture>
+              <figcaption>Queue: the last change, and the button that undoes it.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <figure>
+              <picture>
+                <source srcset="images/screens/system-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="images/screens/system.webp" width="600" height="1300" loading="lazy" alt="Codling’s System page: an iPhone 14 Pro Max with iOS 16.3.1 and a rootless jailbreak, then Burrow and the root helper, which is running as root.">
+              </picture>
+              <figcaption>System: your device, Burrow, and a check of the root helper.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <figure>
+              <picture>
+                <source srcset="images/screens/device-info-dark.webp" media="(prefers-color-scheme: dark)">
+                <img src="images/screens/device-info.webp" width="600" height="1300" loading="lazy" alt="Codling’s Device Info sheet: device, model, iOS, Codling version, jailbreak and bootstrap, with the UDID hidden.">
+              </picture>
+              <figcaption>Device Info: your UDID stays hidden until you tap it.</figcaption>
+            </figure>
+          </li>
+        </ul>
+        <p class="note">Screenshots from Codling 0.1.0~dev.116 on an iPhone 14 Pro Max.</p>
+      </div>
+    </section>
+
+    <section id="features" class="band" aria-labelledby="working-title">
+      <div class="wrap">
+        <h2 id="working-title">Keep your device working</h2>
+        <div class="working">
+          <article class="glass feature-main">
+            <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+            <h3>Undo the last change</h3>
+            <p>Before every change, Codling records which packages you have. If an install or a removal goes wrong, Undo Last Change takes you back to how things were.</p>
+          </article>
+          <article class="glass">
+            <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+            <h3>Safe Mode, with Burrow</h3>
+            <p>Codling works with <a href="https://github.com/Nexus-jb/burrow">Burrow</a>, our open-source tweak injection platform. When a tweak crashes an app, Safe Mode turns that tweak off in that app only, and Codling shows you which one it was. You can also turn any tweak off in a single app yourself.</p>
+          </article>
+          <article class="glass">
+            <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="m9.5 12 1.8 1.8 3.2-3.6"/></svg>
+            <h3>Compatibility before you install</h3>
+            <p>Codling checks whether a package says it supports your iOS version, and shows you where it says so: in its dependencies, its tags or its name.</p>
+          </article>
+          <article class="glass">
+            <svg class="glyph" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>
+            <h3>Signed sources</h3>
+            <p>Codling checks a source’s signature before it installs anything from it. When a source isn’t signed, you see that first, and you decide.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="know-title">
+      <div class="wrap split">
+        <h2 id="know-title">Know what you’re installing</h2>
+        <ul class="facts">
+          <li>
+            <h3>Piracy warnings</h3>
+            <p>Sources that published articles describe as handing out paid tweaks without their developers’ permission are marked, with <a href="https://github.com/Nexus-jb/codling/blob/main/docs/piracy-sources.md">links to the evidence</a>. Codling never blocks or hides them, and it checks the list on your device.</p>
+          </li>
+          <li>
+            <h3>Errors in plain words</h3>
+            <p>When a change doesn’t finish, Codling explains what happened and offers to finish the job, instead of showing raw apt output.</p>
+          </li>
+          <li>
+            <h3>System check</h3>
+            <p>Codling can check that its root helper is running as root, and that every package is fully installed with its dependencies met. Neither check changes anything.</p>
+          </li>
+          <li>
+            <h3>Paid packages</h3>
+            <p>Sign in to a source’s payment provider, buy packages and install the ones you own. Codling uses the payment provider API that other package managers already support, so paid sources work without extra setup.</p>
+          </li>
+          <li>
+            <h3>Updates</h3>
+            <p>The number of waiting updates shows on Codling’s icon and on the Installed tab, and Upgrade All installs them together.</p>
+          </li>
+          <li>
+            <h3>Package pages</h3>
+            <p>Native depictions are drawn with the system’s own fonts and colors, and web depictions open inside Codling.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="ios-title">
+      <div class="wrap split">
+        <h2 id="ios-title">Made for iOS</h2>
+        <div class="prose">
+          <p>Codling is written from scratch in Swift and SwiftUI, on top of apt and dpkg. It follows Light and Dark Mode, grows with the largest text sizes, works with VoiceOver and respects Reduce Motion.</p>
+          <p>It opens at once on the packages it already knows, and refreshes your sources behind it.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="devices" class="band" aria-labelledby="devices-title">
+      <div class="wrap split">
+        <h2 id="devices-title">Your device</h2>
+        <div>
+          <div class="glass table-card">
+            <table>
+              <caption>What Codling needs</caption>
+              <tbody>
+                <tr><th scope="row">iOS</th><td>iOS 15 or later</td></tr>
+                <tr><th scope="row">Device</th><td>iPhone XS, iPhone XR or later, or an iPad with an Apple A12 chip or newer. Codling doesn’t install on older devices.</td></tr>
+                <tr><th scope="row">Rootless</th><td>Dopamine, with the <code>iphoneos-arm64</code> package</td></tr>
+                <tr><th scope="row">RootHide</th><td>Dopamine (RootHide), with the <code>iphoneos-arm64e</code> package</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="note">Rootful jailbreaks aren’t planned for 1.0. So far Codling has been tested on an iPhone 14 Pro Max with iOS 16.3.1 and Dopamine (rootless); RootHide and other iOS versions are covered by automated tests for now.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="open-title">
+      <div class="wrap split">
+        <h2 id="open-title">Neutral and open</h2>
+        <div class="prose">
+          <p>Codling comes with the <a href="https://nexusjb.com">Nexus</a> repository as a default source, and you can remove it. Every source is treated the same way: no ads, no tracking and no paid placement.</p>
+          <p>Codling is open source under the Apache License 2.0. Release packages are built on GitHub Actions and carry build provenance attestations, so you can check that a package was built from the public source:</p>
+          <pre><code>gh attestation verify com.nexusjb.codling_&lt;version&gt;_iphoneos-arm64.deb --repo Nexus-jb/codling</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="get" class="band get" aria-labelledby="get-title">
+      <div class="wrap">
+        <div class="glass get-card">
+          <img src="images/apple-touch-icon.png" width="90" height="90" alt="">
+          <div>
+            <h2 id="get-title">Get Codling</h2>
+            <p>Codling isn’t available to install yet. It will come with the public beta; until then, you can follow its development on GitHub.</p>
+            <p class="actions"><a class="button" href="https://github.com/Nexus-jb/codling">Follow Codling on GitHub</a></p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bottom">
+    <div class="wrap">
+      <p>Codling is licensed under the <a href="https://github.com/Nexus-jb/codling/blob/main/LICENSE">Apache License 2.0</a>. The names “Codling” and “Burrow” and their logos are not covered by the license.</p>
+      <p>Codling is an independent project. It is not affiliated with or endorsed by SaurikIT, Cydia, Sileo or Zebra. To report a security problem, follow <a href="https://github.com/Nexus-jb/codling/blob/main/SECURITY.md">the security policy</a>.</p>
+      <p>This site uses no cookies, scripts or trackers.</p>
+    </div>
+  </footer>
+</body>
+</html>
