@@ -118,7 +118,8 @@ struct CodlingApp: App {
                         FloatingTabBar(selection: $tab, queueCount: queue.items.count,
                                        updateCount: updates.updates.count)
                     }
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: queueBarShown)
+                    .animation(UIAccessibility.isReduceMotionEnabled ? nil : .spring(response: 0.35, dampingFraction: 0.85),
+                               value: queueBarShown)
                     .transition(.opacity)
                 }
             }

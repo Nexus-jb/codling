@@ -484,6 +484,8 @@ private struct PackageActions: View {
             queue.add(operation, name: name, purchase: purchase)
         }
         .buttonStyle(CapsuleButtonStyle(color: destructive ? .red : Palette.text))
+        // VoiceOver spells a word in capitals letter by letter.
+        .accessibilityLabel(title.capitalized)
     }
 
     // MARK: Paid packages
@@ -518,6 +520,7 @@ private struct PackageActions: View {
                 Task { await loadOffer() }
             }
             .buttonStyle(CapsuleButtonStyle())
+            .accessibilityLabel("Try Again")
         } else if let provider, let price, let available {
             if price.purchased {
                 action(update ? "UPDATE" : "GET", .install(identifier),
@@ -631,14 +634,13 @@ private struct InfoRow: View {
     var first = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        NameValue {
             Text(name)
                 .font(.subheadline.weight(.semibold))
                 .foregroundColor(Palette.muted)
-            Spacer(minLength: 8)
+        } value: {
             Text(value)
                 .font(monospaced ? .subheadline.monospaced() : .subheadline)
-                .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }

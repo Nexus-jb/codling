@@ -144,12 +144,12 @@ private struct PackageRow: View {
                 Text(package.name)
                     .font(.body.weight(.semibold))
                     .foregroundColor(.primary)
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
                 if !package.summary.isEmpty {
                     Text(package.summary)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(growing: 2)
                         .multilineTextAlignment(.leading)
                 }
             }
@@ -157,7 +157,7 @@ private struct PackageRow: View {
             Text(package.version)
                 .font(.footnote.monospacedDigit())
                 .foregroundColor(.secondary)
-                .lineLimit(1)
+                .lineLimit(growing: 1)
             Chevron()
         }
         .padding(.horizontal, 16)

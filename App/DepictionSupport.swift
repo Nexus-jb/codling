@@ -185,6 +185,7 @@ struct CompatibilityCard: View {
     let report: CompatibilityReport
     let architecture: String
     @Environment(\.device) private var device
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,20 +209,20 @@ struct CompatibilityCard: View {
                 .foregroundColor(color)
                 .frame(width: 24)
                 .accessibilityHidden(true)
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(value)
+            NameValue {
+                Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(color == .red ? .red : Palette.text)
-                    .multilineTextAlignment(.trailing)
-                if let detail {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundColor(Palette.muted)
-                        .multilineTextAlignment(.trailing)
-                        .fixedSize(horizontal: false, vertical: true)
+            } value: {
+                VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
+                    Text(value)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(color == .red ? .red : Palette.text)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundColor(Palette.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }

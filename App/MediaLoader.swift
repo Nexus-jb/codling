@@ -182,7 +182,7 @@ struct IconView: View {
             ZStack {
                 Color(.tertiarySystemFill)
                 Image(systemName: symbol)
-                    .font(.system(size: size * 0.45))
+                    .font(.system(size: size * 0.45)) // fixed: a symbol sized to its tile
                     .foregroundColor(.secondary)
             }
         }

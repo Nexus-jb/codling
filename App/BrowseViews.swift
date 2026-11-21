@@ -65,6 +65,7 @@ struct SourceDetailView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "trash")
                                 .font(.title3)
+                                .accessibilityHidden(true)
                             Text("Remove Source")
                                 .font(.body.weight(.semibold))
                             Spacer()
@@ -210,7 +211,7 @@ private struct CountRow: View {
             Text(title)
                 .font(.body.weight(.semibold))
                 .foregroundColor(.primary)
-                .lineLimit(1)
+                .lineLimit(growing: 1)
             Spacer(minLength: 8)
             Text(count.formatted())
                 .foregroundColor(.secondary)
@@ -273,7 +274,7 @@ struct BannerView: View {
                 Text(banner.title)
                     .font(.headline)
                     .foregroundColor(.white)
-                    .lineLimit(2)
+                    .lineLimit(growing: 2)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
@@ -358,7 +359,7 @@ struct CatalogRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(package.displayName)
                         .font(.headline)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                     if package.isPaid {
                         PaidBadge()
                     }
@@ -366,13 +367,13 @@ struct CatalogRow: View {
                     Text(package.version)
                         .font(.caption.monospacedDigit())
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                 }
                 if let summary = package.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(growing: 2)
                 }
                 if CompatibilityMemo.unsupported(package, systemVersion: device.systemVersion) {
                     Label("Not for iOS \(device.systemVersion)", systemImage: "xmark.circle.fill")
@@ -384,7 +385,7 @@ struct CatalogRow: View {
                     Text(byline)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                 }
             }
         }
@@ -478,7 +479,7 @@ struct SearchView: View {
                 Text(count)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
             }
             .padding(.horizontal, 16)
             searchField
@@ -547,7 +548,7 @@ private struct SearchResultRow: View {
                 .overlay(alignment: .bottomTrailing) {
                     if installed {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16))
+                            .font(.system(size: 16)) // fixed: a mark on the icon
                             .foregroundColor(.green)
                             .background(Circle().fill(Palette.canvas).padding(2))
                             .offset(x: 5, y: 5)
@@ -558,7 +559,7 @@ private struct SearchResultRow: View {
                 HStack(spacing: 6) {
                     Text(package.displayName)
                         .font(.body.weight(.semibold))
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                     if package.isPaid {
                         PaidBadge()
                     }
@@ -566,12 +567,12 @@ private struct SearchResultRow: View {
                 Text([package.displayAuthor, package.version, source.title].compactMap { $0 }.joined(separator: " • "))
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(growing: 1)
                 if let summary = package.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(growing: 1)
                 }
                 if CompatibilityMemo.unsupported(package, systemVersion: device.systemVersion) {
                     Label("Not for iOS \(device.systemVersion)", systemImage: "xmark.circle.fill")
