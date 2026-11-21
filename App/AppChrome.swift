@@ -641,11 +641,20 @@ private struct PageColumn: ViewModifier {
 
 /// A large title on an iPhone held upright; over a centered column, in a
 /// regular-width window, the title sits in the middle of the bar above it.
+/// Not on an iPad with iOS 26, whose tab bar takes the middle of the bar
+/// and leaves a page there without a title.
 private struct TitleOverColumn: ViewModifier {
     @Environment(\.horizontalSizeClass) private var horizontalSize
 
+    private var inline: Bool {
+        if #available(iOS 26, *), UIDevice.current.userInterfaceIdiom == .pad {
+            return false
+        }
+        return horizontalSize == .regular
+    }
+
     func body(content: Content) -> some View {
-        if horizontalSize == .regular {
+        if inline {
             content.navigationBarTitleDisplayMode(.inline)
         } else {
             content

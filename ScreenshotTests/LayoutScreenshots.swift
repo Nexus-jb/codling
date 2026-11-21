@@ -85,7 +85,12 @@ final class LayoutScreenshots: XCTestCase {
         let field = [app.searchFields.firstMatch, app.textFields.firstMatch].first { $0.waitForExistence(timeout: 3) }
         if let field {
             field.tap()
-            field.typeText("theme\n")
+            // Typed once: the field keeps it on the second walk.
+            let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: field)
+            let typed = (field.value as? String)?.contains("theme") == true
+            if !typed && XCTWaiter.wait(for: [focused], timeout: 5) == .completed {
+                field.typeText("theme\n")
+            }
             settle(4)
             // The floating tab bar steps aside while the keyboard is up.
             if app.keyboards.firstMatch.exists {
