@@ -65,7 +65,7 @@ struct SignatureCheck {
             try? FileManager.default.removeItem(at: output)
         }
         try data.write(to: input)
-        let signature = try run(source: source, arguments: ["--output", output.path, input.path])
+        let signature = try run(source: source, arguments: ["--output", tool(output.path), tool(input.path)])
         if case .signed = signature {
             let signed = try Data(contentsOf: output)
             return (String(decoding: signed, as: UTF8.self), signature)
@@ -84,7 +84,13 @@ struct SignatureCheck {
         }
         try release.write(to: releaseFile)
         try signature.write(to: signatureFile)
-        return try run(source: source, arguments: [signatureFile.path, releaseFile.path])
+        return try run(source: source, arguments: [tool(signatureFile.path), tool(releaseFile.path)])
+    }
+
+    /// A real path as gpgv sees it: on RootHide, gpgv sees the jailbreak
+    /// root as / and the system volume under /rootfs.
+    private func tool(_ path: String) -> String {
+        ToolPath.convert(path, root: jailbreakRoot)
     }
 
     private func run(source: Source, arguments: [String]) throws -> Signature {
@@ -95,11 +101,15 @@ struct SignatureCheck {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         var full = ["gpgv", "--status-fd", "1"]
-        for keyring in keyrings(for: source) {
+        // A source's Signed-By is written for apt, as gpgv reads it; the
+        // keyrings Codling found itself are real paths.
+        let keyringPaths = source.signedBy.isEmpty ? keyrings(for: source).map { tool($0) } : source.signedBy
+        for keyring in keyringPaths {
             full += ["--keyring", keyring]
         }
         full += arguments
-        let environment = ["PATH=\(jailbreakRoot)/usr/bin:\(jailbreakRoot)/bin:/usr/bin:/bin", "GNUPGHOME=\(home.path)"]
+        let search = [jailbreakRoot + "/usr/bin", jailbreakRoot + "/bin", "/usr/bin", "/bin"].map { tool($0) }
+        let environment = ["PATH=" + search.joined(separator: ":"), "GNUPGHOME=" + tool(home.path)]
         let result = Subprocess.run(path: gpgv, arguments: full, environment: environment, timeoutMilliseconds: 30_000)
         guard let result else {
             throw SignatureError.gpgvFailed("it did not start")
