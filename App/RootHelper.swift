@@ -99,6 +99,19 @@ enum RootHelper {
     /// not signed; allowRemovals allows apt to remove packages the operations
     /// do not name, as the reviewed plan showed.
     static func apply(_ operations: [PackageOperation], trustUnsigned: Bool, allowRemovals: Bool) -> Result<CommandResult, Failure> {
+        install("apply", operations, trustUnsigned: trustUnsigned, allowRemovals: allowRemovals)
+    }
+
+    /// Downloads what apply would install and changes nothing else. apt
+    /// checks signatures here, as it does not in a simulation: without
+    /// trustUnsigned it stops at packages from sources that are not
+    /// signed, before downloading, and names them.
+    static func download(_ operations: [PackageOperation], trustUnsigned: Bool, allowRemovals: Bool) -> Result<CommandResult, Failure> {
+        install("download", operations, trustUnsigned: trustUnsigned, allowRemovals: allowRemovals)
+    }
+
+    private static func install(_ command: String, _ operations: [PackageOperation], trustUnsigned: Bool,
+                                allowRemovals: Bool) -> Result<CommandResult, Failure> {
         guard let arguments = arguments(for: operations) else {
             return .failure(.failed(status: 64, message: "A package name is not one apt accepts."))
         }
@@ -109,7 +122,7 @@ enum RootHelper {
         if allowRemovals {
             options.append("--allow-removals")
         }
-        return run(["apply"] + options + arguments, timeoutMilliseconds: 1_800_000)
+        return run([command] + options + arguments, timeoutMilliseconds: 1_800_000)
             .flatMap { decode(CommandResult.self, from: $0) }
     }
 

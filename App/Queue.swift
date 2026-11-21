@@ -338,6 +338,55 @@ final class QueueModel: ObservableObject {
             phase = .applying("Waiting for apt's package lists")
             await running.value
         }
+
+        // apt checks signatures only when it really installs, not in the
+        // review's simulation. Downloading first runs that check before
+        // anything changes, and leaves the archives in apt's cache for the
+        // change itself.
+        phase = .applying("Downloading the packages")
+        // The user saw these packages flagged and confirmed them anyway.
+        let consented = !plan.unauthenticated.isEmpty
+        let download = await Task.detached(priority: .userInitiated) {
+            RootHelper.download(operations, trustUnsigned: consented, allowRemovals: plan.removesPackages)
+        }.value
+        switch download {
+        case .failure(let failure):
+            phase = .finished(succeeded: false, plan: plan, diagnoses: [], output: failure.message, notes: [])
+            updateListsInBackground()
+            return
+        case .success(let result) where result.status != 0:
+            let unsigned = AptPlan.parse(result.output).unauthenticated
+            if !unsigned.isEmpty && !consented {
+                // Nothing was downloaded or changed: the user decides.
+                var flagged = plan
+                flagged.unauthenticated = unsigned
+                phase = .review(flagged, warnings: listsWarnings,
+                                notes: ["apt cannot verify some of these packages, because their sources are not signed. Confirm again to install them anyway."])
+                return
+            }
+            if AptListsFreshness.mentionsFailedDownload(result.output) {
+                lists.invalidate()
+                UserDefaults.standard.removeObject(forKey: Self.listsUpdatedKey)
+                phase = .preparing("A source changed its files. Updating apt's package lists")
+                if let failure = await updateListsNow() {
+                    phase = .blocked([], output: failure.message)
+                } else {
+                    phase = .preparing("Working out the changes")
+                    let simulation = await Task.detached(priority: .userInitiated) { RootHelper.simulate(operations) }.value
+                    show(simulation, operations: operations,
+                         notes: ["A source changed its files while you reviewed, so Codling read them again. Nothing was installed yet; confirm again."])
+                }
+                updateListsInBackground()
+                return
+            }
+            phase = .finished(succeeded: false, plan: plan, diagnoses: AptDiagnostics.diagnose(result.output),
+                              output: result.output, notes: [])
+            updateListsInBackground()
+            return
+        default:
+            break
+        }
+
         phase = .applying("Reading the installed packages")
         await installed.load(statusPath: statusPath)
         let before = installed.versions
@@ -735,6 +784,12 @@ struct QueueView: View {
 /// What apt would do, for the user to confirm.
 private struct ReviewView: View {
     let plan: AptPlan
+
+    private var confirmTitle: String {
+        if plan.removesPackages { return "Confirm, Including Removals" }
+        return plan.unauthenticated.isEmpty ? "Confirm" : "Install Without Verification"
+    }
+
     let warnings: [AptDiagnosis]
     let notes: [String]
     /// The title of the change being undone, when this reviews an undo.
@@ -770,8 +825,9 @@ private struct ReviewView: View {
                     }
                     VStack(spacing: 8) {
                         if !plan.isEmpty {
-                            Button(plan.removesPackages ? "Confirm, Including Removals" : "Confirm", action: onConfirm)
-                                .buttonStyle(TintedButtonStyle(color: plan.removesPackages ? .red : .accentColor))
+                            Button(confirmTitle, action: onConfirm)
+                                .buttonStyle(TintedButtonStyle(color: plan.removesPackages ? .red
+                                                               : plan.unauthenticated.isEmpty ? .accentColor : .orange))
                         }
                         Button("Cancel", action: onCancel)
                             .buttonStyle(TintedButtonStyle(color: .secondary))
