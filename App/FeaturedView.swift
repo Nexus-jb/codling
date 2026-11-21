@@ -265,8 +265,6 @@ struct CompactPackageRow: View {
     }
 }
 
-}
-
 /// A new or updated package with the source it is from.
 struct ArrivalRow: Identifiable {
     let arrival: IndexStore.Arrival
