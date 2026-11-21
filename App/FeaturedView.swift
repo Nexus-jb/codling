@@ -187,36 +187,91 @@ struct FeaturedView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         } else {
-            Card(padding: 0) {
-                ForEach(ArrivalDay.group(rows)) { day in
-                    Text(day.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 2)
-                        .accessibilityAddTraits(.isHeader)
-                    Divider()
-                        .padding(.leading, 16)
-                    DividedRows(items: day.rows, dividerInset: 72) { row in
-                        NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
-                                                                summary: row.arrival.package)) {
-                            CompactPackageRow(package: row.arrival.package, source: row.info,
-                                              status: row.arrival.updated
-                                                  ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
-                                                  : "New",
-                                              statusColor: row.arrival.updated ? .blue : .green)
-                        }
-                        .buttonStyle(CardRowButtonStyle())
-                    }
-                }
-            }
+            ArrivalsCard(rows: Array(rows.prefix(Self.arrivalsShown)),
+                         all: rows.count > Self.arrivalsShown ? rows : nil)
         }
     }
 
+    /// How many new and updated packages the tab shows; See All opens the
+    /// rest.
+    private static let arrivalsShown = 6
+
     private var emptyText: String {
         "Packages your sources add or update show here, from the next refresh on. Pull down to refresh."
+    }
+}
+
+/// New and updated packages in one card, under a heading for each day,
+/// and a See All row when the card shows only some of them.
+struct ArrivalsCard: View {
+    let rows: [ArrivalRow]
+    /// All of them, when the card shows only the first few.
+    var all: [ArrivalRow]?
+
+    var body: some View {
+        Card(padding: 0) {
+            ForEach(ArrivalDay.group(rows)) { day in
+                Text(day.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
+                    .accessibilityAddTraits(.isHeader)
+                Divider()
+                    .padding(.leading, 16)
+                DividedRows(items: day.rows, dividerInset: 72) { row in
+                    NavigationLink(destination: PackageView(source: row.info, identifier: row.arrival.package.package,
+                                                            summary: row.arrival.package)) {
+                        CompactPackageRow(package: row.arrival.package, source: row.info,
+                                          status: row.arrival.updated
+                                              ? "Updated \(row.arrival.date.formatted(.relative(presentation: .named)))"
+                                              : "New",
+                                          statusColor: row.arrival.updated ? .blue : .green)
+                    }
+                    .buttonStyle(CardRowButtonStyle())
+                }
+            }
+            if let all {
+                Divider()
+                    .padding(.leading, 16)
+                NavigationLink(destination: ArrivalsView(rows: all)) {
+                    HStack(spacing: 8) {
+                        Text("See All")
+                            .font(.body.weight(.semibold))
+                        Spacer(minLength: 0)
+                        Text(all.count.formatted())
+                            .foregroundColor(.secondary)
+                        Chevron()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(CardRowButtonStyle())
+                .accessibilityLabel("See all \(all.count) new and updated packages")
+            }
+        }
+    }
+}
+
+/// Every new and updated package Codling knows of, newest first.
+struct ArrivalsView: View {
+    let rows: [ArrivalRow]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                ArrivalsCard(rows: rows)
+                CardFooter(text: "Versions your sources added since Codling started following them, newest first.")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(WallBackground())
+        .navigationTitle("New & Updated")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
