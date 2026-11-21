@@ -19,6 +19,10 @@ struct PackageView: View {
     /// The tab of the content card: a native depiction's tabs in order,
     /// or Details, and then Full Description.
     @State private var tab = 0
+    /// The web page in the Full Description tab.
+    @State private var webHeight: CGFloat = 1
+    @State private var webLoad: WebLoadState = .loading
+    @State private var webReload = 0
 
     var body: some View {
         ScrollView {
@@ -198,7 +202,7 @@ struct PackageView: View {
             }
             if hasFullDescription && selected == names.count - 1 && names.count > 1 {
                 fullDescription
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, webPage != nil && !webFailed ? 0 : 14)
                     .padding(.bottom, 14)
             } else if case .native(let depiction, _) = model.depiction, selected < depiction.tabs.count {
                 DepictionViews(views: depiction.tabs[selected].views)
@@ -220,34 +224,68 @@ struct PackageView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    /// The package's summary and description, and its web page when it has
-    /// one. Pages in a web view inside Codling stop before they draw on a
-    /// jailbroken device, so the page opens in the browser sheet, as in
-    /// Sileo.
+    /// The package's web page, shown in the tab itself; without one, or
+    /// when it cannot load, the summary and description, with a button that
+    /// opens the page in the browser sheet.
+    @ViewBuilder
     private var fullDescription: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let summaryText, !summaryText.isEmpty {
-                Text(summaryText)
-                    .font(.body.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let details = record?.details, !details.isEmpty {
-                Text(details)
-                    .font(.subheadline)
-                    .foregroundColor(PackagePalette.muted)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if let webPage {
-                Button {
-                    router.perform(.web(webPage))
-                } label: {
-                    Label("Open the Full Page", systemImage: "safari")
+        if let webPage, !webFailed {
+            ZStack(alignment: .top) {
+                WebDepictionView(url: webPage, height: $webHeight, state: $webLoad, reload: webReload) { url in
+                    router.perform(.web(url))
                 }
-                .buttonStyle(TintedButtonStyle())
-                .padding(.top, 4)
+                .frame(height: max(webHeight, 1))
+                .opacity(webLoad == .loaded ? 1 : 0)
+                if webLoad == .loading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(24)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                if case .failed(let message) = webLoad {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let summaryText, !summaryText.isEmpty {
+                    Text(summaryText)
+                        .font(.body.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let details = record?.details, !details.isEmpty {
+                    Text(details)
+                        .font(.subheadline)
+                        .foregroundColor(PackagePalette.muted)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let webPage {
+                    HStack(spacing: 8) {
+                        Button("Try Again") {
+                            webLoad = .loading
+                            webReload += 1
+                        }
+                        .buttonStyle(TintedButtonStyle())
+                        Button {
+                            router.perform(.web(webPage))
+                        } label: {
+                            Label("Open in Browser", systemImage: "safari")
+                        }
+                        .buttonStyle(TintedButtonStyle())
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
+    }
+
+    /// Whether the web page failed, for the tab to show the text instead.
+    private var webFailed: Bool {
+        if case .failed = webLoad { return true }
+        return false
     }
 
     private func problem(_ message: String, retry: @escaping () -> Void) -> some View {

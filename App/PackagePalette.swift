@@ -35,11 +35,11 @@ enum PackagePalette {
     }
 }
 
-/// A banner in a frame: the image on an ivory mat, inside a thin metal
+/// A banner in a frame: the image filling an ivory mat, inside a thin metal
 /// edge with a highlight, and a soft shadow, as the design handoff draws it.
 struct FramedPackageBanner: View {
     let url: URL
-    var contentMode: ContentMode = .fit
+    var contentMode: ContentMode = .fill
 
     var body: some View {
         let imageShape = RoundedRectangle(cornerRadius: 9, style: .continuous)
