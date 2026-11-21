@@ -157,7 +157,7 @@ final class BurrowModel: ObservableObject {
 
     func respring() async {
         working = "Restarting SpringBoard"
-        _ = await Task.detached(priority: .userInitiated) { RootHelper.respring() }.value
+        await Respring.now()
         working = nil
     }
 }

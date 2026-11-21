@@ -37,7 +37,12 @@
 //                          do not name is refused. Essential packages are
 //                          never removed.
 //   codling-helper respring
-//                          restarts SpringBoard, so that tweaks load.
+//                          stops SpringBoard with SIGTERM, and launchd starts
+//                          it again, so that tweaks load. Codling first asks
+//                          SpringBoard to relaunch itself, which fades to
+//                          black; this is for when it does not. sbreload is
+//                          not used: it restarts the render server too,
+//                          which closes every app.
 //   codling-helper backup PACKAGE...
 //                          rebuilds the .deb of each installed package from
 //                          dpkg's database and the files on disk (repack.c),
@@ -807,15 +812,9 @@ static int take_purchase(const char *package, const char *version) {
 static int respring(void) {
     char root[PATH_MAX];
     require_root(root);
-    char sbreload[PATH_MAX];
-    snprintf(sbreload, sizeof sbreload, "%s/usr/bin/sbreload", root);
-    if (access(sbreload, X_OK) == 0) {
-        const char *const arguments[] = { "sbreload", NULL };
-        run_and_report(root, "/usr/bin/sbreload", arguments);
-    } else {
-        const char *const arguments[] = { "killall", "-9", "SpringBoard", NULL };
-        run_and_report(root, "/usr/bin/killall", arguments);
-    }
+    // SIGTERM lets SpringBoard end as it does when launchd stops it.
+    const char *const arguments[] = { "killall", "-TERM", "SpringBoard", NULL };
+    run_and_report(root, "/usr/bin/killall", arguments);
     putchar('\n');
     return 0;
 }

@@ -304,7 +304,7 @@ final class QueueModel: ObservableObject {
 
     func restartSpringBoard() async {
         restarting = true
-        _ = await Task.detached(priority: .userInitiated) { RootHelper.respring() }.value
+        await Respring.now()
         restarting = false
     }
 }
