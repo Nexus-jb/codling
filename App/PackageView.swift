@@ -398,7 +398,10 @@ private struct PackageActions: View {
         case loading
         /// The source sells it on its own website, not to package managers.
         case noProvider
+        /// The request did not get through; it can be tried again.
         case failed(String)
+        /// The provider answered that it does not sell it, with its reason.
+        case refused(String)
         case ready(endpoint: URL, price: PaymentProvider.Price)
     }
 
@@ -540,7 +543,7 @@ private struct PackageActions: View {
             return nil
         case .noProvider:
             return "\(source.title) does not sell this package to package managers. Buy it on the source's website."
-        case .failed(let message):
+        case .failed(let message), .refused(let message):
             return message
         case .ready(_, let price):
             guard let provider else { return nil }
@@ -563,7 +566,7 @@ private struct PackageActions: View {
         do {
             offer = .ready(endpoint: provider.endpoint, price: try await accounts.price(of: identifier, at: provider))
         } catch let failure as PaymentProvider.Failure {
-            offer = .failed(failure.message)
+            offer = failure.fromProvider ? .refused(failure.message) : .failed(failure.message)
         } catch {
             offer = .failed("\(error)")
         }

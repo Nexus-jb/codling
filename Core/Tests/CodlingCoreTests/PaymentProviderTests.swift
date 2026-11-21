@@ -49,6 +49,13 @@ final class PaymentProviderTests: XCTestCase {
         XCTAssertThrowsError(try PaymentProvider.user(Data(#"{"error":"Signed out","invalidate":true}"#.utf8))) { error in
             XCTAssertEqual((error as? PaymentProvider.Failure)?.invalidate, true)
             XCTAssertEqual((error as? PaymentProvider.Failure)?.message, "Signed out")
+            XCTAssertEqual((error as? PaymentProvider.Failure)?.fromProvider, true)
+        }
+        XCTAssertThrowsError(try PaymentProvider.price(Data(#"{"error":"This item is currently not available for purchase."}"#.utf8))) { error in
+            XCTAssertEqual((error as? PaymentProvider.Failure)?.fromProvider, true)
+        }
+        XCTAssertThrowsError(try PaymentProvider.price(Data("<html>".utf8))) { error in
+            XCTAssertEqual((error as? PaymentProvider.Failure)?.fromProvider, false)
         }
         XCTAssertThrowsError(try PaymentProvider.user(Data(#"{"success":false}"#.utf8)))
         XCTAssertThrowsError(try PaymentProvider.user(Data("not json".utf8)))

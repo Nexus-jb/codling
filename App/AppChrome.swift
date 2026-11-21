@@ -330,10 +330,122 @@ struct CardRows<Item: Identifiable, Row: View>: View {
     var dividerInset: CGFloat = 70
     @ViewBuilder let row: (Item) -> Row
 
+    /// Past this many rows the card is drawn row by row (CardSlice), so
+    /// that scrolling draws only the rows on screen; one card around
+    /// hundreds of rows is drawn whole, and clipped, whenever a row appears.
+    static var slicedFrom: Int { 21 }
+
     var body: some View {
-        Card(padding: 0) {
-            DividedRows(items: items, dividerInset: dividerInset, row: row)
+        if items.count >= Self.slicedFrom {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    SlicedRow(first: index == 0, last: index == items.count - 1, dividerInset: dividerInset) {
+                        row(item)
+                    }
+                }
+            }
+        } else {
+            Card(padding: 0) {
+                DividedRows(items: items, dividerInset: dividerInset, row: row)
+            }
         }
+    }
+}
+
+/// A row of a long card: its share of the card behind it, the line above
+/// it, and rounded outer corners on the first and last rows.
+private struct SlicedRow<Content: View>: View {
+    let first: Bool
+    let last: Bool
+    let dividerInset: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Group {
+            if first || last {
+                lined.clipShape(CornerRoundedRectangle(radius: 22, corners: CardSlice.corners(first: first, last: last)))
+            } else {
+                lined
+            }
+        }
+        .background(CardSlice(first: first, last: last))
+    }
+
+    private var lined: some View {
+        content()
+            .overlay(alignment: .top) {
+                if !first {
+                    Divider()
+                        .padding(.leading, dividerInset)
+                }
+            }
+    }
+}
+
+/// One row's share of a glass card: the fill and the edge, with the outer
+/// corners rounded on the first and last rows. Both run from left to right,
+/// so that the rows join into one card.
+struct CardSlice: View {
+    let first: Bool
+    let last: Bool
+
+    var body: some View {
+        CornerRoundedRectangle(radius: 22, corners: Self.corners(first: first, last: last))
+            .fill(LinearGradient(colors: [Palette.surfaceTop, Palette.surfaceBottom],
+                                 startPoint: .leading, endPoint: .trailing))
+            .overlay(
+                SliceEdge(first: first, last: last, radius: 22)
+                    .stroke(LinearGradient(colors: [Palette.highlight.opacity(0.88), Palette.edge.opacity(0.85)],
+                                           startPoint: .leading, endPoint: .trailing),
+                            lineWidth: 1)
+            )
+    }
+
+    static func corners(first: Bool, last: Bool) -> UIRectCorner {
+        var corners: UIRectCorner = []
+        if first { corners.formUnion([.topLeft, .topRight]) }
+        if last { corners.formUnion([.bottomLeft, .bottomRight]) }
+        return corners
+    }
+}
+
+/// The edge of a CardSlice: both sides, and the top or the bottom with
+/// their rounded corners on the first or last row.
+struct SliceEdge: Shape {
+    let first: Bool
+    let last: Bool
+    let radius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let frame = rect.insetBy(dx: 0.5, dy: 0)
+        let top = first ? frame.minY + 0.5 : frame.minY
+        let bottom = last ? frame.maxY - 0.5 : frame.maxY
+        let ends = (first ? 1 : 0) + (last ? 1 : 0)
+        let radius = max(0, min(self.radius, frame.width / 2, ends > 0 ? (bottom - top) / CGFloat(ends) : self.radius))
+        var path = Path()
+        path.move(to: CGPoint(x: frame.minX, y: last ? bottom - radius : bottom))
+        if first {
+            path.addLine(to: CGPoint(x: frame.minX, y: top + radius))
+            path.addArc(tangent1End: CGPoint(x: frame.minX, y: top), tangent2End: CGPoint(x: frame.minX + radius, y: top),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: frame.maxX - radius, y: top))
+            path.addArc(tangent1End: CGPoint(x: frame.maxX, y: top), tangent2End: CGPoint(x: frame.maxX, y: top + radius),
+                        radius: radius)
+        } else {
+            path.addLine(to: CGPoint(x: frame.minX, y: top))
+            path.move(to: CGPoint(x: frame.maxX, y: top))
+        }
+        if last {
+            path.addLine(to: CGPoint(x: frame.maxX, y: bottom - radius))
+            path.addArc(tangent1End: CGPoint(x: frame.maxX, y: bottom), tangent2End: CGPoint(x: frame.maxX - radius, y: bottom),
+                        radius: radius)
+            path.addLine(to: CGPoint(x: frame.minX + radius, y: bottom))
+            path.addArc(tangent1End: CGPoint(x: frame.minX, y: bottom), tangent2End: CGPoint(x: frame.minX, y: bottom - radius),
+                        radius: radius)
+        } else {
+            path.addLine(to: CGPoint(x: frame.maxX, y: bottom))
+        }
+        return path
     }
 }
 

@@ -61,11 +61,15 @@ private struct GlassSurface: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        // The shadow is the shape's alone: a shadow on the whole view would
+        // draw everything in the card again, off screen, whenever anything
+        // in it changes, such as an icon that loads while scrolling.
         content
             .background(
                 shape.fill(LinearGradient(colors: inset ? [Palette.insetTop, Palette.insetBottom]
                                                         : [Palette.surfaceTop, Palette.surfaceBottom],
                                           startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .shadow(color: Palette.shadow.opacity(inset ? 0.13 : 0.24), radius: inset ? 3 : 7, y: inset ? 2 : 4)
             )
             .overlay(
                 shape.strokeBorder(LinearGradient(colors: [Palette.highlight.opacity(0.88), Palette.edge.opacity(0.85)],
@@ -73,7 +77,6 @@ private struct GlassSurface: ViewModifier {
                                    lineWidth: 1)
                     .allowsHitTesting(false)
             )
-            .shadow(color: Palette.shadow.opacity(inset ? 0.13 : 0.24), radius: inset ? 3 : 7, y: inset ? 2 : 4)
     }
 }
 

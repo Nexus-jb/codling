@@ -133,11 +133,16 @@ public enum PaymentProvider {
         public var recoveryURL: URL?
         /// The provider asks Codling to forget the user's credentials.
         public var invalidate: Bool
+        /// The provider itself answered with this, such as "not available
+        /// for purchase", so asking again gives the same answer; false when
+        /// the request did not get through or the answer could not be read.
+        public var fromProvider: Bool
 
-        public init(message: String, recoveryURL: URL? = nil, invalidate: Bool = false) {
+        public init(message: String, recoveryURL: URL? = nil, invalidate: Bool = false, fromProvider: Bool = false) {
             self.message = message
             self.recoveryURL = recoveryURL
             self.invalidate = invalidate
+            self.fromProvider = fromProvider
         }
     }
 
@@ -151,7 +156,7 @@ public enum PaymentProvider {
         guard message != nil || unsuccessful else { return nil }
         return Failure(message: message ?? "The provider did not complete the request.",
                        recoveryURL: root["recovery_url"]?.string.flatMap(httpsURL),
-                       invalidate: root["invalidate"]?.bool == true)
+                       invalidate: root["invalidate"]?.bool == true, fromProvider: true)
     }
 
     public static func info(_ data: Data, base: URL) throws -> Info {
