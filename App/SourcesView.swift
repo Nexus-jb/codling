@@ -10,6 +10,7 @@ import UIKit
 struct SourcesView: View {
     @ObservedObject var model: SourcesModel
     @EnvironmentObject private var installed: InstalledPackagesModel
+    @EnvironmentObject private var accounts: PaymentAccounts
     @StateObject private var adder = AddSourceFlow()
     @State private var removing: Source?
     @State private var problem: String?
@@ -162,6 +163,9 @@ struct SourcesView: View {
                     Label("Add Source", systemImage: "plus")
                 }
                 .disabled(model.setupError != nil || adder.working != nil)
+                NavigationLink(destination: AccountsView()) {
+                    AccountCircle(user: accounts.signedInUser, size: 30)
+                }
             }
         }
     }

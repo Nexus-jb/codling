@@ -341,8 +341,11 @@ struct ArrivalDay: Identifiable {
     }
 }
 
-/// The top of the Featured tab.
+/// The top of the Featured tab, with the account circle, which opens the
+/// accounts of the user's sources.
 private struct WelcomeCard: View {
+    @EnvironmentObject private var accounts: PaymentAccounts
+
     var body: some View {
         Card(padding: 16) {
             HStack(spacing: 14) {
@@ -359,11 +362,15 @@ private struct WelcomeCard: View {
                     Text("Codling")
                         .font(.largeTitle.bold())
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
+                NavigationLink(destination: AccountsView()) {
+                    AccountCircle(user: accounts.signedInUser, size: 52)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 

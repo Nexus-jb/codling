@@ -66,12 +66,36 @@ final class SourcesModel: ObservableObject {
             prepare()
         }
         guard let store else { return }
+        await addDefaultSourceOnce()
         for index in rows.indices {
             rows[index].stored = try? await store.source(id: rows[index].id)
         }
         if !refreshedThisLaunch {
             refreshedThisLaunch = true
             await refresh(force: false)
+        }
+    }
+
+    /// Nexus, the source Codling comes with.
+    static let defaultSource = "https://repo.nexusjb.com/"
+    private static let addedDefaultSourceKey = "AddedDefaultSource"
+
+    /// Adds the default source once. After it is in apt's lists, Codling
+    /// remembers that and never adds it again, so it stays gone when the
+    /// person removes it. When the helper cannot add it, the next launch
+    /// tries again.
+    private func addDefaultSourceOnce() async {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.addedDefaultSourceKey) else { return }
+        if existing(uri: Self.defaultSource) != nil {
+            defaults.set(true, forKey: Self.addedDefaultSourceKey)
+            return
+        }
+        let uri = Self.defaultSource
+        let result = await Task.detached(priority: .userInitiated) { RootHelper.addSource(uri) }.value
+        if case .success = result {
+            defaults.set(true, forKey: Self.addedDefaultSourceKey)
+            reloadSources()
         }
     }
 

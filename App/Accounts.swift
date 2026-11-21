@@ -1,0 +1,570 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import AuthenticationServices
+import LocalAuthentication
+import Security
+import SwiftUI
+
+/// The sign-ins kept in the Keychain, one per payment provider: the token
+/// that says who the user is, and the payment secret, which only comes out
+/// after Face ID, Touch ID or the passcode, so that no tweak can buy on the
+/// user's behalf.
+enum PaymentKeychain {
+    private static let service = "com.nexusjb.codling.payment"
+
+    enum Failure: Error {
+        case status(OSStatus)
+
+        var message: String {
+            switch self {
+            case .status(let status):
+                let text = SecCopyErrorMessageString(status, nil) as String? ?? "error \(status)"
+                return "The Keychain did not keep the sign-in: \(text)."
+            }
+        }
+    }
+
+    static func saveToken(_ token: String, for endpoint: URL) throws {
+        try save(Data(token.utf8), account: "token " + endpoint.absoluteString, protected: false)
+    }
+
+    static func token(for endpoint: URL) -> String? {
+        read(account: "token " + endpoint.absoluteString, context: nil).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    /// Keeps the payment secret behind the device's owner check. Fails on a
+    /// device without a passcode, where it could not be protected.
+    static func saveSecret(_ secret: String, for endpoint: URL) throws {
+        try save(Data(secret.utf8), account: "secret " + endpoint.absoluteString, protected: true)
+    }
+
+    /// The payment secret, after the system asks for Face ID, Touch ID or
+    /// the passcode with the reason given. Blocks while it asks, so it runs
+    /// away from the main thread.
+    static func secret(for endpoint: URL, reason: String) -> String? {
+        let context = LAContext()
+        context.localizedReason = reason
+        return read(account: "secret " + endpoint.absoluteString, context: context)
+            .map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    static func hasSecret(for endpoint: URL) -> Bool {
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        var query = baseQuery(account: "secret " + endpoint.absoluteString)
+        query[kSecUseAuthenticationContext as String] = context
+        query[kSecReturnAttributes as String] = true
+        let status = SecItemCopyMatching(query as CFDictionary, nil)
+        // An item that needs the owner check answers "interaction not
+        // allowed" without asking, which still says it is there.
+        return status == errSecSuccess || status == errSecInteractionNotAllowed
+    }
+
+    static func delete(for endpoint: URL) {
+        for account in ["token ", "secret "] {
+            SecItemDelete(baseQuery(account: account + endpoint.absoluteString) as CFDictionary)
+        }
+    }
+
+    private static func baseQuery(account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword,
+         kSecAttrService as String: service,
+         kSecAttrAccount as String: account]
+    }
+
+    private static func save(_ data: Data, account: String, protected: Bool) throws {
+        SecItemDelete(baseQuery(account: account) as CFDictionary)
+        var item = baseQuery(account: account)
+        item[kSecValueData as String] = data
+        if protected {
+            var error: Unmanaged<CFError>?
+            guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly,
+                                                               .userPresence, &error) else {
+                throw Failure.status(errSecParam)
+            }
+            item[kSecAttrAccessControl as String] = access
+        } else {
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        }
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw Failure.status(status) }
+    }
+
+    private static func read(account: String, context: LAContext?) -> Data? {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        if let context {
+            query[kSecUseAuthenticationContext as String] = context
+        }
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+}
+
+/// Requests to a payment provider, with the device's UDID and model as the
+/// API asks for them.
+struct PaymentClient {
+    let udid: String
+    let model: String
+    let version: String
+
+    private var session: URLSession { .shared }
+
+    func endpoint(of source: Source) async -> URL? {
+        for url in source.repositoryFileURLs("payment_endpoint") {
+            var request = URLRequest(url: url, timeoutInterval: 15)
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            guard let (data, response) = try? await session.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200, data.count < 4096,
+                  let text = String(data: data, encoding: .utf8),
+                  let endpoint = PaymentProvider.endpoint(fromFile: text) else { continue }
+            return endpoint
+        }
+        return nil
+    }
+
+    func info(_ endpoint: URL) async throws -> PaymentProvider.Info {
+        let url = PaymentProvider.url(endpoint, "info")
+        return try PaymentProvider.info(try await get(url), base: endpoint)
+    }
+
+    func user(_ endpoint: URL, token: String) async throws -> PaymentProvider.User {
+        try PaymentProvider.user(try await post(PaymentProvider.url(endpoint, "user_info"),
+                                                ["token": token, "udid": udid, "device": model]))
+    }
+
+    func signOut(_ endpoint: URL, token: String) async {
+        _ = try? await post(PaymentProvider.url(endpoint, "sign_out"), ["token": token])
+    }
+
+    private var userAgent: String { "Codling/\(version) (\(model); iOS)" }
+
+    private func get(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("en", forHTTPHeaderField: "Accept-Language")
+        return try await send(request)
+    }
+
+    private func post(_ url: URL, _ body: [String: String]) async throws -> Data {
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("en", forHTTPHeaderField: "Accept-Language")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return try await send(request)
+    }
+
+    private func send(_ request: URLRequest) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw PaymentProvider.Failure(message: RefreshError.describe(error))
+        }
+        // Providers answer errors as JSON with an error message, often with
+        // a 4xx status; that message is the one to show.
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode),
+           (try? JSONValue.decode(data)).flatMap(PaymentProvider.failure(in:)) == nil {
+            throw PaymentProvider.Failure(message: "\(request.url?.host ?? "The provider") answered \(http.statusCode) "
+                                          + "(\(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))).")
+        }
+        return data
+    }
+}
+
+/// Opens a provider's sign-in page in the system's sign-in sheet, which
+/// returns to Codling at the provider's callback address.
+final class WebSignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
+    private var session: ASWebAuthenticationSession?
+    /// The window the sheet shows over, found when the sign-in starts.
+    private var anchor = ASPresentationAnchor()
+
+    /// The address the page returned to; nil when the user closed it.
+    @MainActor
+    func start(_ url: URL) async throws -> URL? {
+        if let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) {
+            anchor = window
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: PaymentProvider.callbackScheme) { callback, error in
+                if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
+                    continuation.resume(returning: nil)
+                } else if let error {
+                    continuation.resume(throwing: PaymentProvider.Failure(message: "The sign-in page could not open: \(error.localizedDescription)"))
+                } else {
+                    continuation.resume(returning: callback)
+                }
+            }
+            session.presentationContextProvider = self
+            self.session = session
+            if !session.start() {
+                continuation.resume(throwing: PaymentProvider.Failure(message: "The sign-in page could not open."))
+            }
+        }
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        anchor
+    }
+}
+
+/// The payment providers of the user's sources, and who is signed in to
+/// each.
+@MainActor
+final class PaymentAccounts: ObservableObject {
+    struct Provider: Identifiable {
+        let endpoint: URL
+        /// The sources that name this provider.
+        var sources: [SourceInfo]
+        var info: PaymentProvider.Info?
+        var state: State
+
+        var id: String { endpoint.absoluteString }
+        var name: String { info?.name ?? sources.first?.title ?? endpoint.host ?? "Provider" }
+    }
+
+    enum State: Equatable {
+        case signedOut
+        case working
+        case signedIn(PaymentProvider.User)
+        case failed(String)
+    }
+
+    @Published private(set) var providers: [Provider] = []
+    @Published private(set) var discovering = false
+    @Published private(set) var discovered = false
+
+    private let environment: RuntimeEnvironment
+    private let webSignIn = WebSignIn()
+    /// The source addresses the providers were found for.
+    private var discoveredFor: [String] = []
+
+    init(environment: RuntimeEnvironment) {
+        self.environment = environment
+    }
+
+    private lazy var udid: String? = DeviceDetails.uniqueDeviceID()
+
+    private var client: PaymentClient? {
+        udid.map { PaymentClient(udid: $0, model: environment.deviceModel, version: environment.version) }
+    }
+
+    /// The first signed-in user, for the account circle.
+    var signedInUser: PaymentProvider.User? {
+        for provider in providers {
+            if case .signedIn(let user) = provider.state { return user }
+        }
+        return nil
+    }
+
+    /// Finds which sources have a payment provider, reads each provider's
+    /// details, and checks the sign-ins Codling keeps.
+    func discover(sources: SourcesModel, force: Bool = false) async {
+        let infos = sources.rows.compactMap { sources.info(for: $0.id) }
+        let addresses = infos.map(\.source.uri).sorted()
+        guard !discovering, force || addresses != discoveredFor else { return }
+        discovering = true
+        defer {
+            discovering = false
+            discovered = true
+        }
+        guard let client else {
+            providers = []
+            discoveredFor = addresses
+            return
+        }
+
+        let found = await withTaskGroup(of: (SourceInfo, URL?).self) { group in
+            for info in infos {
+                group.addTask { (info, await client.endpoint(of: info.source)) }
+            }
+            var pairs: [(SourceInfo, URL)] = []
+            for await (info, endpoint) in group {
+                if let endpoint { pairs.append((info, endpoint)) }
+            }
+            return pairs
+        }
+        var byEndpoint: [String: Provider] = [:]
+        for (info, endpoint) in found {
+            byEndpoint[endpoint.absoluteString, default: Provider(endpoint: endpoint, sources: [], info: nil, state: .signedOut)]
+                .sources.append(info)
+        }
+        var list = Array(byEndpoint.values)
+        for index in list.indices {
+            list[index].sources.sort { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            list[index].info = try? await client.info(list[index].endpoint)
+            list[index].state = await state(of: list[index].endpoint, client: client)
+        }
+        // By name, so that no provider comes first for any other reason.
+        providers = list.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        discoveredFor = addresses
+    }
+
+    private func state(of endpoint: URL, client: PaymentClient) async -> State {
+        guard let token = PaymentKeychain.token(for: endpoint) else { return .signedOut }
+        do {
+            return .signedIn(try await client.user(endpoint, token: token))
+        } catch let failure as PaymentProvider.Failure {
+            if failure.invalidate {
+                PaymentKeychain.delete(for: endpoint)
+                return .signedOut
+            }
+            return .failed(failure.message)
+        } catch {
+            return .failed("\(error)")
+        }
+    }
+
+    /// Signs in on the provider's page. Returns why it did not, if it did not.
+    func signIn(_ provider: Provider) async -> String? {
+        guard let client, let udid else {
+            return "Codling could not read this device's UDID, which the provider needs to sign you in."
+        }
+        guard let url = PaymentProvider.authenticationURL(provider.endpoint, udid: udid, model: environment.deviceModel) else {
+            return "The provider's sign-in address is not valid."
+        }
+        set(.working, for: provider.endpoint)
+        do {
+            guard let callback = try await webSignIn.start(url) else {
+                // Closed without signing in: as it was before.
+                set(await state(of: provider.endpoint, client: client), for: provider.endpoint)
+                return nil
+            }
+            guard let credentials = PaymentProvider.credentials(fromCallback: callback) else {
+                set(.signedOut, for: provider.endpoint)
+                return "The provider's page did not return a sign-in."
+            }
+            try PaymentKeychain.saveToken(credentials.token, for: provider.endpoint)
+            var note: String?
+            if let secret = credentials.paymentSecret {
+                do {
+                    try PaymentKeychain.saveSecret(secret, for: provider.endpoint)
+                } catch {
+                    note = "You are signed in, but buying needs a passcode on this device, so that Codling can protect your payment secret."
+                }
+            }
+            set(await state(of: provider.endpoint, client: client), for: provider.endpoint)
+            return note
+        } catch let failure as PaymentKeychain.Failure {
+            set(.signedOut, for: provider.endpoint)
+            return failure.message
+        } catch let failure as PaymentProvider.Failure {
+            set(.signedOut, for: provider.endpoint)
+            return failure.message
+        } catch {
+            set(.signedOut, for: provider.endpoint)
+            return "\(error)"
+        }
+    }
+
+    func signOut(_ provider: Provider) async {
+        if let token = PaymentKeychain.token(for: provider.endpoint), let client {
+            set(.working, for: provider.endpoint)
+            await client.signOut(provider.endpoint, token: token)
+        }
+        PaymentKeychain.delete(for: provider.endpoint)
+        set(.signedOut, for: provider.endpoint)
+    }
+
+    func retry(_ provider: Provider) async {
+        guard let client else { return }
+        set(.working, for: provider.endpoint)
+        set(await state(of: provider.endpoint, client: client), for: provider.endpoint)
+    }
+
+    private func set(_ state: State, for endpoint: URL) {
+        guard let index = providers.firstIndex(where: { $0.endpoint == endpoint }) else { return }
+        providers[index].state = state
+    }
+}
+
+// MARK: Screens
+
+/// A person's circle: their initials on glass, or a person when no one is
+/// signed in.
+struct AccountCircle: View {
+    let user: PaymentProvider.User?
+    var size: CGFloat = 46
+
+    var body: some View {
+        ZStack {
+            if let initials = user.flatMap({ PaymentProvider.initials(name: $0.name, email: $0.email) }) {
+                Text(initials)
+                    .font(.system(size: size * 0.38, weight: .bold, design: .rounded))
+                    .foregroundColor(Palette.text)
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.42, weight: .semibold))
+                    .foregroundColor(Palette.text)
+            }
+        }
+        .frame(width: size, height: size)
+        .glassSurface(cornerRadius: size / 2, inset: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(user.map { "Account, signed in as \($0.name ?? $0.email ?? "you")" } ?? "Accounts, not signed in")
+    }
+}
+
+/// The accounts of the user's sources: for each source that sells
+/// packages, its provider, and signing in or out of it.
+struct AccountsView: View {
+    @EnvironmentObject private var accounts: PaymentAccounts
+    @EnvironmentObject private var sources: SourcesModel
+    @State private var note: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                if accounts.providers.isEmpty {
+                    Card(padding: 14) {
+                        if accounts.discovering || !accounts.discovered {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Finding the sources that sell packages")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        } else {
+                            ToolHeader(symbol: "person.crop.circle", color: .blue, title: "No accounts") {
+                                ToolNote(text: "None of your sources sells packages, so there is no account to sign in to.")
+                            }
+                        }
+                    }
+                }
+                ForEach(accounts.providers) { provider in
+                    ProviderCard(provider: provider) { message in
+                        note = message
+                    }
+                }
+                if !accounts.providers.isEmpty {
+                    CardFooter(text: "You sign in on each provider's own page. Codling keeps the sign-in in this device's Keychain, sends it only to that provider, and asks for Face ID, Touch ID or your passcode before it uses your payment details.")
+                }
+            }
+            .toolColumn()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(WallBackground())
+        .navigationTitle("Accounts")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await accounts.discover(sources: sources, force: true) }
+        .task { await accounts.discover(sources: sources) }
+        .alert("Accounts", isPresented: Binding(get: { note != nil }, set: { if !$0 { note = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(note ?? "")
+        }
+    }
+}
+
+private struct ProviderCard: View {
+    let provider: PaymentAccounts.Provider
+    let report: (String) -> Void
+    @EnvironmentObject private var accounts: PaymentAccounts
+
+    var body: some View {
+        Card(padding: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                RemoteImage(urls: [provider.info?.icon].compactMap { $0 } + (provider.sources.first?.iconURLs ?? []),
+                            maxPixels: 150) {
+                    IconTile(symbol: "storefront", color: .blue, size: 44)
+                }
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(provider.name)
+                        .font(.headline)
+                    Text(provider.sources.map(\.title).joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                    if let description = provider.info?.description {
+                        ToolNote(text: description)
+                            .padding(.top, 2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            status
+                .padding(.top, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch provider.state {
+        case .working:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Working")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        case .signedIn(let user):
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    AccountCircle(user: user, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.name ?? user.email ?? "Signed in")
+                            .font(.subheadline.weight(.semibold))
+                        if let email = user.email, user.name != nil {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Text(user.purchases.count == 1 ? "1 package bought" : "\(user.purchases.count) packages bought")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundColor(Palette.green)
+                        .accessibilityLabel("Signed in")
+                }
+                Button("Sign Out") {
+                    Task { await accounts.signOut(provider) }
+                }
+                .buttonStyle(TintedButtonStyle(color: .red))
+            }
+        case .signedOut:
+            VStack(alignment: .leading, spacing: 10) {
+                ToolNote(text: provider.info?.bannerMessage
+                         ?? "Sign in to buy packages from \(provider.name) and to download the ones you bought.")
+                Button(provider.info?.bannerButton.map { $0.capitalized } ?? "Sign In") {
+                    Task {
+                        if let message = await accounts.signIn(provider) {
+                            report(message)
+                        }
+                    }
+                }
+                .buttonStyle(TintedButtonStyle())
+            }
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 10) {
+                StatusLine(symbol: "exclamationmark.triangle.fill", text: "The account could not be checked", color: .orange)
+                ToolNote(text: message)
+                HStack(spacing: 8) {
+                    Button("Try Again") {
+                        Task { await accounts.retry(provider) }
+                    }
+                    .buttonStyle(TintedButtonStyle())
+                    Button("Sign Out") {
+                        Task { await accounts.signOut(provider) }
+                    }
+                    .buttonStyle(TintedButtonStyle(color: .red))
+                }
+            }
+        }
+    }
+}

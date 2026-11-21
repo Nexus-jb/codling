@@ -45,6 +45,12 @@
 	<array>
 		<string>UniqueDeviceID</string>
 	</array>
+	<!-- The Keychain group where Codling keeps the sign-ins to the payment
+	     providers of the user's sources. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>com.nexusjb.codling</string>
+	</array>
 	<!-- Lets Codling start its helper as root through a spawn persona, so
 	     the helper needs no setuid bit. -->
 	<key>com.apple.private.persona-mgmt</key>
