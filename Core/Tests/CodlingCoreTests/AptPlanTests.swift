@@ -76,6 +76,22 @@ final class AptPlanTests: XCTestCase {
         XCTAssertEqual(PackageOperation.purchased("com.example.paid", version: "1.0").package, "com.example.paid")
     }
 
+    func testPurchasedFileNameStaysInTheInbox() {
+        XCTAssertEqual(PackageOperation.purchasedFileName(package: "com.example.paid", version: "1:1.2.5"),
+                       "com.example.paid_1%3a1.2.5.deb")
+        XCTAssertEqual(PackageOperation.purchasedFileName(package: "com.example.paid", version: "1.2.5"),
+                       "com.example.paid_1.2.5.deb")
+        // Names and versions from a source's index that could leave the
+        // inbox, or that the helper would refuse anyway.
+        let refused: [(String, String)] = [
+            ("../../Library/Preferences/x", "1.0"), ("a/b", "1.0"), (".hidden", "1.0"), ("com.example.paid", "1.0/../.."),
+            ("com.example.paid", "../1.0"), ("com.example.paid", ""), ("", "1.0"), ("com.example.paid", "1.0\n2"),
+        ]
+        for (package, version) in refused {
+            XCTAssertNil(PackageOperation.purchasedFileName(package: package, version: version), "\(package) \(version)")
+        }
+    }
+
     func testOperations() {
         XCTAssertEqual(PackageOperation.install("jq").helperArgument, "+jq")
         XCTAssertEqual(PackageOperation.remove("com.example.tweak").helperArgument, "-com.example.tweak")

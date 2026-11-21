@@ -14,6 +14,45 @@ final class PaymentProviderTests: XCTestCase {
         XCTAssertNil(PaymentProvider.endpoint(fromFile: "https://example.com/?a=b"))
     }
 
+    func testEndpointFileIsReadOverHTTPS() {
+        let urls = [URL(string: "http://repo.example.com/./payment_endpoint")!,
+                    URL(string: "https://repo.example.com/./payment_endpoint")!,
+                    URL(string: "http://old.example.com:80/payment_endpoint")!,
+                    URL(string: "http://odd.example.com:8080/payment_endpoint")!,
+                    URL(string: "ftp://repo.example.com/payment_endpoint")!,
+                    URL(string: "file:///etc/payment_endpoint")!]
+        XCTAssertEqual(PaymentProvider.endpointFileURLs(urls).map(\.absoluteString),
+                       ["https://repo.example.com/./payment_endpoint",
+                        "https://old.example.com/payment_endpoint",
+                        "https://odd.example.com:8080/payment_endpoint"])
+        XCTAssertEqual(PaymentProvider.endpointFileURLs([]), [])
+    }
+
+    func testRedirectsStayOnHTTPS() {
+        XCTAssertTrue(PaymentProvider.allowsRedirect(to: URL(string: "https://api.example.com/v2/info")))
+        XCTAssertTrue(PaymentProvider.allowsRedirect(to: URL(string: "https://other.example.com/info")))
+        XCTAssertFalse(PaymentProvider.allowsRedirect(to: URL(string: "http://api.example.com/info")))
+        XCTAssertFalse(PaymentProvider.allowsRedirect(to: URL(string: "sileo://authentication_success?token=x")))
+        XCTAssertFalse(PaymentProvider.allowsRedirect(to: nil))
+    }
+
+    func testPriceRequestSendsTheDeviceOnlyWhenSignedIn() {
+        let endpoint = URL(string: "https://api.example.com/v1/sileo/")!
+        let signedOut = PaymentProvider.priceRequest(endpoint, package: "com.example.tweak", token: nil,
+                                                     udid: "00008120-ABC", device: "iPhone15,3")
+        XCTAssertEqual(signedOut.method, "GET")
+        XCTAssertNil(signedOut.body)
+        XCTAssertEqual(signedOut.url.absoluteString, "https://api.example.com/v1/sileo/package/com.example.tweak/info")
+        XCTAssertFalse(signedOut.url.absoluteString.contains("00008120"))
+        XCTAssertEqual(PaymentProvider.priceRequest(endpoint, package: "com.example.tweak", token: "",
+                                                    udid: "00008120-ABC", device: "iPhone15,3").method, "GET")
+        let signedIn = PaymentProvider.priceRequest(endpoint, package: "com.example.tweak", token: "abc",
+                                                    udid: "00008120-ABC", device: "iPhone15,3")
+        XCTAssertEqual(signedIn.method, "POST")
+        XCTAssertEqual(signedIn.body, ["token": "abc", "udid": "00008120-ABC", "device": "iPhone15,3"])
+        XCTAssertEqual(signedIn.url, signedOut.url)
+    }
+
     func testPaths() {
         let endpoint = URL(string: "https://api.example.com/v1/sileo/")!
         XCTAssertEqual(PaymentProvider.url(endpoint, "info").absoluteString, "https://api.example.com/v1/sileo/info")

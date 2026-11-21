@@ -77,10 +77,16 @@ enum RootHelper {
     }
 
     /// Runs dpkg --configure -a as root. It can take a while: a package's
-    /// setup script may do real work.
+    /// setup script may do real work. It has no time limit, as stopping it
+    /// half way would leave packages half set up.
     static func configurePending() -> Result<CommandResult, Failure> {
-        run(["configure-pending"], timeoutMilliseconds: 900_000).flatMap { decode(CommandResult.self, from: $0) }
+        run(["configure-pending"], timeoutMilliseconds: noTimeLimit).flatMap { decode(CommandResult.self, from: $0) }
     }
+
+    /// For commands that change packages: the helper is not stopped while
+    /// dpkg works. Killing it would leave apt writing to a closed pipe, and
+    /// apt and dpkg could stop half way through a change.
+    private static let noTimeLimit: Int32 = 0
 
     /// Runs apt-get update as root, so that apt knows what Codling shows.
     static func updateLists() -> Result<CommandResult, Failure> {
@@ -122,7 +128,8 @@ enum RootHelper {
         if allowRemovals {
             options.append("--allow-removals")
         }
-        return run([command] + options + arguments, timeoutMilliseconds: 1_800_000)
+        // A download can be stopped safely; a change cannot.
+        return run([command] + options + arguments, timeoutMilliseconds: command == "apply" ? noTimeLimit : 1_800_000)
             .flatMap { decode(CommandResult.self, from: $0) }
     }
 
@@ -178,7 +185,9 @@ enum RootHelper {
 
     /// Has the helper take the package Codling downloaded after a purchase
     /// (PurchaseInbox), check it against the SHA256 hash apt lists for the
-    /// version, and keep it for a $package=version operation.
+    /// version, and keep it for a $package=version operation. apt installs
+    /// it from its own cache, after checking the source's signature as it
+    /// does for any package.
     static func takePurchase(_ package: String, version: String) -> Result<PurchaseCopy, Failure> {
         guard PackageOperation.purchased(package, version: version).isValid else {
             return .failure(.failed(status: 64, message: "The package name or version is not one apt accepts."))

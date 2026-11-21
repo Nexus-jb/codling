@@ -72,9 +72,10 @@
 //   codling-helper take-purchase PACKAGE VERSION
 //                          takes the .deb Codling downloaded after a
 //                          purchase from its caches (PACKAGE_VERSION.deb in
-//                          purchase_inbox below, a name the helper makes
-//                          itself), checks it against the SHA256 hash apt
-//                          lists for that version, and keeps it in
+//                          the inbox below, a name the helper makes itself,
+//                          opened without following links), checks it
+//                          against the SHA256 hash apt lists for that
+//                          version, and keeps it in
 //                          JAILBREAK/var/lib/codling/purchases, which only
 //                          root can write. The download is deleted either
 //                          way.
@@ -100,7 +101,8 @@
 // operation, @package=version, installs that version from its backup, and a
 // fourth, $package=version, installs a purchased package that take-purchase
 // checked; the version is checked too, and the helper finds the file itself.
-// Nothing else from the caller reaches apt.
+// A purchase reaches apt as package=version, never as a file: see
+// stage_purchases. Nothing else from the caller reaches apt.
 
 #include "repack.h"
 #include "sha256.h"
@@ -360,8 +362,17 @@ static int split_versioned(const char *text, char package[name_limit + 1], const
 static const char purchases_suffix[] = "/var/lib/codling/purchases";
 
 // Where Codling, which runs as mobile, leaves a package it downloaded after
-// a purchase. The helper takes it from here into purchases_suffix.
-static const char purchase_inbox[] = "/var/mobile/Library/Caches/com.nexusjb.codling/purchases";
+// a purchase: Library/Caches/com.nexusjb.codling/purchases in mobile's home.
+// The helper takes it from here into purchases_suffix. Any program running
+// as mobile can change these directories, so each is opened without
+// following a link (open_inbox).
+static const char mobile_home[] = "/private/var/mobile";
+static const char *const inbox_directories[] = { "Library", "Caches", "com.nexusjb.codling", "purchases" };
+
+// Where apt keeps the archives it downloads, and an empty one for asking apt
+// what it would download (stage_purchases).
+static const char archives_suffix[] = "/var/cache/apt/archives";
+static const char uris_suffix[] = "/var/lib/codling/uris";
 
 enum { mobile_uid = 501, sha256_hex_size = 65, hashes_limit = 16 };
 
@@ -453,11 +464,189 @@ static int backup_path(const char *root, const char *name, const char *version, 
     return found;
 }
 
+// The inbox directory under home, every directory on the way opened without
+// following a link. Returns its descriptor, or -1.
+static int open_inbox(const char *home) {
+    int directory = open(home, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    for (size_t i = 0; directory >= 0 && i < sizeof inbox_directories / sizeof *inbox_directories; i++) {
+        int next = openat(directory, inbox_directories[i], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        close(directory);
+        directory = next;
+    }
+    return directory;
+}
+
+// The file name apt gives its download of name at version, from what
+// apt-get install --print-uris printed: one line per file, 'URI' FILE SIZE
+// HASH, where FILE is NAME_VERSION_ARCHITECTURE.EXTENSION with ":" in the
+// version written %3a. 0 when a line names that package and version with a
+// plain file name.
+static int archive_name_from_uris(const char *text, size_t length, const char *name, const char *version, char *file,
+                                  size_t size) {
+    char escaped[512];
+    codling_escape_version(version, escaped, sizeof escaped);
+    char prefix[name_limit + 520];
+    int prefix_length = snprintf(prefix, sizeof prefix, "%s_%s_", name, escaped);
+    if (prefix_length <= 0 || (size_t)prefix_length >= sizeof prefix) {
+        return -1;
+    }
+    const char *end = text + length;
+    for (const char *line = text; line < end;) {
+        const char *next = memchr(line, '\n', (size_t)(end - line));
+        const char *line_end = next ? next : end;
+        const char *current = line;
+        line = next ? next + 1 : end;
+        // The URI is quoted; the file name follows it after a space.
+        if (current >= line_end || *current != '\'') {
+            continue;
+        }
+        const char *close = memchr(current + 1, '\'', (size_t)(line_end - current - 1));
+        if (!close || close + 1 >= line_end || close[1] != ' ') {
+            continue;
+        }
+        const char *token = close + 2;
+        const char *token_end = memchr(token, ' ', (size_t)(line_end - token));
+        if (!token_end) {
+            token_end = line_end;
+        }
+        size_t token_length = (size_t)(token_end - token);
+        if (token_length <= (size_t)prefix_length || token_length >= size || token_length > NAME_MAX
+            || strncmp(token, prefix, (size_t)prefix_length) != 0) {
+            continue;
+        }
+        int plain = token[0] != '.';
+        for (size_t i = 0; plain && i < token_length; i++) {
+            plain = isalnum((unsigned char)token[i]) || strchr("._+~%-", token[i]) != NULL;
+        }
+        if (plain) {
+            memcpy(file, token, token_length);
+            file[token_length] = '\0';
+            return 0;
+        }
+    }
+    return -1;
+}
+
+// Copies the file at source into directory as file, through file.part, so
+// that apt never sees half a file. 0 when it is there.
+static int place_archive(const char *source, const char *directory, const char *file) {
+    char target[PATH_MAX];
+    char partial[PATH_MAX];
+    if (snprintf(target, sizeof target, "%s/%s", directory, file) >= (int)sizeof target
+        || snprintf(partial, sizeof partial, "%s.part", target) >= (int)sizeof partial) {
+        return -1;
+    }
+    int in = open(source, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (in < 0) {
+        return -1;
+    }
+    unlink(partial);
+    int out = open(partial, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+    if (out < 0) {
+        close(in);
+        return -1;
+    }
+    static char chunk[1 << 16];
+    int copied = 1;
+    for (;;) {
+        ssize_t got = read(in, chunk, sizeof chunk);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        if (got <= 0) {
+            copied = got == 0;
+            break;
+        }
+        for (ssize_t done = 0; copied && done < got;) {
+            ssize_t wrote = write(out, chunk + done, (size_t)(got - done));
+            if (wrote < 0 && errno == EINTR) {
+                continue;
+            }
+            if (wrote <= 0) {
+                copied = 0;
+            } else {
+                done += wrote;
+            }
+        }
+        if (!copied) {
+            break;
+        }
+    }
+    close(in);
+    if (close(out) != 0 || !copied || rename(partial, target) != 0) {
+        unlink(partial);
+        return -1;
+    }
+    return 0;
+}
+
+// apt checks a package's signature only when it takes the package from a
+// source: a .deb named on its command line is installed without that check.
+// So a purchase is never handed to apt as a file. Its checked copy goes into
+// apt's archive cache under the name apt gives that download, and apt
+// installs package=version from there after the same check as any other
+// package: it refuses one from a source that is not signed unless the user
+// trusts it (--trust-unsigned). apt names its downloads with print-uris,
+// asked with an empty cache so that it lists every file. When apt cannot
+// work out the change, nothing is staged, and the change itself reports why.
+static void stage_purchases(const char *root, int count, char **operations) {
+    const char *arguments[operation_limit + 16];
+    static char requests[operation_limit][name_limit + 140];
+    static char copies[operation_limit][backup_path_size];
+    static char packages[operation_limit][name_limit + 1];
+    static const char *versions[operation_limit];
+    size_t used = 0;
+    int purchases = 0;
+    char uris[PATH_MAX];
+    char partial[PATH_MAX];
+    char option[PATH_MAX + 32];
+    snprintf(uris, sizeof uris, "%s%s", root, uris_suffix);
+    snprintf(partial, sizeof partial, "%s/partial", uris);
+    snprintf(option, sizeof option, "Dir::Cache::Archives=%s/", uris);
+    arguments[used++] = "apt-get";
+    arguments[used++] = "install";
+    arguments[used++] = "-qq";
+    arguments[used++] = "-y";
+    arguments[used++] = "--print-uris";
+    arguments[used++] = "-o";
+    arguments[used++] = option;
+    for (int i = 0; i < count && i < operation_limit; i++) {
+        if (operations[i][0] != '$' || split_versioned(operations[i] + 1, packages[purchases], &versions[purchases]) != 0
+            || purchase_path(root, packages[purchases], versions[purchases], copies[purchases]) != 0) {
+            continue;
+        }
+        snprintf(requests[purchases], sizeof requests[purchases], "%s=%s", packages[purchases], versions[purchases]);
+        arguments[used++] = requests[purchases];
+        purchases++;
+    }
+    if (purchases == 0) {
+        return;
+    }
+    arguments[used] = NULL;
+    codling_remove_tree(uris);
+    if (mkdir(uris, 0755) != 0 || mkdir(partial, 0755) != 0) {
+        return;
+    }
+    char *output = NULL;
+    size_t length = 0;
+    int status = run_collect(root, "/usr/bin/apt-get", arguments, &output, &length);
+    char archives[PATH_MAX];
+    snprintf(archives, sizeof archives, "%s%s", root, archives_suffix);
+    for (int i = 0; status == 0 && output && i < purchases; i++) {
+        char file[NAME_MAX + 1];
+        if (archive_name_from_uris(output, length, packages[i], versions[i], file, sizeof file) == 0) {
+            place_archive(copies[i], archives, file);
+        }
+    }
+    free(output);
+    codling_remove_tree(uris);
+}
+
 // Turns operations into apt-get install arguments: +name installs name,
 // -name removes it (name-), @name=version installs the backup's file, and
-// $name=version the checked download of a purchased package. The
-// strings stay owned by argv or the buffer. Sets *restores when any
-// operation restores a backup.
+// $name=version installs that version of a purchased package, which
+// stage_purchases put in apt's archive cache. The strings stay owned by argv
+// or the buffer. Sets *restores when any operation restores a backup.
 static size_t add_operations(const char *root, int count, char **operations, const char **arguments, size_t used,
                              char buffer[][backup_path_size], int *restores) {
     if (count < 1) {
@@ -492,6 +681,7 @@ static size_t add_operations(const char *root, int count, char **operations, con
             if (purchase_path(root, package, version, buffer[i]) != 0) {
                 usage_error("Codling has no checked download of that version of the purchased package.");
             }
+            snprintf(buffer[i], backup_path_size, "%s=%s", package, version);
             arguments[used++] = buffer[i];
             continue;
         }
@@ -588,6 +778,7 @@ static int install(int count, char **words, int download_only) {
         arguments[downgrades] = "--allow-downgrades";
     }
     arguments[used] = NULL;
+    stage_purchases(root, count - first, words + first);
     run_and_report(root, "/usr/bin/apt-get", arguments);
     putchar('\n');
     return 0;
@@ -705,9 +896,7 @@ static int take_purchase(const char *package, const char *version) {
         usage_error("The package or version is not valid.");
     }
     char file[NAME_MAX + 1];
-    char inbox[PATH_MAX];
-    if (purchase_file_name(package, version, file, sizeof file) != 0
-        || snprintf(inbox, sizeof inbox, "%s/%s", purchase_inbox, file) >= (int)sizeof inbox) {
+    if (purchase_file_name(package, version, file, sizeof file) != 0) {
         usage_error("The package's name and version are too long.");
     }
 
@@ -726,8 +915,12 @@ static int take_purchase(const char *package, const char *version) {
 
     // The download is used once, whatever happens next: it is unlinked as
     // soon as it is open, and read through the open file.
-    int in = open(inbox, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-    unlink(inbox);
+    int inbox = open_inbox(mobile_home);
+    int in = inbox >= 0 ? openat(inbox, file, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) : -1;
+    if (inbox >= 0) {
+        unlinkat(inbox, file, 0);
+        close(inbox);
+    }
     if (listed == 0) {
         failure("apt lists no SHA256 hash for this version of the package, so Codling cannot check the "
                 "download. Refresh your sources and try again.");

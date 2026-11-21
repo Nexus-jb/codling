@@ -24,6 +24,57 @@ public enum PaymentProvider {
         return components.url
     }
 
+    /// Where to read a source's `payment_endpoint` file from: over HTTPS
+    /// only, so that no one on the network can name another provider for
+    /// the source. A source served over HTTP is asked at the same address
+    /// over HTTPS.
+    public static func endpointFileURLs(_ urls: [URL]) -> [URL] {
+        var secure: [URL] = []
+        for url in urls {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+                  let scheme = components.scheme?.lowercased(), scheme == "https" || scheme == "http",
+                  components.host?.isEmpty == false else { continue }
+            if scheme == "http" {
+                components.scheme = "https"
+                if components.port == 80 {
+                    components.port = nil
+                }
+            }
+            if let upgraded = components.url, !secure.contains(upgraded) {
+                secure.append(upgraded)
+            }
+        }
+        return secure
+    }
+
+    /// Whether a request to a provider may follow a redirect: only to
+    /// HTTPS, since the requests carry the user's token.
+    public static func allowsRedirect(to url: URL?) -> Bool {
+        url?.scheme?.lowercased() == "https" && url?.host?.isEmpty == false
+    }
+
+    /// How to ask for a package's price.
+    public struct PriceRequest: Equatable {
+        public var url: URL
+        /// GET or POST.
+        public var method: String
+        /// The JSON fields of a POST; nil for a GET.
+        public var body: [String: String]?
+    }
+
+    /// Signed out, a GET that says nothing about the device, as Zebra asks,
+    /// so that a provider the user never signed in to does not learn the
+    /// UDID. Signed in, a POST with the token and the device, which the
+    /// provider needs to say whether the user bought the package.
+    public static func priceRequest(_ endpoint: URL, package: String, token: String?, udid: String,
+                                    device: String) -> PriceRequest {
+        let address = Self.url(endpoint, packagePath(package, "info"))
+        guard let token, !token.isEmpty else {
+            return PriceRequest(url: address, method: "GET", body: nil)
+        }
+        return PriceRequest(url: address, method: "POST", body: ["token": token, "udid": udid, "device": device])
+    }
+
     /// The address of a path under the provider, such as "info" or
     /// "package/com.example.tweak/info". The package identifier is escaped.
     public static func url(_ endpoint: URL, _ path: String) -> URL {
