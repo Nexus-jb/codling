@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Beta test report
+description: Your results from the checks in docs/beta-testing.md.
+title: "Beta report: "
+labels: ["beta"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing. The checks are in [docs/beta-testing.md](https://github.com/Nexus-jb/codling/blob/main/docs/beta-testing.md).
+        Never post your UDID, passwords, sign-in codes or payment details. Report a security problem privately, as [SECURITY.md](https://github.com/Nexus-jb/codling/blob/main/SECURITY.md) explains.
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: The model, from Device Info.
+      placeholder: iPhone XS Max (iPhone11,6)
+    validations:
+      required: true
+  - type: input
+    id: ios
+    attributes:
+      label: iOS version
+      placeholder: "18.1.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: jailbreak
+    attributes:
+      label: Jailbreak
+      options:
+        - Dopamine, rootless
+        - Dopamine, RootHide
+        - Other (say which below)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Codling version
+      description: From Device Info.
+      placeholder: 0.1.0~dev.133
+    validations:
+      required: true
+  - type: checkboxes
+    id: passed
+    attributes:
+      label: Checks that passed
+      description: Tick each check that worked as described. Leave out the ones you could not do.
+      options:
+        - label: 1. Launch
+        - label: 2. Device
+        - label: 3. Refresh
+        - label: 4. Add a source
+        - label: 5. Security Check
+        - label: 6. Search
+        - label: 7. Package page
+        - label: 8. Install
+        - label: 9. Remove
+        - label: 10. Undo
+        - label: 11. Respring
+        - label: 12. Updates
+        - label: 13. Paid packages
+        - label: 14. Relaunch
+  - type: textarea
+    id: problems
+    attributes:
+      label: What went wrong
+      description: For each check that did not pass, what you did and what you saw. Attach screenshots and any crash report that starts with Codling.
+    validations:
+      required: false

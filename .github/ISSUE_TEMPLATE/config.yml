@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/Nexus-jb/codling/security/advisories/new
+    about: Report it privately, not in a public issue. SECURITY.md explains how.
