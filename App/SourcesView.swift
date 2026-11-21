@@ -82,6 +82,8 @@ struct SourcesView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .hiddenListBackground()
+                    .background(WallBackground())
                     .refreshable { await model.refresh(force: false) }
                     .environment(\.editMode, $editMode)
                 }

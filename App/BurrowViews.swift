@@ -213,7 +213,7 @@ struct BurrowView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .navigationTitle("Burrow")
         .refreshable { await model.load() }
         .task { await model.load() }
@@ -450,7 +450,7 @@ struct PackageTweaksView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .navigationTitle(group?.title ?? "Tweak")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.load() }
@@ -546,7 +546,7 @@ struct PackageTweaksView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .background(Color(.tertiarySystemGroupedBackground))
+            .background(Palette.inset)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .padding(.top, 12)
 
@@ -638,7 +638,7 @@ private struct AppChooserView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(WallBackground())
             .searchable(text: $query)
             .navigationTitle("Turn Off In")
             .navigationBarTitleDisplayMode(.inline)

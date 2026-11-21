@@ -47,7 +47,7 @@ struct Card<Content: View>: View {
         }
         .padding(padding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground))
+        .background(Palette.card)
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 }
@@ -459,7 +459,7 @@ struct CardCellBackground: View {
 
     var body: some View {
         CornerRoundedRectangle(radius: 22, corners: corners)
-            .fill(Color(.secondarySystemGroupedBackground))
+            .fill(Palette.card)
     }
 
     private var corners: UIRectCorner {
@@ -528,11 +528,24 @@ struct LaunchView: View {
                 .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .task {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             withAnimation { canSkip = true }
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+extension View {
+    /// Lets the warm wall show behind a List. Before iOS 16 a List draws a
+    /// table view, whose background the app clears at launch.
+    @ViewBuilder
+    func hiddenListBackground() -> some View {
+        if #available(iOS 16, *) {
+            scrollContentBackground(.hidden)
+        } else {
+            self
+        }
     }
 }

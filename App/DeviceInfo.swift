@@ -150,7 +150,7 @@ private struct DeviceInfoCard: View {
                 Divider().padding(.leading, 16)
                 udidLine
             }
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Palette.card)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             if details.udid != nil {
                 Text("Tap the UDID to show it, and hold it to copy it. It stays on this device.")
@@ -166,7 +166,7 @@ private struct DeviceInfoCard: View {
         .frame(maxWidth: 500)
         .background(
             CornerRoundedRectangle(radius: 32, corners: [.topLeft, .topRight])
-                .fill(Color(.systemGroupedBackground))
+                .fill(Palette.wallTop)
                 .ignoresSafeArea(edges: .bottom)
                 .shadow(color: .black.opacity(0.15), radius: 20, y: -4)
         )

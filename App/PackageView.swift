@@ -41,12 +41,8 @@ struct PackageView: View {
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
         }
-        .foregroundColor(PackagePalette.text)
-        .background(
-            LinearGradient(colors: [PackagePalette.wallTop, PackagePalette.wallBottom],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-        )
+        .foregroundColor(Palette.text)
+        .background(WallBackground())
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -94,18 +90,18 @@ struct PackageView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     if let author = author {
                         Text(author)
-                            .foregroundColor(PackagePalette.muted)
+                            .foregroundColor(Palette.muted)
                     }
                     HStack(spacing: 8) {
                         Text(record?.version ?? summary?.version ?? "")
-                            .foregroundColor(PackagePalette.muted)
+                            .foregroundColor(Palette.muted)
                         if isPaid {
                             Text("Paid")
                                 .font(.caption.weight(.semibold))
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background(PackagePalette.paid, in: Capsule())
+                                .background(Palette.paid, in: Capsule())
                         }
                     }
                     .font(.subheadline)
@@ -115,7 +111,7 @@ struct PackageView: View {
             if let installedVersion = installed.version(of: identifier) {
                 Label(installedText(installedVersion), systemImage: "checkmark.circle.fill")
                     .font(.subheadline)
-                    .foregroundColor(PackagePalette.green)
+                    .foregroundColor(Palette.green)
             }
             if let record {
                 CompatibilityCard(report: Compatibility.check(depends: record.depends, tag: record.tag, name: record.name,
@@ -128,7 +124,7 @@ struct PackageView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private var author: String? {
@@ -175,7 +171,7 @@ struct PackageView: View {
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(24)
-                .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(Palette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         default:
             // A depiction that cannot be loaded, such as one its server no
             // longer has, leaves the package's own description in the tabs.
@@ -209,7 +205,7 @@ struct PackageView: View {
             } else if let summaryText, !summaryText.isEmpty {
                 Text(summaryText)
                     .font(.subheadline)
-                    .foregroundColor(PackagePalette.muted)
+                    .foregroundColor(Palette.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
@@ -217,7 +213,7 @@ struct PackageView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(PackagePalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
@@ -255,7 +251,7 @@ struct PackageView: View {
                 if let details = record?.details, !details.isEmpty {
                     Text(details)
                         .font(.subheadline)
-                        .foregroundColor(PackagePalette.muted)
+                        .foregroundColor(Palette.muted)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -292,21 +288,21 @@ struct PackageView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Label("Package Details", systemImage: "info.circle")
                     .font(.headline)
-                    .foregroundColor(PackagePalette.heading)
+                    .foregroundColor(Palette.heading)
                     .padding(.leading, 4)
                     .accessibilityAddTraits(.isHeader)
                 VStack(spacing: 0) {
                     detailRows
                 }
                 .padding(.vertical, 4)
-                .background(PackagePalette.metadataCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                .background(Palette.metadataCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
             }
             if model.versions.count > 1 {
                 let others = model.versions.dropFirst().map(\.version)
                 VStack(alignment: .leading, spacing: 8) {
                     Label("Other Versions", systemImage: "clock.arrow.circlepath")
                         .font(.headline)
-                        .foregroundColor(PackagePalette.heading)
+                        .foregroundColor(Palette.heading)
                         .padding(.leading, 4)
                         .accessibilityAddTraits(.isHeader)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 52), spacing: 6)], spacing: 6) {
@@ -317,11 +313,11 @@ struct PackageView: View {
                                 .minimumScaleFactor(0.85)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 7)
-                                .background(PackagePalette.versionChip, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .background(Palette.versionChip, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                     }
                     .padding(12)
-                    .background(PackagePalette.versionsCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+                    .background(Palette.versionsCard, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Other versions: \(others.joined(separator: ", "))")
                 }
@@ -354,7 +350,7 @@ struct PackageView: View {
         } else {
             Text("This source no longer lists this package. Refresh your sources to update the list.")
                 .font(.subheadline)
-                .foregroundColor(PackagePalette.muted)
+                .foregroundColor(Palette.muted)
                 .padding(13)
         }
     }
@@ -452,7 +448,7 @@ private struct InfoRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(name)
                 .font(.subheadline.weight(.semibold))
-                .foregroundColor(PackagePalette.muted)
+                .foregroundColor(Palette.muted)
             Spacer(minLength: 8)
             Text(value)
                 .font(monospaced ? .subheadline.monospaced() : .subheadline)
@@ -465,7 +461,7 @@ private struct InfoRow: View {
         .overlay(alignment: .top) {
             if !first {
                 Rectangle()
-                    .fill(PackagePalette.metadataDivider)
+                    .fill(Palette.metadataDivider)
                     .frame(height: 1)
                     .padding(.horizontal, 13)
             }
@@ -509,7 +505,7 @@ struct PackageLookupView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                 }
-                .background(Color(.systemGroupedBackground).ignoresSafeArea())
+                .background(WallBackground())
                 .navigationTitle(identifier)
             }
         }

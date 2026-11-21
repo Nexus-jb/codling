@@ -41,7 +41,7 @@ struct SystemCheckView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(WallBackground())
             .navigationTitle("System")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -155,7 +155,7 @@ struct DeviceCard: View {
             .padding(.horizontal, 12)
             .frame(width: width - 2 * bezel)
             .frame(minHeight: (width - 2 * bezel) * (tablet ? 1.3 : 1.95) - 2 * band, alignment: .top)
-            .background(Color(.systemGroupedBackground))
+            .background(Palette.wallTop)
             .overlay(alignment: .top) { frontFeature }
             .clipShape(RoundedRectangle(cornerRadius: inner, style: .continuous))
             .padding(.horizontal, bezel)
@@ -263,7 +263,7 @@ struct DeviceCard: View {
                 content()
             }
             .padding(.horizontal, 10)
-            .background(Color(.secondarySystemGroupedBackground))
+            .background(Palette.card)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }

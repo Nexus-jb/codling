@@ -53,7 +53,7 @@ struct InstalledView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(WallBackground())
             .searchable(text: $query, prompt: "Name, identifier or author")
             .refreshable { await model.load(statusPath: environment.dpkgStatusPath) }
         }
@@ -199,7 +199,7 @@ private struct PackageDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .navigationTitle(package.name)
         .navigationBarTitleDisplayMode(.inline)
     }

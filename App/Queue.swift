@@ -319,7 +319,7 @@ struct QueueView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(WallBackground())
         case .applying(let message):
             progress(message)
         case .finished(let succeeded, let plan, let diagnoses, let output, let notes):
@@ -339,7 +339,7 @@ struct QueueView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
     }
 
     /// What is queued, a button to take each off, and the review.
@@ -393,7 +393,7 @@ struct QueueView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .background(Color(.tertiarySystemGroupedBackground))
+                .background(Palette.inset)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .padding(.top, 12)
 
@@ -468,7 +468,7 @@ struct QueueView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .confirmationDialog("Restart SpringBoard?", isPresented: $confirmingRestart, titleVisibility: .visible) {
             Button("Restart SpringBoard") {
                 Task { await queue.restartSpringBoard() }
@@ -607,7 +607,7 @@ private struct ReviewView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
     }
 }
 

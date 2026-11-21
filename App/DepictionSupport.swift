@@ -174,15 +174,15 @@ struct CompatibilityCard: View {
         VStack(spacing: 0) {
             line(symbol: iosSymbol, color: iosColor, title: "iOS versions", value: iosValue, detail: iosDetail)
             Rectangle()
-                .fill(PackagePalette.separator)
+                .fill(Palette.separator)
                 .frame(height: 1)
             line(symbol: jailbreakFits ? "checkmark.seal.fill" : "xmark.octagon.fill",
-                 color: jailbreakFits ? PackagePalette.green : .red, title: "Jailbreak",
+                 color: jailbreakFits ? Palette.green : .red, title: "Jailbreak",
                  value: kind == .any ? "Any" : kind.title.capitalizedFirst, detail: jailbreakDetail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(PackagePalette.inset))
+        .background(RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Palette.inset))
     }
 
     private func line(symbol: String, color: Color, title: String, value: String, detail: String?) -> some View {
@@ -198,12 +198,12 @@ struct CompatibilityCard: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(value)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundColor(color == .secondary ? PackagePalette.muted : color)
+                    .foregroundColor(color == .secondary ? Palette.muted : color)
                     .multilineTextAlignment(.trailing)
                 if let detail {
                     Text(detail)
                         .font(.caption)
-                        .foregroundColor(PackagePalette.muted)
+                        .foregroundColor(Palette.muted)
                         .multilineTextAlignment(.trailing)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -235,7 +235,7 @@ struct CompatibilityCard: View {
 
     private var iosColor: Color {
         switch report.verdict {
-        case .supported: return PackagePalette.green
+        case .supported: return Palette.green
         case .unsupported: return .red
         case .unknown: return .secondary
         }

@@ -29,6 +29,9 @@ struct CodlingApp: App {
         if #unavailable(iOS 26) {
             UITabBar.appearance().isHidden = true
         }
+        if #unavailable(iOS 16) {
+            UITableView.appearance().backgroundColor = .clear
+        }
     }
 
     /// Featured, Sources, Queue and Installed, with Search apart as a round

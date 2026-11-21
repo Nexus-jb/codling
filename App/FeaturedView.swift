@@ -160,7 +160,7 @@ struct FeaturedView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(WallBackground())
             .navigationTitle("Featured")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -450,7 +450,7 @@ struct CategoryPackagesView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .searchable(text: $query, prompt: "Filter by name, author or identifier")
         .navigationTitle(category.name)
         .navigationBarTitleDisplayMode(.inline)

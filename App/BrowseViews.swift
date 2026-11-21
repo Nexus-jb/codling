@@ -83,7 +83,7 @@ struct SourceDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .navigationTitle(row.title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: sources.indexGeneration) {
@@ -311,7 +311,7 @@ struct PackageListView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(WallBackground())
         .searchable(text: $query, prompt: "Filter by name, author or identifier")
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -444,7 +444,7 @@ struct SearchView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
-            .background(Color(.systemGroupedBackground).ignoresSafeArea())
+            .background(WallBackground())
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Name, author or identifier")
             .disableAutocorrection(true)

@@ -2,10 +2,10 @@
 
 import SwiftUI
 
-/// The warm colors of a package's page, from the Codling design handoff. In
+/// Codling's warm colors, from the design handoff, for every screen. In
 /// Dark Mode each falls back to the system color in its place, until the
 /// design has dark colors of its own.
-enum PackagePalette {
+enum Palette {
     static let wallTop = color(0xE8D0BE, dark: .systemGroupedBackground)
     static let wallBottom = color(0xEAD2C1, dark: .systemGroupedBackground)
     static let card = color(0xFAEFE8, dark: .secondarySystemGroupedBackground)
@@ -35,6 +35,14 @@ enum PackagePalette {
     }
 }
 
+/// The warm wall behind every screen.
+struct WallBackground: View {
+    var body: some View {
+        LinearGradient(colors: [Palette.wallTop, Palette.wallBottom], startPoint: .topLeading, endPoint: .bottomTrailing)
+            .ignoresSafeArea()
+    }
+}
+
 /// A banner in a frame: the image filling an ivory mat, inside a thin metal
 /// edge with a highlight, and a soft shadow, as the design handoff draws it.
 struct FramedPackageBanner: View {
@@ -46,30 +54,30 @@ struct FramedPackageBanner: View {
         let frameShape = RoundedRectangle(cornerRadius: 16, style: .continuous)
 
         imageShape
-            .fill(PackagePalette.mat)
+            .fill(Palette.mat)
             .aspectRatio(2.7, contentMode: .fit)
             .overlay {
                 GeometryReader { geometry in
                     RemoteImage(urls: [url], maxPixels: 1600, contentMode: contentMode) {
-                        PackagePalette.mat
+                        Palette.mat
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
                 }
             }
             .clipShape(imageShape)
             .padding(6)
-            .background(PackagePalette.mat, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Palette.mat, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(2)
             .background(
-                LinearGradient(colors: [PackagePalette.frameHighlight, PackagePalette.frameMetal,
-                                        PackagePalette.frameShade, PackagePalette.frameHighlight],
+                LinearGradient(colors: [Palette.frameHighlight, Palette.frameMetal,
+                                        Palette.frameShade, Palette.frameHighlight],
                                startPoint: .topLeading, endPoint: .bottomTrailing),
                 in: frameShape
             )
             .overlay {
                 frameShape.strokeBorder(Color.white.opacity(0.42), lineWidth: 1)
             }
-            .shadow(color: PackagePalette.frameShade.opacity(0.30), radius: 7, y: 5)
+            .shadow(color: Palette.frameShade.opacity(0.30), radius: 7, y: 5)
             .accessibilityHidden(true)
     }
 }
