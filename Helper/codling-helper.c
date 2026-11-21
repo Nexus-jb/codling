@@ -44,6 +44,20 @@
 //                          into JAILBREAK/var/lib/codling/backups, which only
 //                          root can write, so that undo can put it back. The
 //                          newest backups are kept; older ones are deleted.
+//   codling-helper add-source URI
+//                          adds a flat repository to JAILBREAK/etc/apt/
+//                          sources.list.d/codling.sources, the only sources
+//                          file Codling writes. URI is http:// or https://, a
+//                          host in lower case and a path ending in "/", with
+//                          nothing in it that apt or a shell could read
+//                          another way.
+//   codling-helper remove-source URI
+//                          takes the repository at URI out of every sources
+//                          file apt reads: a deb822 stanza, or the address in
+//                          a stanza with several, and a one-line "deb" entry.
+//                          Comments and the other sources stay. An emptied
+//                          codling.sources is deleted; other files stay, as
+//                          their package manager may own them.
 //   codling-helper burrow-state
 //                          runs Burrow's burrowctl json, which prints the
 //                          tweak loader in use, the loader settings, every
@@ -74,13 +88,21 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdint.h>
+#ifdef __APPLE__
 #include <mach-o/dyld.h>
+#else
+// Linux, where scripts/test-sources.sh tests parts of the helper; its driver
+// provides this.
+int _NSGetExecutablePath(char *buffer, uint32_t *size);
+#endif
 #include <spawn.h>
 #include <sys/wait.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -602,6 +624,426 @@ static int valid_burrow_name(const char *name) {
     return 1;
 }
 
+// A repository URI as SourceList.repositoryURI writes it: http or https, a
+// lower-case host with a dot, and a path ending in "/" without "." or ".."
+// segments, from a short list of characters.
+static int valid_repository_uri(const char *uri) {
+    size_t length = strlen(uri);
+    if (length == 0 || length > 512) {
+        return 0;
+    }
+    const char *host;
+    if (strncmp(uri, "https://", 8) == 0) {
+        host = uri + 8;
+    } else if (strncmp(uri, "http://", 7) == 0) {
+        host = uri + 7;
+    } else {
+        return 0;
+    }
+    const char *path = strchr(host, '/');
+    if (!path || path == host || host[0] == '.' || host[0] == '-' || path[-1] == '.') {
+        return 0;
+    }
+    int dot = 0;
+    for (const char *c = host; c < path; c++) {
+        if (*c == '.') {
+            dot = 1;
+        } else if (!((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '-')) {
+            return 0;
+        }
+    }
+    if (!dot || uri[length - 1] != '/') {
+        return 0;
+    }
+    for (const char *c = path; *c; c++) {
+        if (!isalnum((unsigned char)*c) && !strchr("._~/%+-", *c)) {
+            return 0;
+        }
+    }
+    // No "." or ".." segment.
+    for (const char *segment = path; segment && *segment; segment = strchr(segment + 1, '/')) {
+        const char *start = segment + 1;
+        size_t size = strcspn(start, "/");
+        if ((size == 1 && start[0] == '.') || (size == 2 && start[0] == '.' && start[1] == '.')) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char codling_sources[] = "/etc/apt/sources.list.d/codling.sources";
+
+// Reads codling.sources, at most output_limit bytes; an empty buffer when it
+// does not exist. Returns NULL on another error.
+static char *read_codling_sources(const char *path, size_t *length) {
+    *length = 0;
+    char *text = calloc(1, output_limit + 1);
+    if (!text) {
+        return NULL;
+    }
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        if (errno == ENOENT) {
+            return text;
+        }
+        free(text);
+        return NULL;
+    }
+    for (;;) {
+        ssize_t got = read(fd, text + *length, output_limit - *length);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        if (got <= 0) {
+            break;
+        }
+        *length += (size_t)got;
+        if (*length == output_limit) {
+            break;
+        }
+    }
+    close(fd);
+    return text;
+}
+
+// Writes text to path through a temporary file beside it, so that apt never
+// reads half a file. An empty text removes the file.
+static int write_codling_sources(const char *path, const char *text, size_t length) {
+    if (length == 0) {
+        return unlink(path) == 0 || errno == ENOENT ? 0 : -1;
+    }
+    char temporary[PATH_MAX];
+    if (snprintf(temporary, sizeof temporary, "%s.part", path) >= (int)sizeof temporary) {
+        return -1;
+    }
+    int fd = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+    if (fd < 0) {
+        return -1;
+    }
+    size_t written = 0;
+    while (written < length) {
+        ssize_t put = write(fd, text + written, length - written);
+        if (put < 0 && errno == EINTR) {
+            continue;
+        }
+        if (put <= 0) {
+            close(fd);
+            unlink(temporary);
+            return -1;
+        }
+        written += (size_t)put;
+    }
+    if (fchmod(fd, 0644) != 0 || fsync(fd) != 0 || close(fd) != 0 || rename(temporary, path) != 0) {
+        unlink(temporary);
+        return -1;
+    }
+    return 0;
+}
+
+// Whether a stanza (text up to a blank line) has the line "URIs: uri".
+static int stanza_has_uri(const char *stanza, size_t size, const char *uri) {
+    size_t uri_length = strlen(uri);
+    const char *end = stanza + size;
+    for (const char *line = stanza; line < end;) {
+        const char *next = memchr(line, '\n', (size_t)(end - line));
+        size_t line_length = (size_t)((next ? next : end) - line);
+        if (line_length == 6 + uri_length && strncmp(line, "URIs: ", 6) == 0 && strncmp(line + 6, uri, uri_length) == 0) {
+            return 1;
+        }
+        line = next ? next + 1 : end;
+    }
+    return 0;
+}
+
+// Copies the stanzas of text into out, leaving out those with uri; returns
+// how many were left out. Blank lines between stanzas become one.
+static int filter_stanzas(const char *text, size_t length, const char *uri, char *out, size_t *out_length) {
+    int dropped = 0;
+    *out_length = 0;
+    const char *end = text + length;
+    const char *position = text;
+    while (position < end) {
+        // Skip blank lines.
+        while (position < end && *position == '\n') {
+            position++;
+        }
+        if (position >= end) {
+            break;
+        }
+        const char *stanza_end = position;
+        while (stanza_end < end && !(stanza_end[0] == '\n' && (stanza_end + 1 == end || stanza_end[1] == '\n'))) {
+            stanza_end++;
+        }
+        size_t size = (size_t)(stanza_end - position);
+        if (stanza_has_uri(position, size, uri)) {
+            dropped++;
+        } else {
+            memcpy(out + *out_length, position, size);
+            *out_length += size;
+            memcpy(out + *out_length, "\n\n", 2);
+            *out_length += 2;
+        }
+        position = stanza_end;
+    }
+    return dropped;
+}
+
+// An address as it may stand in any sources file, for removal only: it is
+// compared, never passed on. http or https, printable, without spaces,
+// quotes or backslashes.
+static int valid_existing_uri(const char *uri) {
+    size_t length = strlen(uri);
+    if (length == 0 || length > 512 || (strncmp(uri, "https://", 8) != 0 && strncmp(uri, "http://", 7) != 0)) {
+        return 0;
+    }
+    for (const char *c = uri; *c; c++) {
+        if (*c <= ' ' || *c > '~' || *c == '"' || *c == '\'' || *c == '\\') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// Whether an address in a file names uri, with or without a trailing "/".
+static int same_uri(const char *token, size_t size, const char *uri) {
+    size_t uri_length = strlen(uri);
+    while (size > 0 && token[size - 1] == '/') {
+        size--;
+    }
+    while (uri_length > 0 && uri[uri_length - 1] == '/') {
+        uri_length--;
+    }
+    return size == uri_length && strncmp(token, uri, size) == 0;
+}
+
+// Appends text to out.
+static void put(char *out, size_t *out_length, const char *text, size_t size) {
+    memcpy(out + *out_length, text, size);
+    *out_length += size;
+}
+
+// Copies a deb822 file's stanzas into out without uri: a stanza whose only
+// address it is goes, and a stanza with others loses it from its URIs line.
+// Returns how many addresses went.
+static int filter_deb822(const char *text, size_t length, const char *uri, char *out, size_t *out_length) {
+    int dropped = 0;
+    *out_length = 0;
+    const char *end = text + length;
+    const char *position = text;
+    while (position < end) {
+        while (position < end && *position == '\n') {
+            position++;
+        }
+        if (position >= end) {
+            break;
+        }
+        const char *stanza_end = position;
+        while (stanza_end < end && !(stanza_end[0] == '\n' && (stanza_end + 1 == end || stanza_end[1] == '\n'))) {
+            stanza_end++;
+        }
+        // The stanza, line by line, with the URIs line rewritten when it
+        // names uri; dropped whole when uri was its only address.
+        size_t start_length = *out_length;
+        int named = 0, others = 0;
+        for (const char *line = position; line < stanza_end;) {
+            const char *next = memchr(line, '\n', (size_t)(stanza_end - line));
+            const char *line_end = next ? next : stanza_end;
+            if (line_end - line >= 5 && strncasecmp(line, "URIs:", 5) == 0) {
+                put(out, out_length, "URIs:", 5);
+                for (const char *token = line + 5; token < line_end;) {
+                    while (token < line_end && (*token == ' ' || *token == '\t')) {
+                        token++;
+                    }
+                    const char *token_end = token;
+                    while (token_end < line_end && *token_end != ' ' && *token_end != '\t') {
+                        token_end++;
+                    }
+                    if (token_end > token) {
+                        if (same_uri(token, (size_t)(token_end - token), uri)) {
+                            named++;
+                        } else {
+                            others++;
+                            put(out, out_length, " ", 1);
+                            put(out, out_length, token, (size_t)(token_end - token));
+                        }
+                    }
+                    token = token_end;
+                }
+            } else {
+                put(out, out_length, line, (size_t)(line_end - line));
+            }
+            put(out, out_length, "\n", 1);
+            line = next ? next + 1 : stanza_end;
+        }
+        dropped += named;
+        if (named && !others) {
+            *out_length = start_length;
+        } else {
+            put(out, out_length, "\n", 1);
+        }
+        position = stanza_end;
+    }
+    return dropped;
+}
+
+// Copies a one-line sources file into out without its "deb" and "deb-src"
+// lines for uri. Returns how many lines went.
+static int filter_one_line(const char *text, size_t length, const char *uri, char *out, size_t *out_length) {
+    int dropped = 0;
+    *out_length = 0;
+    const char *end = text + length;
+    for (const char *line = text; line < end;) {
+        const char *next = memchr(line, '\n', (size_t)(end - line));
+        const char *line_end = next ? next : end;
+        const char *c = line;
+        while (c < line_end && (*c == ' ' || *c == '\t')) {
+            c++;
+        }
+        int matches = 0;
+        size_t rest = (size_t)(line_end - c);
+        size_t type = rest >= 4 && strncmp(c, "deb ", 4) == 0 ? 4 : rest >= 8 && strncmp(c, "deb-src ", 8) == 0 ? 8 : 0;
+        if (type) {
+            c += type;
+            while (c < line_end && (*c == ' ' || *c == '\t')) {
+                c++;
+            }
+            if (c < line_end && *c == '[') {
+                const char *close = memchr(c, ']', (size_t)(line_end - c));
+                c = close ? close + 1 : line_end;
+                while (c < line_end && (*c == ' ' || *c == '\t')) {
+                    c++;
+                }
+            }
+            const char *token_end = c;
+            while (token_end < line_end && *token_end != ' ' && *token_end != '\t') {
+                token_end++;
+            }
+            matches = token_end > c && same_uri(c, (size_t)(token_end - c), uri);
+        }
+        if (matches) {
+            dropped++;
+        } else {
+            put(out, out_length, line, (size_t)(line_end - line));
+            if (next) {
+                put(out, out_length, "\n", 1);
+            }
+        }
+        line = next ? next + 1 : end;
+    }
+    return dropped;
+}
+
+// Takes uri out of one sources file. Returns how many entries went, or -1.
+static int remove_from_file(const char *path, const char *uri, int delete_when_empty) {
+    struct stat info;
+    if (lstat(path, &info) != 0 || !S_ISREG(info.st_mode)) {
+        return 0;
+    }
+    size_t length = 0;
+    char *text = read_codling_sources(path, &length);
+    // A stanza gains at most one blank line.
+    char *out = text && length < output_limit ? malloc(length * 2 + 64) : NULL;
+    if (!text || !out) {
+        free(text);
+        return -1;
+    }
+    size_t out_length = 0;
+    size_t name_length = strlen(path);
+    int deb822 = name_length > 8 && strcmp(path + name_length - 8, ".sources") == 0;
+    int dropped = deb822 ? filter_deb822(text, length, uri, out, &out_length)
+                         : filter_one_line(text, length, uri, out, &out_length);
+    int failed = 0;
+    if (dropped > 0) {
+        if (out_length == 0 && !delete_when_empty) {
+            // Keep a package manager's file, empty.
+            failed = write_codling_sources(path, "\n", 1) != 0;
+        } else {
+            failed = write_codling_sources(path, out, out_length) != 0;
+        }
+    }
+    free(text);
+    free(out);
+    return failed ? -1 : dropped;
+}
+
+static int remove_source(const char *uri) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (!valid_existing_uri(uri)) {
+        usage_error("The address is not one Codling can look for in the sources files.");
+    }
+    char path[PATH_MAX];
+    int removed = 0, failed = 0;
+    if (snprintf(path, sizeof path, "%s/etc/apt/sources.list", root) < (int)sizeof path) {
+        int result = remove_from_file(path, uri, 0);
+        failed |= result < 0;
+        removed += result > 0 ? result : 0;
+    }
+    char directory[PATH_MAX];
+    snprintf(directory, sizeof directory, "%s/etc/apt/sources.list.d", root);
+    DIR *listing = opendir(directory);
+    struct dirent *entry;
+    while (listing && (entry = readdir(listing))) {
+        size_t size = strlen(entry->d_name);
+        int sources = size > 8 && strcmp(entry->d_name + size - 8, ".sources") == 0;
+        int list = size > 5 && strcmp(entry->d_name + size - 5, ".list") == 0;
+        if (entry->d_name[0] == '.' || (!sources && !list) ||
+            snprintf(path, sizeof path, "%s/%s", directory, entry->d_name) >= (int)sizeof path) {
+            continue;
+        }
+        int result = remove_from_file(path, uri, strcmp(entry->d_name, "codling.sources") == 0);
+        failed |= result < 0;
+        removed += result > 0 ? result : 0;
+    }
+    if (listing) {
+        closedir(listing);
+    }
+    if (failed) {
+        puts("{\"error\":\"A sources file could not be read or written.\"}");
+        return 74;
+    }
+    printf("{\"changed\":%s}\n", removed > 0 ? "true" : "false");
+    return 0;
+}
+
+static int add_source(const char *uri) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (!valid_repository_uri(uri)) {
+        usage_error("The address is not a repository address Codling writes.");
+    }
+    char path[PATH_MAX];
+    if (snprintf(path, sizeof path, "%s%s", root, codling_sources) >= (int)sizeof path) {
+        usage_error("The jailbreak root is too long.");
+    }
+    size_t length = 0;
+    char *text = read_codling_sources(path, &length);
+    char *out = text && length < output_limit ? malloc(length + 512 + 64) : NULL;
+    if (!text || !out) {
+        free(text);
+        puts("{\"error\":\"codling.sources cannot be read.\"}");
+        return 74;
+    }
+    size_t out_length = 0;
+    int already = filter_stanzas(text, length, uri, out, &out_length) > 0;
+    int failed = 0;
+    if (!already) {
+        out_length += (size_t)sprintf(out + out_length, "Types: deb\nURIs: %s\nSuites: ./\n\n", uri);
+        failed = write_codling_sources(path, out, out_length) != 0;
+    }
+    free(text);
+    free(out);
+    if (failed) {
+        printf("{\"error\":");
+        const char *reason = strerror(errno);
+        print_json_string(reason, strlen(reason));
+        puts("}");
+        return 74;
+    }
+    printf("{\"changed\":%s}\n", already ? "false" : "true");
+    return 0;
+}
+
 static const char burrowctl[] = "/usr/bin/burrowctl";
 
 static int burrow_state(void) {
@@ -671,6 +1113,12 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "backup") == 0) {
         return backup(argc - 2, argv + 2);
     }
+    if (argc == 3 && strcmp(argv[1], "add-source") == 0) {
+        return add_source(argv[2]);
+    }
+    if (argc == 3 && strcmp(argv[1], "remove-source") == 0) {
+        return remove_source(argv[2]);
+    }
     if (argc == 2 && strcmp(argv[1], "burrow-state") == 0) {
         return burrow_state();
     }
@@ -682,6 +1130,7 @@ int main(int argc, char **argv) {
     }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
           "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
+          "       add-source URI | remove-source URI |\n"
           "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
     return 64;
 }

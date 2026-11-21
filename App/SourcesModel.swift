@@ -151,6 +151,126 @@ final class SourcesModel: ObservableObject {
         isRefreshing = false
     }
 
+    /// Whether Codling added a source, to its own sources file.
+    func isCodlingSource(_ source: Source) -> Bool {
+        source.file.hasSuffix("/" + SourceList.codlingFileName)
+    }
+
+    /// The source already in apt's lists at the same address, whatever its
+    /// scheme.
+    func existing(uri: String) -> Source? {
+        func place(_ text: String) -> String {
+            (text.range(of: "://").map { String(text[$0.upperBound...]) } ?? text).lowercased()
+        }
+        return rows.first { place($0.source.uri) == place(uri) }?.source
+    }
+
+    /// What answers at a repository's address: its name, or the reason
+    /// nothing usable did.
+    func inspect(uri: String) async -> Result<String?, RefreshError> {
+        guard let refresher else {
+            return .failure(.message(setupError ?? "Codling is not ready to read sources."))
+        }
+        return await refresher.inspect(uri: uri)
+    }
+
+    /// Adds a flat repository through the root helper, reads apt's lists
+    /// again and refreshes the new source. Returns its row, with how the
+    /// refresh went, or why it was not added.
+    func add(uri: String) async -> Result<Row, RefreshError> {
+        let result = await Task.detached(priority: .userInitiated) { RootHelper.addSource(uri) }.value
+        if case .failure(let failure) = result {
+            return .failure(.message(failure.message))
+        }
+        reloadSources()
+        guard let id = rows.first(where: { $0.source.uri == uri })?.id else {
+            return .failure(.message("apt does not list \(uri) after Codling added it."))
+        }
+        await refresh(id: id)
+        guard let row = rows.first(where: { $0.id == id }) else {
+            return .failure(.message("apt does not list \(uri) after Codling added it."))
+        }
+        return .success(row)
+    }
+
+    /// The security check of a source's packages, against the other
+    /// sources and the installed packages; nil when the index cannot be read.
+    func scan(sourceID: String, installed: [String: String], essential: Set<String>) async -> [SourceScan.Finding]? {
+        guard let store,
+              let packages = try? await store.packages(source: sourceID),
+              let others = try? await store.otherOffers(sharingPackagesWith: sourceID) else {
+            return nil
+        }
+        let titles = Dictionary(rows.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        return await Task.detached(priority: .userInitiated) {
+            SourceScan.scan(packages: packages, others: others, sourceTitles: titles, installed: installed,
+                            essential: essential)
+        }.value
+    }
+
+    /// Whether a source is the one the jailbreak installs and updates its
+    /// own packages from, which needs a clearer warning before it goes.
+    func isJailbreakSource(_ source: Source) -> Bool {
+        source.host == "procurs.us" || source.host.hasSuffix(".procurs.us")
+            || source.file.hasSuffix("/procursus.sources")
+    }
+
+    /// Removes a source from whichever sources file lists it, through the
+    /// root helper. Returns the reason when it fails.
+    func remove(_ source: Source) async -> String? {
+        let result = await Task.detached(priority: .userInitiated) { RootHelper.removeSource(source.uri) }.value
+        switch result {
+        case .failure(let failure):
+            return failure.message
+        case .success(let change) where !change.changed:
+            return "Codling did not find \(source.uri) in apt's sources files."
+        case .success:
+            break
+        }
+        reloadSources()
+        if let store {
+            try? await store.keepOnly(ids: Set(rows.map(\.id)))
+        }
+        indexGeneration += 1
+        return nil
+    }
+
+    /// Reads apt's lists again, keeping what the rows already know.
+    private func reloadSources() {
+        guard let root = environment.jailbreakRoot else {
+            return
+        }
+        let known = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        rows = SourceList.read(aptDirectory: root + "/etc/apt").map { known[$0.id] ?? Row(source: $0) }.sorted {
+            $0.source.host.localizedCaseInsensitiveCompare($1.source.host) == .orderedAscending
+        }
+    }
+
+    /// Refreshes one source, as when it was just added or the person asked
+    /// for it alone.
+    func refresh(id: String) async {
+        guard !isRefreshing, let refresher, let store,
+              let row = rows.first(where: { $0.id == id }), row.activity == .idle else {
+            return
+        }
+        let source = row.source
+        setActivity(.refreshing, for: id)
+        let outcome = await refresher.refresh(source, force: true)
+        finish(id: id, outcome: outcome)
+        if let index = rows.firstIndex(where: { $0.id == id }) {
+            rows[index].stored = try? await store.source(id: id)
+        }
+        indexGeneration += 1
+    }
+
+    /// What removing a source does, for its confirmation.
+    static func removalNote(for source: Source, jailbreak: Bool) -> String {
+        if jailbreak {
+            return "This is the jailbreak's own source. Without it, apt cannot update or repair the jailbreak's packages, and other packages that need them may not install. Its packages stay installed."
+        }
+        return "Its packages stay installed. Codling stops showing its packages and their updates."
+    }
+
     /// What package pages need to know about a source.
     func info(for id: String) -> SourceInfo? {
         rows.first { $0.id == id }.map { SourceInfo(id: $0.id, title: $0.title, source: $0.source) }

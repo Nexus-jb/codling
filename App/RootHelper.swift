@@ -139,6 +139,22 @@ enum RootHelper {
         run(["respring"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
     }
 
+    /// What add-source and remove-source report.
+    struct SourceChange: Decodable, Equatable {
+        let changed: Bool
+    }
+
+    /// Adds a flat repository to codling.sources. uri must be as
+    /// SourceList.repositoryURI writes it; the helper checks it again.
+    static func addSource(_ uri: String) -> Result<SourceChange, Failure> {
+        run(["add-source", uri], timeoutMilliseconds: 30_000).flatMap { decode(SourceChange.self, from: $0) }
+    }
+
+    /// Takes a repository out of every sources file apt reads.
+    static func removeSource(_ uri: String) -> Result<SourceChange, Failure> {
+        run(["remove-source", uri], timeoutMilliseconds: 30_000).flatMap { decode(SourceChange.self, from: $0) }
+    }
+
     /// Runs Burrow's `burrowctl json`, which reports the tweak loader, the
     /// loader settings, every tweak and Safe Mode's events. It changes nothing.
     static func burrowState() -> Result<CommandResult, Failure> {

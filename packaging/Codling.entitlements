@@ -8,6 +8,31 @@
 	<!-- Codling reads and writes the package database outside an app sandbox. -->
 	<key>com.apple.private.security.no-container</key>
 	<true/>
+	<!-- Codling runs outside the sandbox, as Sileo does. -->
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<!-- The GPU, image decoding and IOSurface user clients a system app
+	     opens to draw with Metal. Without them Codling gets no Metal device,
+	     and the system share sheet crashes drawing app icons: Core Image
+	     falls back to OpenGL ES, which it cannot load (seen on iOS 16.3.1
+	     with Dopamine, where no-sandbox alone did not help). -->
+	<key>com.apple.security.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOSurfaceAcceleratorClient</string>
+		<string>AppleJPEGDriverUserClient</string>
+	</array>
 	<!-- Lets Codling start its helper as root through a spawn persona, so
 	     the helper needs no setuid bit. -->
 	<key>com.apple.private.persona-mgmt</key>

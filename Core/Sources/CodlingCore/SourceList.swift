@@ -73,6 +73,55 @@ public struct Source: Hashable, Identifiable {
 }
 
 public enum SourceList {
+    /// The file Codling adds sources to, in sources.list.d. It removes a
+    /// source from whichever file lists it.
+    public static let codlingFileName = "codling.sources"
+
+    /// A repository address as people type it, as apt's URI: https:// when no
+    /// scheme is given, the scheme and host in lower case, and a trailing
+    /// "/". nil when it is not an http or https address of a host, or holds
+    /// characters the root helper does not write: the helper checks the same.
+    public static func repositoryURI(from text: String) -> String? {
+        var address = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "https://" was already in the field when an address was pasted
+        // after it.
+        for prefix in ["https://", "http://"] where address.lowercased().hasPrefix(prefix) {
+            let rest = address.dropFirst(prefix.count)
+            if rest.lowercased().hasPrefix("https://") || rest.lowercased().hasPrefix("http://") {
+                address = String(rest)
+            }
+        }
+        if !address.contains("://") {
+            address = "https://" + address
+        }
+        guard let separator = address.range(of: "://") else {
+            return nil
+        }
+        let scheme = address[..<separator.lowerBound].lowercased()
+        guard scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        let rest = address[separator.upperBound...]
+        let hostEnd = rest.firstIndex(of: "/") ?? rest.endIndex
+        let host = rest[..<hostEnd].lowercased()
+        var path = String(rest[hostEnd...])
+        let hostCharacters = Set("abcdefghijklmnopqrstuvwxyz0123456789.-")
+        guard !host.isEmpty, host.count <= 253, host.allSatisfy(hostCharacters.contains),
+              !host.hasPrefix("."), !host.hasPrefix("-"), !host.hasSuffix("."), host.contains(".") else {
+            return nil
+        }
+        if !path.hasSuffix("/") {
+            path += "/"
+        }
+        let pathCharacters = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~/%+-")
+        guard path.allSatisfy(pathCharacters.contains),
+              !path.split(separator: "/").contains(where: { $0 == ".." || $0 == "." }) else {
+            return nil
+        }
+        let uri = scheme + "://" + host + path
+        return uri.count <= 512 ? uri : nil
+    }
+
     /// The sources in a .sources file (deb822). Stanzas with "Enabled: no",
     /// and types other than deb, are left out.
     public static func parseDeb822(_ text: String, file: String = "") -> [Source] {
@@ -142,6 +191,31 @@ public enum SourceList {
     /// Every source apt reads under an etc/apt directory: sources.list, then
     /// the files in sources.list.d in name order. The same source written twice
     /// is kept once.
+    /// The repository addresses in copied text, such as one address per
+    /// line or the lines of a sources.list, in order and each once.
+    public static func repositoryURIs(in text: String) -> [String] {
+        var seen = Set<String>()
+        return text.split(whereSeparator: { $0.isWhitespace || $0 == "," || $0 == "\"" || $0 == "'" })
+            .filter { $0.contains(".") && $0 != "./" }
+            .compactMap { repositoryURI(from: String($0)) }
+            .filter { seen.insert($0).inserted }
+    }
+
+    /// A repository's name from its Release or InRelease file: its Label,
+    /// else its Origin.
+    public static func releaseName(_ text: String) -> String? {
+        var fields: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            for key in ["Label", "Origin"] where line.hasPrefix(key + ":") && fields[key] == nil {
+                let value = line.dropFirst(key.count + 1).trimmingCharacters(in: .whitespaces)
+                if !value.isEmpty {
+                    fields[key] = value
+                }
+            }
+        }
+        return fields["Label"] ?? fields["Origin"]
+    }
+
     public static func read(aptDirectory: String, fileManager: FileManager = .default) -> [Source] {
         var files: [String] = []
         let main = aptDirectory + "/sources.list"

@@ -223,6 +223,26 @@ struct SourceRefresher {
         }
     }
 
+    /// What answers at a flat repository's address: its name from the
+    /// Release or InRelease file, or the reason nothing usable did.
+    func inspect(uri: String) async -> Result<String?, RefreshError> {
+        guard let directory = Source(uri: uri, suite: "./", components: []).releaseDirectoryURL else {
+            return .failure(.message("\(uri) is not an address Codling can fetch."))
+        }
+        for name in ["Release", "InRelease"] {
+            do {
+                if case .found(let data, _) = try await fetch(directory.appendingPathComponent(name), validators: nil) {
+                    return .success(SourceList.releaseName(String(decoding: data.prefix(64 << 10), as: UTF8.self)))
+                }
+            } catch let error as RefreshError {
+                return .failure(error)
+            } catch {
+                return .failure(.message(RefreshError.describe(error)))
+            }
+        }
+        return .failure(.message("No repository answered at \(uri): it has no Release file there."))
+    }
+
     // MARK: Downloads
 
     enum Fetched {

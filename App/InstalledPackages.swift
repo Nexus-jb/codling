@@ -101,6 +101,14 @@ final class InstalledPackagesModel: ObservableObject {
         versions[identifier]
     }
 
+    /// The installed packages dpkg marks as essential.
+    var essential: Set<String> {
+        guard case .loaded(let packages) = state else {
+            return []
+        }
+        return Set(packages.filter { $0.field("Essential")?.lowercased() == "yes" }.map(\.identifier))
+    }
+
     func load(statusPath: String?) async {
         guard let statusPath else {
             state = .failed("Codling could not find the jailbreak, so it cannot read the installed packages.")
