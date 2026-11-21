@@ -9,15 +9,44 @@ struct InstalledView: View {
     @EnvironmentObject private var sources: SourcesModel
     @State private var query = ""
     @EnvironmentObject private var updates: UpdatesModel
+    @EnvironmentObject private var queue: QueueModel
+    @EnvironmentObject private var accounts: PaymentAccounts
 
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Installed")
                 .systemButton()
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        if !upgradable.isEmpty {
+                            Button("Upgrade All", action: upgradeAll)
+                                .font(.body.weight(.semibold))
+                        }
+                    }
+                }
         }
         .navigationViewStyle(.stack)
         .task { await model.load(statusPath: environment.dpkgStatusPath) }
+    }
+
+    /// The updates Upgrade All queues: every free one, and the paid ones
+    /// of a provider the user is signed in to, which download as bought.
+    private var upgradable: [(PackageSummary, PurchaseRequest?)] {
+        updates.updates.compactMap { package in
+            guard package.isPaid else { return (package, nil) }
+            guard let provider = accounts.provider(forSource: package.source), accounts.isSignedIn(provider),
+                  let info = sources.info(for: package.source) else { return nil }
+            return (package, PurchaseRequest(endpoint: provider.endpoint, providerName: provider.name,
+                                             repo: info.source.uri, version: package.version, architecture: nil))
+        }
+    }
+
+    /// Queues the updates; the queue bar then confirms them.
+    private func upgradeAll() {
+        for (package, purchase) in upgradable {
+            queue.add(.install(package.package), name: package.displayName, purchase: purchase)
+        }
     }
 
     @ViewBuilder
