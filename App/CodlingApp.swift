@@ -19,7 +19,7 @@ struct CodlingApp: App {
     /// The floating tab bar steps aside while the keyboard is up.
     @State private var keyboardShown = false
     /// The launch screen stays until the sources have refreshed once.
-    @State private var launched = false
+    @State private var launched: Bool
 
     init() {
         let environment = RuntimeEnvironment.current()
@@ -28,6 +28,9 @@ struct CodlingApp: App {
         // Web depictions keep nothing between launches.
         WebDepictionView.emptyAppSession()
         _sources = StateObject(wrappedValue: SourcesModel(environment: environment))
+        // The launch screen is for the first refresh; after it Codling opens
+        // on its index at once.
+        _launched = State(initialValue: SourcesModel.refreshedBefore)
         _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
         // The queue downloads bought packages with the accounts' sign-ins.
         let accounts = PaymentAccounts(environment: environment)
@@ -187,10 +190,19 @@ struct CodlingApp: App {
                     queue.sourcesChanged(sources.rows.map(\.source.uri))
                 }
                 .task {
-                    // Read and refresh the sources at launch, whichever tab
-                    // opens first, before Featured shows.
-                    await sources.start()
-                    withAnimation(.easeOut(duration: 0.25)) { launched = true }
+                    // Codling opens on the index it has, and refreshes the
+                    // sources behind it when the last refresh is over half
+                    // an hour old. Only the first launch, with no index yet,
+                    // waits for the refresh.
+                    await sources.load()
+                    queue.sourcesKnown(sources.rows.map(\.source.uri))
+                    if sources.hasIndex {
+                        withAnimation(.easeOut(duration: 0.25)) { launched = true }
+                        await sources.start()
+                    } else {
+                        await sources.start()
+                        withAnimation(.easeOut(duration: 0.25)) { launched = true }
+                    }
                     await accounts.discover(sources: sources)
                 }
         }

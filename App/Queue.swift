@@ -93,6 +93,18 @@ final class QueueModel: ObservableObject {
     private var listsUpdateDue = false
     /// What the last apt-get update said about sources it could not read.
     private var listsWarnings: [AptDiagnosis] = []
+    private static let listsUpdatedKey = "AptListsUpdatedAt"
+    private static let listsSourcesKey = "AptListsSources"
+
+    init() {
+        // apt's lists outlive Codling: a review soon after it opens again
+        // can use them as they are.
+        let defaults = UserDefaults.standard
+        if let date = defaults.object(forKey: Self.listsUpdatedKey) as? Date,
+           let sources = defaults.stringArray(forKey: Self.listsSourcesKey) {
+            lists.recordUpdate(at: date, sources: sources)
+        }
+    }
 
     var lastChange: ChangeRecord? { history.last }
 
@@ -170,6 +182,11 @@ final class QueueModel: ObservableObject {
 
     // MARK: apt's lists
 
+    /// The sources apt reads, as Codling found them at launch.
+    func sourcesKnown(_ addresses: [String]) {
+        sourceAddresses = addresses.sorted()
+    }
+
     /// Codling refreshed, added or removed sources: apt's lists are brought
     /// up to date in the background, so that a review need not wait.
     func sourcesChanged(_ addresses: [String]) {
@@ -208,7 +225,10 @@ final class QueueModel: ObservableObject {
             return failure
         case .success(let result):
             listsWarnings = result.status == 0 ? [] : AptDiagnostics.diagnose(result.output)
-            lists.recordUpdate(at: Date(), sources: sources)
+            let date = Date()
+            lists.recordUpdate(at: date, sources: sources)
+            UserDefaults.standard.set(date, forKey: Self.listsUpdatedKey)
+            UserDefaults.standard.set(lists.sources, forKey: Self.listsSourcesKey)
             return nil
         }
     }
@@ -364,6 +384,7 @@ final class QueueModel: ObservableObject {
             // downloads before it changes anything, so nothing changed: read
             // the lists again and review the change again.
             lists.invalidate()
+            UserDefaults.standard.removeObject(forKey: Self.listsUpdatedKey)
             phase = .preparing("A source changed its files. Updating apt's package lists")
             if let failure = await updateListsNow() {
                 phase = .blocked([], output: failure.message)

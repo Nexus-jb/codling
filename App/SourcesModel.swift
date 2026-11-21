@@ -59,9 +59,19 @@ final class SourcesModel: ObservableObject {
     var refreshing: Int { rows.filter { $0.activity == .refreshing }.count }
     var finished: Int { rows.filter { $0.activity == .idle && $0.outcome != nil }.count }
 
-    /// Reads the sources and what the index remembers of them, then refreshes
-    /// once per launch.
+    /// Reads the sources and what the index remembers of them, then
+    /// refreshes them when a refresh is due (refreshIsDue), once per launch.
     func start() async {
+        await load()
+        if !refreshedThisLaunch, refreshIsDue {
+            refreshedThisLaunch = true
+            await refresh(force: false)
+        }
+    }
+
+    /// Reads the sources and what the index remembers of them, without
+    /// refreshing.
+    func load() async {
         if refresher == nil {
             prepare()
         }
@@ -70,10 +80,30 @@ final class SourcesModel: ObservableObject {
         for index in rows.indices {
             rows[index].stored = try? await store.source(id: rows[index].id)
         }
-        if !refreshedThisLaunch {
-            refreshedThisLaunch = true
-            await refresh(force: false)
-        }
+    }
+
+    /// How long a refresh counts: opening Codling again within it shows the
+    /// index as it is, without refreshing.
+    static let refreshInterval: TimeInterval = 30 * 60
+    private static let refreshedAtKey = "SourcesRefreshedAt"
+
+    /// Whether the sources were ever refreshed on this device.
+    static var refreshedBefore: Bool {
+        UserDefaults.standard.object(forKey: refreshedAtKey) != nil
+    }
+
+    /// Whether the index holds packages, so that Codling can open on it
+    /// while the sources refresh behind it.
+    var hasIndex: Bool {
+        rows.contains { ($0.stored?.packageCount ?? 0) > 0 }
+    }
+
+    /// Whether the sources were last refreshed longer ago than
+    /// refreshInterval, or never.
+    var refreshIsDue: Bool {
+        guard let date = UserDefaults.standard.object(forKey: Self.refreshedAtKey) as? Date else { return true }
+        let age = Date().timeIntervalSince(date)
+        return age < 0 || age >= Self.refreshInterval
     }
 
     /// Nexus, the source Codling comes with.
@@ -171,6 +201,8 @@ final class SourcesModel: ObservableObject {
         }
         let packages = (try? await store.packageCount()) ?? 0
         lastRefresh = (Date(), Date().timeIntervalSince(started), packages)
+        UserDefaults.standard.set(Date(), forKey: Self.refreshedAtKey)
+        refreshedThisLaunch = true
         indexGeneration += 1
         isRefreshing = false
     }
