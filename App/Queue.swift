@@ -314,7 +314,6 @@ struct QueueView: View {
     let environment: RuntimeEnvironment
     @ObservedObject var queue: QueueModel
     @EnvironmentObject private var installed: InstalledPackagesModel
-    @State private var confirmingRestart = false
 
     var body: some View {
         NavigationView {
@@ -494,7 +493,7 @@ struct QueueView: View {
                             ToolNote(text: "Tweaks that were installed, upgraded or removed take effect after SpringBoard restarts.")
                         }
                         Button(queue.restarting ? "Restarting SpringBoard" : "Restart SpringBoard") {
-                            confirmingRestart = true
+                            Task { await queue.restartSpringBoard() }
                         }
                         .buttonStyle(TintedButtonStyle(color: .orange))
                         .disabled(queue.restarting)
@@ -508,13 +507,6 @@ struct QueueView: View {
             .padding(.vertical, 8)
         }
         .background(WallBackground())
-        .confirmationDialog("Restart SpringBoard?", isPresented: $confirmingRestart, titleVisibility: .visible) {
-            Button("Restart SpringBoard") {
-                Task { await queue.restartSpringBoard() }
-            }
-        } message: {
-            Text("The Home Screen closes for a moment and every open app restarts.")
-        }
     }
 
     @ViewBuilder

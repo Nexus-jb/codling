@@ -135,7 +135,7 @@ enum RootHelper {
     }
 
     /// Stops SpringBoard, which launchd starts again: what Respring falls
-    /// back to when SpringBoard does not relaunch itself.
+    /// back to when Codling cannot signal SpringBoard itself.
     static func respring() -> Result<CommandResult, Failure> {
         run(["respring"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
     }

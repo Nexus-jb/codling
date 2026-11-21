@@ -1,65 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import Foundation
-import ObjectiveC
 
-/// Restarts SpringBoard so that tweaks load, as lightly as iOS allows.
+/// Restarts SpringBoard so that tweaks load, the moment the user asks.
 ///
-/// Codling first asks SpringBoard to relaunch itself with a fade to black,
-/// through FrontBoard's system service: only SpringBoard restarts, the
-/// render server and open apps stay, and SpringBoard saves its state as it
-/// goes. When SpringBoard does not restart within a few seconds, the root
-/// helper stops it, and launchd starts it again.
+/// SpringBoard runs as mobile, as Codling does, so Codling stops it itself
+/// with SIGKILL and launchd starts it again at once. Only SpringBoard
+/// restarts: since iOS 15, open apps close only when backboardd restarts,
+/// which sbreload does and Codling does not. When the signal cannot be sent,
+/// the root helper stops SpringBoard instead.
 enum Respring {
-    @MainActor
     static func now() async {
-        if let before = springBoardProcess(), askSpringBoardToRelaunch() {
-            for _ in 0..<24 {
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                if springBoardProcess() != before {
-                    return
-                }
-            }
+        if let springBoard = springBoardProcess(), kill(springBoard, SIGKILL) == 0 {
+            return
         }
         _ = await Task.detached(priority: .userInitiated) { RootHelper.respring() }.value
-    }
-
-    /// SBSRelaunchActionOptions: fade the screen to black while SpringBoard
-    /// restarts, without restarting the render server (1 << 0) or showing a
-    /// snapshot (1 << 1).
-    private static let fadeToBlack: UInt = 1 << 2
-
-    /// Sends SpringBoard an SBSRelaunchAction. False when the private
-    /// frameworks or their methods are not what Codling expects.
-    private static func askSpringBoardToRelaunch() -> Bool {
-        for framework in ["FrontBoardServices", "SpringBoardServices"] {
-            dlopen("/System/Library/PrivateFrameworks/\(framework).framework/\(framework)", RTLD_NOW)
-        }
-        let makeAction = NSSelectorFromString("actionWithReason:options:targetURL:")
-        let sharedService = NSSelectorFromString("sharedService")
-        let sendActions = NSSelectorFromString("sendActions:withResult:")
-        guard let actionClass = NSClassFromString("SBSRelaunchAction"),
-              let serviceClass = NSClassFromString("FBSSystemService"),
-              let make = class_getClassMethod(actionClass, makeAction),
-              let shared = class_getClassMethod(serviceClass, sharedService) else {
-            return false
-        }
-        typealias MakeAction = @convention(c) (AnyClass, Selector, NSString, UInt, NSURL?) -> AnyObject?
-        typealias SharedService = @convention(c) (AnyClass, Selector) -> AnyObject?
-        typealias SendActions = @convention(c) (AnyObject, Selector, NSSet, AnyObject?) -> Void
-        return autoreleasepool {
-            // A nil address returns to the Lock Screen.
-            guard let action = unsafeBitCast(method_getImplementation(make), to: MakeAction.self)(
-                      actionClass, makeAction, "respring", fadeToBlack, nil),
-                  let service = unsafeBitCast(method_getImplementation(shared), to: SharedService.self)(
-                      serviceClass, sharedService),
-                  let send = class_getInstanceMethod(object_getClass(service), sendActions) else {
-                return false
-            }
-            unsafeBitCast(method_getImplementation(send), to: SendActions.self)(
-                service, sendActions, NSSet(object: action), nil)
-            return true
-        }
     }
 
     /// SpringBoard's process identifier; nil when it is not running or the
