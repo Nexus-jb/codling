@@ -122,7 +122,7 @@ struct PackageView: View {
             }
             if model.loaded {
                 PackageActions(source: source, identifier: identifier, name: name, available: record?.version,
-                               isPaid: isPaid)
+                               architecture: record?.architecture, isPaid: isPaid)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -383,6 +383,8 @@ private struct PackageActions: View {
     /// The newest version this source offers; nil when it no longer lists
     /// the package.
     let available: String?
+    /// The Architecture field of that version's record.
+    let architecture: String?
     let isPaid: Bool
     @EnvironmentObject private var installed: InstalledPackagesModel
     @EnvironmentObject private var queue: QueueModel
@@ -520,7 +522,8 @@ private struct PackageActions: View {
             if price.purchased {
                 action(update ? "UPDATE" : "GET", .install(identifier),
                        purchase: PurchaseRequest(endpoint: provider.endpoint, providerName: provider.name,
-                                                 repo: source.source.uri, version: available))
+                                                 repo: source.source.uri, version: available,
+                                                 architecture: architecture))
             } else if price.available {
                 Button(price.price ?? "BUY") {
                     if accounts.isSignedIn(provider) {

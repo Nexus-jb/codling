@@ -109,8 +109,8 @@ struct PaymentClient {
     let udid: String
     let model: String
     let version: String
-    /// The device's package architecture, such as iphoneos-arm64, so that a
-    /// provider with builds for several jailbreaks sends the one apt lists.
+    /// The device's package architecture, such as iphoneos-arm64: what a
+    /// download asks for when the package's own is not known.
     let architecture: String
 
     private var session: URLSession { .shared }
@@ -157,12 +157,18 @@ struct PaymentClient {
         return try PaymentProvider.purchase(try await post(url, body, timeout: 60))
     }
 
-    /// The single-use address of a bought package's file.
-    func authorizeDownload(_ endpoint: URL, package: String, token: String, version: String, repo: String) async throws -> URL {
+    /// The single-use address of a bought package's file. architecture is
+    /// the Architecture field of the record apt lists, as Zebra sends it, so
+    /// that a provider with builds for several jailbreaks (rootless,
+    /// roothide, rootful) sends the one this device uses, and finds a build
+    /// for "all" too.
+    func authorizeDownload(_ endpoint: URL, package: String, token: String, version: String, repo: String,
+                           architecture packageArchitecture: String?) async throws -> URL {
         let url = PaymentProvider.url(endpoint, PaymentProvider.packagePath(package, "authorize_download"))
+        let asked = packageArchitecture.flatMap { $0.isEmpty ? nil : $0 } ?? architecture
         return try PaymentProvider.downloadURL(try await post(url, ["token": token, "udid": udid, "device": model,
                                                                     "version": version, "repo": repo,
-                                                                    "architecture": architecture]))
+                                                                    "architecture": asked]))
     }
 
     func download(_ url: URL, to destination: URL) async throws {
@@ -548,7 +554,8 @@ final class PaymentAccounts: ObservableObject {
             throw PaymentProvider.Failure(message: "Sign in to \(request.providerName) to download \(name).")
         }
         let url = try await client.authorizeDownload(request.endpoint, package: package, token: token,
-                                                     version: request.version, repo: request.repo)
+                                                     version: request.version, repo: request.repo,
+                                                     architecture: request.architecture)
         try await client.download(url, to: PurchaseInbox.file(package: package, version: request.version))
         let version = request.version
         let taken = await Task.detached(priority: .userInitiated) {
@@ -580,6 +587,10 @@ struct PurchaseRequest: Equatable {
     /// The source's address, which the provider is told.
     let repo: String
     let version: String
+    /// The record's Architecture field: this device's (iphoneos-arm64 when
+    /// rootless, iphoneos-arm64e with RootHide) or "all", as Codling's index
+    /// keeps only those.
+    let architecture: String?
 }
 
 // MARK: Screens
