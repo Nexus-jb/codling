@@ -180,4 +180,13 @@ last one. Tested in `scripts/test-purchases.sh`.
 - `scripts/test-purchases.sh`: 260 checks.
 - `scripts/test-sources.sh` and `scripts/test-repack.sh` still pass.
 - Core tests (`PaymentProviderTests`, `AptPlanTests`) run in CI.
-- Device check of the purchase flow: see the pull request.
+- On a device, with build 0.1.0~dev.116 on an iPhone 14 Pro Max (iPhone15,3),
+  iOS 16.3.1, Dopamine rootless, these all passed:
+  1. A package bought on Nexus was removed, then installed again from
+     Codling: it downloaded, and apt installed it from its cache.
+  2. A free package from a signed source installed with Confirm.
+  3. A package from an unsigned source asked for Install Without
+     Verification, and installed after it.
+  4. Signed out of Nexus, a paid package's page still showed its price.
+  5. Signed in again, bought packages showed as bought.
+  6. Upgrade All finished.
