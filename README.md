@@ -3,7 +3,9 @@
 A modern, open-source package manager for jailbroken iOS.
 
 > **Status: early development.** Codling is not ready for everyday use yet.
-> Version 1.0 will follow a closed and a public beta.
+> Version 1.0 will follow a closed and a public beta. To apply for the closed
+> beta, join the [Codling Beta Discord server](https://discord.gg/Q6cNndxacQ)
+> and post in #apply.
 
 Codling installs, updates and removes packages from APT repositories on
 jailbroken iPhones and iPads. It is written from scratch in Swift and SwiftUI on

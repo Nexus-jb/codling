@@ -17,11 +17,15 @@ Rootful jailbreaks are not supported. Burrow, the tweak loader that Safe Mode
 needs, runs on rootless jailbreaks for now; on RootHide, Codling works
 without it.
 
+To apply, join the [Codling Beta Discord server](https://discord.gg/Q6cNndxacQ)
+and post your device, iOS version and jailbreak in #apply. Accepted testers
+get the Tester role, which opens #announcements, #reports and #chat.
+
 ## Installing
 
-Ultra Team sends each tester the address of the beta source with the
-invitation. Add it in Sileo or Zebra and install Codling from it: the source
-gives your device the build for its jailbreak.
+The address of the beta source is posted in #announcements. Add it in Sileo
+or Zebra and install Codling from it: the source gives your device the build
+for its jailbreak.
 
 Keep Sileo or Zebra installed. Codling works beside them and removes neither,
 so if something goes wrong, you still have a package manager you know.
@@ -66,7 +70,7 @@ there.
 ## Reporting
 
 Open a [beta test report](https://github.com/Nexus-jb/codling/issues/new?template=beta-report.yml)
-on GitHub, or post the same in the testers' channel. Include:
+on GitHub, or post the same in #reports on Discord. Include:
 
 - your device, iOS version and jailbreak;
 - the Codling version, from Device Info;
