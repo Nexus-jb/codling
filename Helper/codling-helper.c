@@ -36,6 +36,13 @@
 //                          a change that would remove packages the operations
 //                          do not name is refused. Essential packages are
 //                          never removed.
+//   codling-helper download [--trust-unsigned] [--allow-removals] OPERATION...
+//                          downloads what apply would install, with
+//                          apt-get install -y --download-only, and changes
+//                          nothing else. apt checks signatures only here,
+//                          not in a simulation: without --trust-unsigned it
+//                          stops, before downloading, at packages from
+//                          sources that are not signed, and names them.
 //   codling-helper respring
 //                          stops SpringBoard with SIGKILL, and launchd starts
 //                          it again at once, so that tweaks load. Codling
@@ -534,7 +541,9 @@ static int simulate(int count, char **operations) {
     return 0;
 }
 
-static int apply(int count, char **words) {
+// apply, or download with download_only: the same apt-get install, which
+// with --download-only only fetches the archives into apt's cache.
+static int install(int count, char **words, int download_only) {
     char root[PATH_MAX];
     require_root(root);
     int trust_unsigned = 0;
@@ -546,7 +555,7 @@ static int apply(int count, char **words) {
         } else if (strcmp(words[first], "--allow-removals") == 0) {
             allow_removals = 1;
         } else {
-            usage_error("Unknown option for apply.");
+            usage_error("Unknown option for apply or download.");
         }
         first++;
     }
@@ -558,6 +567,9 @@ static int apply(int count, char **words) {
     arguments[used++] = "install";
     arguments[used++] = "-y";
     arguments[used++] = "-q";
+    if (download_only) {
+        arguments[used++] = "--download-only";
+    }
     size_t downgrades = used++;
     arguments[downgrades] = "-q";
     // A changed configuration file is kept, and dpkg asks nothing.
@@ -1350,7 +1362,10 @@ int main(int argc, char **argv) {
         return simulate(argc - 2, argv + 2);
     }
     if (argc >= 2 && strcmp(argv[1], "apply") == 0) {
-        return apply(argc - 2, argv + 2);
+        return install(argc - 2, argv + 2, 0);
+    }
+    if (argc >= 2 && strcmp(argv[1], "download") == 0) {
+        return install(argc - 2, argv + 2, 1);
     }
     if (argc == 2 && strcmp(argv[1], "respring") == 0) {
         return respring();
@@ -1377,7 +1392,8 @@ int main(int argc, char **argv) {
         return burrow_loader(argv[2]);
     }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
-          "       apply [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
+          "       apply [--trust-unsigned] [--allow-removals] OPERATION... |\n"
+          "       download [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
           "       add-source URI | remove-source URI | take-purchase PACKAGE VERSION |\n"
           "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
     return 64;

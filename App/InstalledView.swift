@@ -8,17 +8,45 @@ struct InstalledView: View {
     @ObservedObject var model: InstalledPackagesModel
     @EnvironmentObject private var sources: SourcesModel
     @State private var query = ""
-    /// The newer versions the sources offer of installed packages.
-    @State private var updates: [PackageSummary] = []
+    @EnvironmentObject private var updates: UpdatesModel
+    @EnvironmentObject private var queue: QueueModel
+    @EnvironmentObject private var accounts: PaymentAccounts
 
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Installed")
                 .systemButton()
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        if !upgradable.isEmpty {
+                            Button("Upgrade All", action: upgradeAll)
+                                .font(.body.weight(.semibold))
+                        }
+                    }
+                }
         }
         .navigationViewStyle(.stack)
         .task { await model.load(statusPath: environment.dpkgStatusPath) }
+    }
+
+    /// The updates Upgrade All queues: every free one, and the paid ones
+    /// of a provider the user is signed in to, which download as bought.
+    private var upgradable: [(PackageSummary, PurchaseRequest?)] {
+        updates.updates.compactMap { package in
+            guard package.isPaid else { return (package, nil) }
+            guard let provider = accounts.provider(forSource: package.source), accounts.isSignedIn(provider),
+                  let info = sources.info(for: package.source) else { return nil }
+            return (package, PurchaseRequest(endpoint: provider.endpoint, providerName: provider.name,
+                                             repo: info.source.uri, version: package.version, architecture: nil))
+        }
+    }
+
+    /// Queues the updates; the queue bar then confirms them.
+    private func upgradeAll() {
+        for (package, purchase) in upgradable {
+            queue.add(.install(package.package), name: package.displayName, purchase: purchase)
+        }
     }
 
     @ViewBuilder
@@ -62,7 +90,6 @@ struct InstalledView: View {
             .background(WallBackground())
             .searchable(text: $query, prompt: "Name, identifier or author")
             .refreshable { await model.load(statusPath: environment.dpkgStatusPath) }
-            .task(id: "\(sources.indexGeneration) \(model.versions.hashValue)") { await findUpdates() }
         }
     }
 
@@ -70,7 +97,7 @@ struct InstalledView: View {
     /// none.
     @ViewBuilder
     private var updatesSection: some View {
-        let rows = updates.compactMap { package in
+        let rows = updates.updates.compactMap { package in
             sources.info(for: package.source).map { UpdateRow(package: package, info: $0) }
         }
         if !rows.isEmpty {
@@ -87,15 +114,6 @@ struct InstalledView: View {
             CardHeading(title: "Installed", symbol: "shippingbox")
                 .padding(.top, 6)
         }
-    }
-
-    private func findUpdates() async {
-        guard let store = sources.store, !model.versions.isEmpty else {
-            updates = []
-            return
-        }
-        let offers = (try? await store.offers(ofAny: Array(model.versions.keys))) ?? []
-        updates = AvailableUpdates.find(installed: model.versions, offers: offers)
     }
 
     private func filtered(_ packages: [InstalledPackage]) -> [InstalledPackage] {

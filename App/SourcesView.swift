@@ -18,6 +18,8 @@ struct SourcesView: View {
     @State private var selection = Set<String>()
     @State private var copied: String?
     @State private var exporting = false
+    /// How many packages the sources offer, for the All Packages row.
+    @State private var packageTotal: Int?
 
     private var isEditing: Bool { editMode.isEditing }
 
@@ -30,6 +32,14 @@ struct SourcesView: View {
                         .padding()
                 } else {
                     List(selection: $selection) {
+                        if !isEditing {
+                            Section {
+                                NavigationLink(destination: CategoryPackagesView(category: .everything)) {
+                                    AllPackagesRow(count: packageTotal)
+                                }
+                                .listRowBackground(CardCellBackground(first: true, last: true))
+                            }
+                        }
                         Section {
                             ForEach(model.rows) { row in
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
@@ -78,6 +88,13 @@ struct SourcesView: View {
                                     }
                                 }
                             }
+                        } header: {
+                            Text("Repositories")
+                                .font(.title3.bold())
+                                .foregroundColor(.primary)
+                                .textCase(nil)
+                                .padding(.leading, -16)
+                                .accessibilityAddTraits(.isHeader)
                         } footer: {
                             Text(isEditing ? "Select sources to copy their addresses." : footer)
                         }
@@ -95,6 +112,9 @@ struct SourcesView: View {
         }
         .navigationViewStyle(.stack)
         .task { await model.start() }
+        .task(id: model.indexGeneration) {
+            packageTotal = try? await model.store?.packageCount()
+        }
         .onAppear {
             adder.model = model
             adder.installed = installed
@@ -247,6 +267,34 @@ struct SourcesView: View {
 /// A source in the list: its icon, name and address, and its package count,
 /// with a small red mark when its last refresh failed or it is on the
 /// piracy list. Its page says the rest.
+/// The first row of the Sources tab: every package of every source.
+private struct AllPackagesRow: View {
+    let count: Int?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IconTile(symbol: "shippingbox.fill", color: .gray, size: 42)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("All Packages")
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                Text("See all packages from your sources")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let count {
+                Text(count.formatted())
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct CompactSourceRow: View {
     let row: SourcesModel.Row
 

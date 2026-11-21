@@ -64,7 +64,11 @@ final class FeaturedModel: ObservableObject {
 
 struct PackageCategory: Identifiable {
     let name: String
+    /// Words of the sections it holds; none for every package.
     let words: [String]
+
+    /// Every package of every source, as the Sources tab opens it.
+    static let everything = PackageCategory(name: "All Packages", words: [])
 
     var id: String { name }
 
@@ -478,7 +482,12 @@ struct CategoryPackagesView: View {
         .navigationTitle(category.name)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: sources.indexGeneration) {
-            packages = (try? await sources.store?.packages(inSectionsWith: category.words)) ?? []
+            let store = sources.store
+            if category.words.isEmpty {
+                packages = (try? await store?.allPackages()) ?? []
+            } else {
+                packages = (try? await store?.packages(inSectionsWith: category.words)) ?? []
+            }
         }
     }
 

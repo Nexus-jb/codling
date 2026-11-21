@@ -285,6 +285,17 @@ actor IndexStore {
         return PackageCatalog.newest(rows)
     }
 
+    /// The newest version of every package, in each source, by name.
+    func allPackages() throws -> [PackageSummary] {
+        let statement = try prepare("SELECT \(Self.summaryColumns) FROM packages")
+        defer { sqlite3_finalize(statement) }
+        var rows: [PackageSummary] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(summary(statement))
+        }
+        return PackageCatalog.newest(rows)
+    }
+
     /// Every source's newest version of each of the packages.
     func offers(ofAny packages: [String]) throws -> [PackageSummary] {
         guard !packages.isEmpty else { return [] }
