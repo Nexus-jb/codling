@@ -5,7 +5,7 @@ import UIKit
 
 /// The jailbreak layout Codling is running under.
 enum JailbreakScheme: Equatable {
-    /// Packages live under /var/jb (Dopamine, palera1n rootless).
+    /// Packages live under /var/jb (Dopamine).
     case rootless
     /// Packages live in a hidden, randomised root (RootHide).
     case roothide

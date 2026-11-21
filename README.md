@@ -54,7 +54,7 @@ Codling without extra setup.
 
 | Scheme   | Package architecture | Examples                             |
 | -------- | -------------------- | ------------------------------------ |
-| rootless | `iphoneos-arm64`     | Dopamine, palera1n (rootless mode)   |
+| rootless | `iphoneos-arm64`     | Dopamine                             |
 | roothide | `iphoneos-arm64e`    | Dopamine (RootHide)                  |
 
 iOS 15 and later. Rootful jailbreaks are not planned for 1.0.

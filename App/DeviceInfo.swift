@@ -25,15 +25,10 @@ struct DeviceDetails {
                       udid: uniqueDeviceID())
     }
 
-    /// Dopamine keeps its own programs in basebin under the jailbreak root,
-    /// and palera1n mounts its tools at /cores/binpack.
+    /// Dopamine keeps its own programs in basebin under the jailbreak root.
     private static func jailbreakName(environment: RuntimeEnvironment) -> String {
-        let files = FileManager.default
-        if let root = environment.jailbreakRoot, files.fileExists(atPath: root + "/basebin") {
+        if let root = environment.jailbreakRoot, FileManager.default.fileExists(atPath: root + "/basebin") {
             return "Dopamine"
-        }
-        if files.fileExists(atPath: "/cores/binpack") {
-            return "palera1n"
         }
         return environment.scheme.title
     }
