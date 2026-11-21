@@ -11,6 +11,12 @@
 	<!-- Codling runs outside the sandbox, as Sileo does. -->
 	<key>com.apple.private.security.no-sandbox</key>
 	<true/>
+	<!-- Lets WebKit launch its page process for Codling's web views. Without
+	     it, on iOS 16 and later, the page process fails to launch ("Invalid
+	     connection identifier (web process failed to launch)" in Codling's
+	     log), and a web depiction never draws. -->
+	<key>com.apple.webkit-client</key>
+	<true/>
 	<!-- The GPU, image decoding and IOSurface user clients a system app
 	     opens to draw with Metal. Without them Codling gets no Metal device,
 	     and the system share sheet crashes drawing app icons: Core Image
@@ -32,6 +38,12 @@
 		<string>IOSurfaceRootUserClient</string>
 		<string>IOSurfaceAcceleratorClient</string>
 		<string>AppleJPEGDriverUserClient</string>
+	</array>
+	<!-- Lets Codling read the device's UDID from MobileGestalt, for Device
+	     Info and for signing in to payment providers, which ask for it. -->
+	<key>com.apple.private.MobileGestalt.AllowedProtectedKeys</key>
+	<array>
+		<string>UniqueDeviceID</string>
 	</array>
 	<!-- Lets Codling start its helper as root through a spawn persona, so
 	     the helper needs no setuid bit. -->

@@ -20,12 +20,20 @@ final class DepictionRouter: ObservableObject {
 
     @Published var package: String?
     @Published var depiction: LinkedDepiction?
+    /// A web page opened inside Codling, as a page of its own.
+    @Published var page: WebPage?
+    /// A web page opened in the browser sheet, when asked for.
     @Published var webPage: WebPage?
+
+    /// Opens a page in the browser sheet rather than inside Codling.
+    func browser(_ url: URL) {
+        webPage = WebPage(url: url)
+    }
 
     func perform(_ action: DepictionAction, title: String = "") {
         switch action {
         case .web(let url):
-            webPage = WebPage(url: url)
+            page = WebPage(url: url)
         case .depiction(let url):
             depiction = LinkedDepiction(url: url, title: title)
         case .package(let identifier):
@@ -78,6 +86,14 @@ private struct DepictionRouting: ViewModifier {
                                                      set: { if !$0 { router.depiction = nil } })) {
                         if let linked = router.depiction {
                             DepictionPageView(url: linked.url, title: linked.title)
+                        }
+                    } label: {
+                        EmptyView()
+                    }
+                    NavigationLink(isActive: Binding(get: { router.page != nil },
+                                                     set: { if !$0 { router.page = nil } })) {
+                        if let page = router.page {
+                            WebPageView(url: page.url)
                         }
                     } label: {
                         EmptyView()
@@ -171,33 +187,58 @@ struct CompatibilityCard: View {
     @Environment(\.device) private var device
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            line(symbol: iosSymbol, color: iosColor, title: iosTitle, detail: iosDetail)
+        VStack(spacing: 0) {
+            line(symbol: iosSymbol, color: iosColor, title: "iOS versions", value: iosValue, detail: iosDetail)
+            Rectangle()
+                .fill(Palette.divider.opacity(0.45))
+                .frame(height: 1)
             line(symbol: jailbreakFits ? "checkmark.seal.fill" : "xmark.octagon.fill",
-                 color: jailbreakFits ? .green : .red, title: jailbreakTitle, detail: nil)
+                 color: jailbreakFits ? Palette.green : .red, title: "Jailbreak",
+                 value: kind == .any ? "Any" : kind.title.capitalizedFirst, detail: jailbreakDetail)
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
+        .padding(.horizontal, 12)
+        .glassSurface(cornerRadius: 13, inset: true)
     }
 
-    private func line(symbol: String, color: Color, title: String, detail: String?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+    private func line(symbol: String, color: Color, title: String, value: String, detail: String?) -> some View {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: symbol)
+                .font(.title3)
                 .foregroundColor(color)
+                .frame(width: 24)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(value)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundColor(color == .red ? .red : Palette.text)
+                    .multilineTextAlignment(.trailing)
                 if let detail {
                     Text(detail)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(Palette.muted)
+                        .multilineTextAlignment(.trailing)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
+    }
+
+    private var iosValue: String {
+        switch report.verdict {
+        case .supported: return "Supported"
+        case .unsupported: return "Not supported"
+        case .unknown: return "Unspecified"
+        }
+    }
+
+    private var jailbreakDetail: String {
+        jailbreakFits ? "Matches this device" : "This device is \(device.jailbreak.title)"
     }
 
     private var iosSymbol: String {
@@ -210,26 +251,20 @@ struct CompatibilityCard: View {
 
     private var iosColor: Color {
         switch report.verdict {
-        case .supported: return .green
+        case .supported: return Palette.green
         case .unsupported: return .red
         case .unknown: return .secondary
         }
     }
 
-    private var iosTitle: String {
-        switch report.verdict {
-        case .supported: return "Supports iOS \(device.systemVersion)"
-        case .unsupported: return "Not for iOS \(device.systemVersion)"
-        case .unknown: return "Does not say which iOS versions it supports"
-        }
-    }
-
     private var iosDetail: String? {
-        guard let range = report.range, let source = report.source else { return nil }
+        guard let range = report.range, let source = report.source else {
+            return report.verdict == .unknown ? nil : "iOS \(device.systemVersion)"
+        }
         switch source {
-        case .dependency: return "Its dependencies require \(range); apt holds it to that."
-        case .tags: return "Its tags say \(range)."
-        case .name: return "Its name or summary says \(range)."
+        case .dependency: return "Its dependencies require \(range)"
+        case .tags: return "Its tags say \(range)"
+        case .name: return "Its name or summary says \(range)"
         }
     }
 
@@ -239,14 +274,11 @@ struct CompatibilityCard: View {
         kind == .any || kind == device.jailbreak
     }
 
-    private var jailbreakTitle: String {
-        if kind == .any {
-            return "Made for any jailbreak"
-        }
-        if jailbreakFits {
-            return "Built for \(kind.title) jailbreaks, like this device's"
-        }
-        return "Built for \(kind.title) jailbreaks; this device's is \(device.jailbreak.title)"
+}
+
+private extension String {
+    var capitalizedFirst: String {
+        prefix(1).uppercased() + dropFirst()
     }
 }
 
@@ -265,6 +297,20 @@ enum SectionSymbol {
         }
         if text.contains("librar") || text.contains("framework") { return "books.vertical.fill" }
         return "shippingbox.fill"
+    }
+
+    /// The color of a section's icon, by the same kinds as its symbol.
+    static func color(for section: String?) -> Color {
+        switch name(for: section) {
+        case "paintbrush.fill": return .purple
+        case "wand.and.stars": return .orange
+        case "square.grid.2x2.fill": return .teal
+        case "app.fill": return .cyan
+        case "keyboard": return .gray
+        case "terminal.fill": return .indigo
+        case "books.vertical.fill": return .brown
+        default: return .blue
+        }
     }
 }
 
@@ -298,7 +344,7 @@ struct PaidBadge: View {
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .foregroundColor(.white)
-            .background(Capsule().fill(Color.orange))
+            .foregroundColor(Palette.text)
+            .glassSurface(cornerRadius: 99, inset: true)
     }
 }

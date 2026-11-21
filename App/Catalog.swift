@@ -156,17 +156,18 @@ final class PackageModel: ObservableObject {
         }
     }
 
-    func reloadDepiction(source: SourceInfo) async {
-        if let newest {
-            await loadDepiction(newest, source: source)
-        }
-    }
-
     /// A Sileo depiction when the package has one and it can be read; else
     /// the web depiction; else none.
     private func loadDepiction(_ record: PackageRecord, source: SourceInfo) async {
-        let web = source.url(record.depiction)
-        guard let native = source.url(record.sileoDepiction) else {
+        var web = source.url(record.depiction)
+        var native = source.url(record.sileoDepiction)
+        // Some packages name a Sileo depiction, which is JSON, in their
+        // Depiction field: it is drawn as a native depiction, not as a page.
+        if native == nil, let address = web, address.pathExtension.lowercased() == "json" {
+            native = address
+            web = nil
+        }
+        guard let native else {
             depiction = web.map(Depiction.web) ?? .absent
             return
         }

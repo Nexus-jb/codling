@@ -76,33 +76,26 @@ final class PackageHealthModel: ObservableObject {
     }
 }
 
-/// The Package System section of the System tab.
-struct PackageHealthSection: View {
+/// The Packages card of the System screen: what dpkg and apt report, a fix
+/// where there is one, and a button to check again.
+struct PackageHealthCard: View {
     @ObservedObject var model: PackageHealthModel
     @State private var confirming: AptDiagnosis.Fix?
 
     var body: some View {
-        Section {
-            content
-            if let lastFix = model.lastFix {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("\(lastFix.title) did not finish")
-                        .font(.headline)
-                        .foregroundColor(.red)
-                    ForEach(lastFix.diagnoses, id: \.id) { diagnosis in
-                        DiagnosisView(diagnosis: diagnosis, showsFix: false, onFix: { _ in })
-                    }
-                    OutputDisclosure(output: lastFix.output)
-                }
+        Card(padding: 14) {
+            ToolHeader(symbol: "shippingbox", color: .blue, title: "Packages") {
+                status
+                ToolNote(text: "A check with dpkg and apt for packages left half installed or missing a dependency. It changes nothing.")
+                    .padding(.top, 2)
             }
-            Button("Check Again") {
+            problems
+            Button("Check the Packages") {
                 Task { await model.check() }
             }
+            .buttonStyle(TintedButtonStyle())
             .disabled(isBusy)
-        } header: {
-            Text("Package System")
-        } footer: {
-            Text("Codling asks dpkg and apt whether any package is left half installed or has missing dependencies. The check changes nothing.")
+            .padding(.top, 12)
         }
         .confirmationDialog("Finish setting up the packages?", isPresented: Binding(
             get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible) {
@@ -125,40 +118,75 @@ struct PackageHealthSection: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private var status: some View {
         switch model.state {
         case .checking:
-            HStack {
+            HStack(spacing: 8) {
                 ProgressView()
                 Text("Checking")
-                    .padding(.leading, 6)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
         case .fixing(let fix):
-            HStack {
+            HStack(spacing: 8) {
                 ProgressView()
                 Text(fix == .configurePending ? "Finishing setup" : "Working")
-                    .padding(.leading, 6)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
         case .healthy:
-            HealthLine(symbol: "checkmark.seal.fill", color: .green, title: "No problems",
-                       detail: "Every package is fully installed, and every dependency is met.")
+            StatusLine(symbol: "checkmark.circle.fill", text: "No problems", color: .green)
+            Text("Every package is fully installed, and every dependency is met.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         case .failed(let message):
-            HealthLine(symbol: "xmark.octagon.fill", color: .red, title: "Could not check", detail: message)
-        case .problems(let diagnoses, let output):
-            if diagnoses.isEmpty {
-                HealthLine(symbol: "exclamationmark.triangle.fill", color: .orange, title: "apt reported a problem",
-                           detail: "Codling does not recognize it yet. The details below show what apt said.")
-            }
-            ForEach(diagnoses, id: \.id) { diagnosis in
-                DiagnosisView(diagnosis: diagnosis, showsFix: true) { fix in
-                    if fix == .configurePending {
-                        confirming = fix
-                    } else {
-                        Task { await model.perform(fix) }
+            StatusLine(symbol: "xmark.octagon.fill", text: "Could not check", color: .red)
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        case .problems(let diagnoses, _):
+            StatusLine(symbol: "exclamationmark.triangle.fill",
+                       text: diagnoses.count > 1 ? "\(diagnoses.count) problems" : "A problem",
+                       color: .orange)
+        }
+    }
+
+    /// The problems and the last repair that failed, under the heading.
+    @ViewBuilder
+    private var problems: some View {
+        if case .problems(let diagnoses, let output) = model.state {
+            VStack(alignment: .leading, spacing: 12) {
+                if diagnoses.isEmpty {
+                    Text("apt reported a problem that Codling does not recognize yet. The details below show what apt said.")
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(diagnoses, id: \.id) { diagnosis in
+                    DiagnosisView(diagnosis: diagnosis, showsFix: true) { fix in
+                        if fix == .configurePending {
+                            confirming = fix
+                        } else {
+                            Task { await model.perform(fix) }
+                        }
                     }
                 }
+                OutputDisclosure(output: output)
             }
-            OutputDisclosure(output: output)
+            .padding(.top, 14)
+        }
+        if let lastFix = model.lastFix {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("\(lastFix.title) did not finish")
+                    .font(.headline)
+                    .foregroundColor(.red)
+                ForEach(lastFix.diagnoses, id: \.id) { diagnosis in
+                    DiagnosisView(diagnosis: diagnosis, showsFix: false, onFix: { _ in })
+                }
+                OutputDisclosure(output: lastFix.output)
+            }
+            .padding(.top, 14)
         }
     }
 }
@@ -198,30 +226,6 @@ struct DiagnosisView: View {
     }
 }
 
-private struct HealthLine: View {
-    let symbol: String
-    let color: Color
-    let title: String
-    let detail: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol)
-                .foregroundColor(color)
-                .font(.title3)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
 /// What the tools printed, folded away.
 private struct OutputDisclosure: View {
     let output: String
@@ -238,3 +242,4 @@ private struct OutputDisclosure: View {
         }
     }
 }
+

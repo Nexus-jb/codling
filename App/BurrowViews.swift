@@ -173,34 +173,47 @@ struct BurrowView: View {
     @ObservedObject var model: BurrowModel
 
     var body: some View {
-        List {
-            switch model.phase {
-            case .loading:
-                HStack {
-                    ProgressView()
-                    Text("Asking Burrow")
-                        .padding(.leading, 6)
-                }
-            case .notInstalled:
-                Section {
-                    Text("Burrow is not installed.")
-                } footer: {
-                    Text("Burrow loads tweaks into apps, with Safe Mode, which turns off a tweak that crashes an app in that app only. Once Burrow is installed, its settings appear here.")
-                }
-            case .failed(let message):
-                Section {
-                    Text(message)
-                        .textSelection(.enabled)
-                    Button("Try Again") {
-                        Task { await model.load() }
+        ScrollView {
+            VStack(spacing: 12) {
+                switch model.phase {
+                case .loading:
+                    Card(padding: 14) {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Asking Burrow")
+                                .foregroundColor(.secondary)
+                        }
                     }
-                } header: {
-                    Text("Burrow did not answer")
+                case .notInstalled:
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "puzzlepiece.extension", color: .gray, title: "Burrow is not installed") {
+                            ToolNote(text: "Burrow loads tweaks into apps, with Safe Mode, which turns off a tweak that crashes an app in that app only. Once Burrow is installed, its settings appear here.")
+                        }
+                    }
+                case .failed(let message):
+                    Card(padding: 14) {
+                        ToolHeader(symbol: "xmark.octagon", color: .red, title: "Burrow did not answer") {
+                            Text(message)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button("Try Again") {
+                            Task { await model.load() }
+                        }
+                        .buttonStyle(TintedButtonStyle())
+                        .padding(.top, 12)
+                    }
+                case .ready(let state):
+                    BurrowStateSections(model: model, state: state)
                 }
-            case .ready(let state):
-                BurrowStateSections(model: model, state: state)
             }
+            .toolColumn()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
+        .background(WallBackground())
         .navigationTitle("Burrow")
         .refreshable { await model.load() }
         .task { await model.load() }
@@ -214,26 +227,140 @@ private struct BurrowStateSections: View {
     @ObservedObject var model: BurrowModel
     let state: BurrowState
     @State private var confirmingLoader = false
+    @State private var showsSafeMode = false
+    @State private var showsTweaks = false
 
     var body: some View {
-        Section {
-            row("Tweak loader", state.loader)
-            row("Safe Mode", state.safeModeSince.map { "On since \(Self.format($0))" } ?? "Off")
-            if let until = state.trialUntil {
-                Text("Burrow watches SpringBoard closely until \(Self.format(until)), and goes back to ElleKit's loader by itself if SpringBoard crashes twice.")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+        loaderCard
+
+        if state.settings == "invalid" {
+            Card(padding: 14) {
+                ToolHeader(symbol: "exclamationmark.triangle", color: .orange, title: "Damaged settings") {
+                    ToolNote(text: "Burrow's loader settings are damaged, so the loader loads no tweaks until they are fixed. Codling leaves them alone.")
+                }
             }
-            if let back = state.wentBack {
-                Text("Burrow went back to ElleKit's loader\(back.date.map { " on \(Self.format($0))" } ?? ""): \(back.reason)")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+        } else if state.format != BurrowState.knownFormat {
+            Card(padding: 14) {
+                ToolHeader(symbol: "arrow.down.circle", color: .orange, title: "A newer Burrow") {
+                    ToolNote(text: "This Burrow reports its settings in a newer form. Update Codling to change them here.")
+                }
+            }
+        }
+
+        let events = state.safeModeEvents.filter(state.isStillOff)
+        if !events.isEmpty {
+            CollapsibleCard(title: "Turned Off by Safe Mode", symbol: "shield.lefthalf.filled", color: .red,
+                            count: events.count, expanded: $showsSafeMode) {
+                DividedRows(items: events.prefix(10).enumerated().map { EventRow(index: $0.offset, event: $0.element) },
+                            dividerInset: 16) { row in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(eventTitle(row.event))
+                            .font(.subheadline.weight(.semibold))
+                        Text(row.event.text)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(row.event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
+                            Task { await model.setTweak(row.event.tweak, on: true, in: row.event.process, origin: Self.origin) }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .disabled(!state.canChangeSettings || model.working != nil)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+            }
+            .padding(.top, 8)
+            if showsSafeMode {
+                CardFooter(text: events.count > 10
+                           ? "The latest 10 are shown. Safe Mode turns a tweak off in the app it crashed, and nowhere else."
+                           : "Safe Mode turns a tweak off in the app it crashed, and nowhere else.")
+            }
+        }
+
+        if state.tweaks.isEmpty {
+            Card(padding: 14) {
+                ToolHeader(symbol: SectionSymbol.name(for: "Tweaks"), color: SectionSymbol.color(for: "Tweaks"),
+                           title: "Tweaks") {
+                    ToolNote(text: "No tweaks are installed.")
+                }
+            }
+            .padding(.top, 8)
+        } else {
+            CollapsibleCard(title: "Tweaks", symbol: SectionSymbol.name(for: "Tweaks"),
+                            color: SectionSymbol.color(for: "Tweaks"),
+                            count: state.tweakGroups.count, expanded: $showsTweaks) {
+                // A package's tweaks, such as one for SpringBoard and one for
+                // an app, are one row.
+                DividedRows(items: state.tweakGroups, dividerInset: 66) { group in
+                    NavigationLink {
+                        PackageTweaksView(model: model, groupID: group.id)
+                    } label: {
+                        HStack(spacing: 14) {
+                            IconTile(symbol: "puzzlepiece.extension.fill",
+                                     color: group.tweaks.contains(where: isOffSomewhere) ? .orange : .blue, size: 36)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.title)
+                                    .font(.body.weight(.semibold))
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                // One line for each of the package's tweaks.
+                                ForEach(group.tweaks) { tweak in
+                                    Text(line(for: tweak, alone: group.tweaks.count == 1))
+                                        .font(.footnote)
+                                        .foregroundColor(isOffSomewhere(tweak) ? .orange : .secondary)
+                                }
+                            }
+                            Spacer(minLength: 6)
+                            Chevron()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                    .buttonStyle(CardRowButtonStyle())
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private struct EventRow: Identifiable {
+        let index: Int
+        let event: BurrowState.Event
+
+        var id: Int { index }
+    }
+
+    private var loaderCard: some View {
+        Card(padding: 14) {
+            ToolHeader(symbol: "bolt.horizontal.circle", color: .blue, title: "Loader") {
+                VStack(spacing: 6) {
+                    row("Tweak loader", state.loader)
+                    row("Safe Mode", state.safeModeSince.map { "On since \(Self.format($0))" } ?? "Off")
+                }
+                if let until = state.trialUntil {
+                    ToolNote(text: "Burrow watches SpringBoard closely until \(Self.format(until)), and goes back to ElleKit's loader by itself if SpringBoard crashes twice.")
+                        .padding(.top, 2)
+                }
+                if let back = state.wentBack {
+                    ToolNote(text: "Burrow went back to ElleKit's loader\(back.date.map { " on \(Self.format($0))" } ?? ""): \(back.reason)")
+                        .padding(.top, 2)
+                }
+                if !state.usesBurrowLoader {
+                    ToolNote(text: "Burrow's settings below take effect once Burrow's loader loads the tweaks.")
+                        .padding(.top, 2)
+                }
             }
             if state.loader == "Burrow" || state.loader == "ElleKit" {
                 Button(state.usesBurrowLoader ? "Go Back to ElleKit's Loader" : "Use Burrow's Loader") {
                     confirmingLoader = true
                 }
+                .buttonStyle(TintedButtonStyle())
                 .disabled(model.working != nil)
+                .padding(.top, 12)
                 .confirmationDialog(state.usesBurrowLoader ? "Go back to ElleKit's loader?" : "Use Burrow's loader?",
                                     isPresented: $confirmingLoader, titleVisibility: .visible) {
                     Button(state.usesBurrowLoader ? "Use ElleKit's Loader" : "Use Burrow's Loader") {
@@ -245,75 +372,6 @@ private struct BurrowStateSections: View {
                          : "Burrow's loader loads the same tweaks, adds Safe Mode and per-app settings, and goes back to ElleKit's loader by itself if it crashes.")
                 }
             }
-        } header: {
-            Text("Loader")
-        } footer: {
-            if !state.usesBurrowLoader {
-                Text("Burrow's settings below take effect once Burrow's loader loads the tweaks.")
-            }
-        }
-
-        if state.settings == "invalid" {
-            Section {
-                Label("Burrow's loader settings are damaged, so the loader loads no tweaks until they are fixed. Codling leaves them alone.",
-                      systemImage: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
-            }
-        } else if state.format != BurrowState.knownFormat {
-            Section {
-                Text("This Burrow reports its settings in a newer form. Update Codling to change them here.")
-            }
-        }
-
-        let events = state.safeModeEvents.filter(state.isStillOff)
-        if !events.isEmpty {
-            Section {
-                ForEach(Array(events.prefix(10).enumerated()), id: \.offset) { _, event in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(eventTitle(event))
-                        Text(event.text)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
-                        Button(event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
-                            Task { await model.setTweak(event.tweak, on: true, in: event.process, origin: Self.origin) }
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(!state.canChangeSettings || model.working != nil)
-                    }
-                    .padding(.vertical, 2)
-                }
-            } header: {
-                Text("Turned Off by Safe Mode")
-            } footer: {
-                Text("Safe Mode turns a tweak off in the app it crashed, and nowhere else.")
-            }
-        }
-
-        Section {
-            if state.tweaks.isEmpty {
-                Text("No tweaks are installed.")
-                    .foregroundColor(.secondary)
-            }
-            // A package's tweaks, such as one for SpringBoard and one for an
-            // app, are one row.
-            ForEach(state.tweakGroups) { group in
-                NavigationLink {
-                    PackageTweaksView(model: model, groupID: group.id)
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(group.title)
-                        // One line for each of the package's tweaks.
-                        ForEach(group.tweaks) { tweak in
-                            Text(line(for: tweak, alone: group.tweaks.count == 1))
-                                .font(.footnote)
-                                .foregroundColor(isOffSomewhere(tweak) ? .orange : .secondary)
-                        }
-                    }
-                }
-            }
-        } header: {
-            Text("Tweaks")
         }
     }
 
@@ -351,13 +409,14 @@ private struct BurrowStateSections: View {
     }
 
     private func row(_ title: String, _ value: String) -> some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             Text(title)
-            Spacer()
-            Text(value)
                 .foregroundColor(.secondary)
+            Spacer(minLength: 8)
+            Text(value)
                 .multilineTextAlignment(.trailing)
         }
+        .font(.subheadline)
         .accessibilityElement(children: .combine)
     }
 }
@@ -376,14 +435,22 @@ struct PackageTweaksView: View {
     }
 
     var body: some View {
-        List {
-            if let state = model.state, let group {
-                content(state: state, group: group)
-            } else {
-                Text("This tweak is no longer installed.")
-                    .foregroundColor(.secondary)
+        ScrollView {
+            VStack(spacing: 12) {
+                if let state = model.state, let group {
+                    content(state: state, group: group)
+                } else {
+                    Card(padding: 14) {
+                        Text("This tweak is no longer installed.")
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
+            .toolColumn()
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
+        .background(WallBackground())
         .navigationTitle(group?.title ?? "Tweak")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.load() }
@@ -401,83 +468,113 @@ struct PackageTweaksView: View {
 
     @ViewBuilder
     private func content(state: BurrowState, group: BurrowState.TweakGroup) -> some View {
-        if let package = group.tweaks.first?.package {
-            Section {
-                detail("Package", [package, group.tweaks.first?.packageVersion].compactMap { $0 }.joined(separator: " "))
-                if group.tweaks.count > 1 {
-                    Text("This package installs \(group.tweaks.count) tweaks, each with its own settings below.")
-                        .font(.footnote)
+        Card(padding: 14) {
+            ToolHeader(symbol: "puzzlepiece.extension.fill", color: .blue, title: group.title) {
+                if let package = group.tweaks.first?.package {
+                    Text([package, group.tweaks.first?.packageVersion].compactMap { $0 }.joined(separator: " "))
+                        .font(.footnote.monospaced())
                         .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+                if group.tweaks.count > 1 {
+                    ToolNote(text: "This package installs \(group.tweaks.count) tweaks, each with its own settings below.")
+                        .padding(.top, 2)
                 }
             }
         }
         ForEach(group.tweaks) { tweak in
-            tweakSection(state: state, tweak: tweak, named: group.tweaks.count > 1 || tweak.displayName != tweak.name)
+            tweakCard(state: state, tweak: tweak, named: group.tweaks.count > 1 || tweak.displayName != tweak.name)
         }
     }
 
-    private func tweakSection(state: BurrowState, tweak: BurrowState.Tweak, named: Bool) -> some View {
+    private func tweakCard(state: BurrowState, tweak: BurrowState.Tweak, named: Bool) -> some View {
         let offEverywhere = state.isOffEverywhere(tweak.name)
         let places = state.placesOff(tweak.name)
         let canChange = state.canChangeSettings && model.working == nil
-        return Section {
-            detail("Loads into", reach(of: tweak))
-            if tweak.manager {
-                Text("This is a tweak manager: it decides about other tweaks, and loads before them.")
-                    .font(.footnote)
+        return Card(padding: 14) {
+            ToolHeader(symbol: "slider.horizontal.3", color: offEverywhere ? .orange : .indigo,
+                       title: named ? tweak.name : "Settings") {
+                Text("Loads into: \(reach(of: tweak))")
+                    .font(.subheadline)
                     .foregroundColor(.secondary)
-            }
-            Toggle("On Everywhere", isOn: Binding(
-                get: { !offEverywhere },
-                set: { on in
-                    Task { await model.setTweak(tweak.name, on: on, in: BurrowState.everyTweak, origin: origin) }
-                }))
-                .disabled(!canChange || state.disabledEverywhere.contains(BurrowState.everyTweak))
-            ForEach(places) { place in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Off in \(model.name(of: place.process))")
-                        if place.everyTweak {
-                            Text("Every tweak is off here")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        } else if model.name(of: place.process) != place.process {
-                            Text(place.process)
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    Spacer()
-                    Button(place.everyTweak ? "Turn All On" : "Turn On") {
-                        Task {
-                            await model.setTweak(place.everyTweak ? BurrowState.everyTweak : tweak.name, on: true,
-                                                 in: place.process, origin: origin)
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(!canChange || offEverywhere)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                if tweak.manager {
+                    ToolNote(text: "This is a tweak manager: it decides about other tweaks, and loads before them.")
+                        .padding(.top, 2)
                 }
-                .accessibilityElement(children: .combine)
             }
+
+            VStack(spacing: 0) {
+                Toggle("On Everywhere", isOn: Binding(
+                    get: { !offEverywhere },
+                    set: { on in
+                        Task { await model.setTweak(tweak.name, on: on, in: BurrowState.everyTweak, origin: origin) }
+                    }))
+                    .font(.subheadline.weight(.semibold))
+                    .disabled(!canChange || state.disabledEverywhere.contains(BurrowState.everyTweak))
+                    .padding(.vertical, 8)
+                ForEach(places) { place in
+                    Divider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Off in \(model.name(of: place.process))")
+                                .font(.subheadline.weight(.semibold))
+                            if place.everyTweak {
+                                Text("Every tweak is off here")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            } else if model.name(of: place.process) != place.process {
+                                Text(place.process)
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Button(place.everyTweak ? "Turn All On" : "Turn On") {
+                            Task {
+                                await model.setTweak(place.everyTweak ? BurrowState.everyTweak : tweak.name, on: true,
+                                                     in: place.process, origin: origin)
+                            }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .disabled(!canChange || offEverywhere)
+                    }
+                    .padding(.vertical, 8)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .padding(.horizontal, 12)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .glassSurface(cornerRadius: 12, inset: true)
+            .padding(.top, 12)
+
             Button {
                 choosingFor = tweak
             } label: {
                 Label("Turn Off in an App", systemImage: "minus.circle")
             }
+            .buttonStyle(TintedButtonStyle())
             .disabled(!canChange || offEverywhere)
-        } header: {
-            if named {
-                Text(tweak.name)
-            }
-        } footer: {
-            if offEverywhere {
-                Text("Off in every process. Turn it on everywhere before turning it on in one app.")
-            } else if !state.usesBurrowLoader {
-                Text("These settings take effect once Burrow's loader loads the tweaks.")
-            } else if !places.isEmpty {
-                Text("Turning it off everywhere keeps the apps above as they are.")
+            .padding(.top, 12)
+
+            if let note = footer(state: state, offEverywhere: offEverywhere, places: places) {
+                ToolNote(text: note)
+                    .padding(.top, 10)
             }
         }
+    }
+
+    private func footer(state: BurrowState, offEverywhere: Bool, places: [BurrowState.OffPlace]) -> String? {
+        if offEverywhere {
+            return "Off in every process. Turn it on everywhere before turning it on in one app."
+        } else if !state.usesBurrowLoader {
+            return "These settings take effect once Burrow's loader loads the tweaks."
+        } else if !places.isEmpty {
+            return "Turning it off everywhere keeps the apps above as they are."
+        }
+        return nil
     }
 
     private func reach(of tweak: BurrowState.Tweak) -> String {
@@ -497,16 +594,6 @@ struct PackageTweaksView: View {
         }
     }
 
-    private func detail(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.footnote)
-                .foregroundColor(.secondary)
-            Text(value)
-                .textSelection(.enabled)
-        }
-        .accessibilityElement(children: .combine)
-    }
 }
 
 /// Picks the app, or the process the tweak's filter names, to turn the tweak
@@ -521,34 +608,37 @@ private struct AppChooserView: View {
 
     var body: some View {
         NavigationView {
-            List {
-                let off = Set(state.placesOff(tweak.name).map(\.process))
-                let named = tweak.namedTargets.filter { !off.contains($0) && matches($0) }
-                if !named.isEmpty {
-                    Section {
-                        ForEach(named, id: \.self) { process in
-                            choice(process)
+            ScrollView {
+                VStack(spacing: 10) {
+                    let off = Set(state.placesOff(tweak.name).map(\.process))
+                    let named = tweak.namedTargets.filter { !off.contains($0) && matches($0) }
+                    if !named.isEmpty {
+                        CardHeading(title: "Named by the tweak", symbol: "scope")
+                        CardRows(items: named.map(Choice.init), dividerInset: 62) { choice in
+                            row(choice.id, symbol: "gearshape.2.fill", color: .gray)
                         }
-                    } header: {
-                        Text("Named by the tweak")
                     }
-                }
-                if tweak.mayLoadIntoAnyApp(installedApps: Set(model.apps.map(\.id))) {
-                    let namedSet = Set(named)
-                    let apps = model.apps.filter { !off.contains($0.id) && !namedSet.contains($0.id) && matches($0.id) }
-                    Section {
+                    if tweak.mayLoadIntoAnyApp(installedApps: Set(model.apps.map(\.id))) {
+                        let namedSet = Set(named)
+                        let apps = model.apps.filter { !off.contains($0.id) && !namedSet.contains($0.id) && matches($0.id) }
+                        CardHeading(title: "Apps", symbol: "square.grid.2x2")
+                            .padding(.top, named.isEmpty ? 0 : 8)
                         if model.apps.isEmpty {
-                            Text("Codling could not list the apps on this device.")
-                                .foregroundColor(.secondary)
+                            Card(padding: 14) {
+                                Text("Codling could not list the apps on this device.")
+                                    .foregroundColor(.secondary)
+                            }
+                        } else if !apps.isEmpty {
+                            CardRows(items: apps.map { Choice(id: $0.id) }, dividerInset: 62) { choice in
+                                row(choice.id, symbol: "app.fill", color: .blue)
+                            }
                         }
-                        ForEach(apps) { app in
-                            choice(app.id)
-                        }
-                    } header: {
-                        Text("Apps")
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
+            .background(WallBackground())
             .searchable(text: $query)
             .navigationTitle("Turn Off In")
             .navigationBarTitleDisplayMode(.inline)
@@ -566,20 +656,31 @@ private struct AppChooserView: View {
             || process.localizedCaseInsensitiveContains(text)
     }
 
-    private func choice(_ process: String) -> some View {
+    private struct Choice: Identifiable {
+        let id: String
+    }
+
+    private func row(_ process: String, symbol: String, color: Color) -> some View {
         Button {
             choose(process)
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.name(of: process))
-                    .foregroundColor(.primary)
-                if model.name(of: process) != process {
-                    Text(process)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+            HStack(spacing: 12) {
+                IconTile(symbol: symbol, color: color, size: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.name(of: process))
+                        .font(.body.weight(.semibold))
+                    if model.name(of: process) != process {
+                        Text(process)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
                 }
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
         }
+        .buttonStyle(CardRowButtonStyle())
     }
 }
 

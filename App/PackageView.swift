@@ -16,25 +16,34 @@ struct PackageView: View {
     @StateObject private var model = PackageModel()
     @StateObject private var router = DepictionRouter()
 
+    /// The tab of the content card: a native depiction's tabs in order,
+    /// or Details, and then Full Description.
+    @State private var tab = 0
+    /// The web page in the Full Description tab.
+    @State private var webHeight: CGFloat = 1
+    @State private var webLoad: WebLoadState = .loading
+    @State private var webReload = 0
+    @State private var savedDiagnostics = false
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
                 if case .native(let depiction, _) = model.depiction, let headerImage = depiction.headerImage {
-                    RemoteImage(urls: [headerImage], maxPixels: 1600) {
-                        Color(.secondarySystemFill)
-                    }
-                    .frame(height: 170)
-                    .frame(maxWidth: .infinity)
-                    .clipped()
-                    .accessibilityHidden(true)
+                    FramedPackageBanner(url: headerImage)
                 }
-                header
-                depictionSection
-                if model.loaded {
+                identityCard
+                contentCard
+                if model.loaded && tab == 0 {
                     details
                 }
             }
+            .frame(maxWidth: 560)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
+        .foregroundColor(Palette.text)
+        .background(WallBackground())
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -52,6 +61,11 @@ struct PackageView: View {
         return summary?.displayName ?? identifier
     }
 
+    /// The package's web page, which the native depiction's tabs offer too.
+    private var webPage: URL? {
+        source.url(record?.depiction)
+    }
+
     private var depictionBase: URL? {
         switch model.depiction {
         case .native(_, let base): return base
@@ -62,34 +76,43 @@ struct PackageView: View {
 
     // MARK: Header
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
-                IconView(urls: source.url(record?.icon ?? summary?.icon).map { [$0] } ?? [],
-                         symbol: SectionSymbol.name(for: record?.section ?? summary?.section), size: 72)
+    private var isPaid: Bool {
+        PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial")
+    }
+
+    private var identityCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                PackageIcon(urls: source.url(record?.icon ?? summary?.icon).map { [$0] } ?? [],
+                            section: record?.section ?? summary?.section, size: 62)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(name)
                         .font(.title2.bold())
                         .fixedSize(horizontal: false, vertical: true)
                     if let author = author {
                         Text(author)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(Palette.muted)
                     }
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         Text(record?.version ?? summary?.version ?? "")
-                            .font(.footnote.monospacedDigit())
-                            .foregroundColor(.secondary)
-                        if PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial") {
-                            PaidBadge()
+                            .foregroundColor(Palette.muted)
+                        if isPaid {
+                            Text("Paid")
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(Palette.text)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .glassSurface(cornerRadius: 99, inset: true)
                         }
                     }
+                    .font(.subheadline)
                 }
                 .accessibilityElement(children: .combine)
             }
             if let installedVersion = installed.version(of: identifier) {
                 Label(installedText(installedVersion), systemImage: "checkmark.circle.fill")
                     .font(.subheadline)
-                    .foregroundColor(.green)
+                    .foregroundColor(Palette.green)
             }
             if let record {
                 CompatibilityCard(report: Compatibility.check(depends: record.depends, tag: record.tag, name: record.name,
@@ -97,15 +120,12 @@ struct PackageView: View {
                                   architecture: record.architecture)
             }
             if model.loaded {
-                PackageActions(identifier: identifier, name: name, available: record?.version,
-                               isPaid: PackageCatalog.tags(record?.tag ?? summary?.tag).contains("cydia::commercial"))
-            }
-            if let summaryText = record?.summary ?? summary?.summary, !summaryText.isEmpty {
-                Text(summaryText)
-                    .fixedSize(horizontal: false, vertical: true)
+                PackageActions(identifier: identifier, name: name, available: record?.version, isPaid: isPaid)
             }
         }
-        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassSurface(cornerRadius: 22)
     }
 
     private var author: String? {
@@ -123,102 +143,232 @@ struct PackageView: View {
 
     // MARK: Depiction
 
+    /// The names of the content card's tabs.
+    private var tabNames: [String] {
+        var names: [String]
+        if case .native(let depiction, _) = model.depiction {
+            names = depiction.tabs.map(\.name)
+        } else {
+            names = ["Details"]
+        }
+        if hasFullDescription {
+            names.append("Full Description")
+        }
+        return names
+    }
+
+    private var hasFullDescription: Bool {
+        webPage != nil || !(record?.details ?? "").isEmpty || !(summaryText ?? "").isEmpty
+    }
+
+    private var summaryText: String? {
+        record?.summary ?? summary?.summary
+    }
+
     @ViewBuilder
-    private var depictionSection: some View {
+    private var contentCard: some View {
         switch model.depiction {
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity)
                 .padding(24)
-        case .native(let depiction, _):
-            Divider()
-                .padding(.horizontal, 16)
-            NativeDepictionContent(depiction: depiction)
-                .padding(.vertical, 8)
-        case .web(let url):
-            // Pages in a web view inside Codling stop before they draw on a
-            // jailbroken device, so the page opens in the browser sheet, as
-            // in Sileo.
-            descriptionText
-            WebDepictionLink(title: "Full Description") {
-                router.perform(.web(url))
-            }
-        case .failed(let message):
-            problem(message) {
-                Task { await model.reloadDepiction(source: source) }
-            }
-            descriptionText
-        case .absent:
-            descriptionText
+                .glassSurface(cornerRadius: 22)
+        default:
+            // A depiction that cannot be loaded, such as one its server no
+            // longer has, leaves the package's own description in the tabs.
+            tabbedContent
         }
     }
 
-    private func problem(_ message: String, retry: @escaping () -> Void) -> some View {
-        VStack(spacing: 10) {
-            Text(message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Try Again", action: retry)
+    private var tabbedContent: some View {
+        let names = tabNames
+        let selected = min(tab, names.count - 1)
+        return VStack(alignment: .leading, spacing: 10) {
+            if names.count > 1 {
+                Picker("Package information", selection: $tab) {
+                    ForEach(names.indices, id: \.self) { index in
+                        Text(names[index]).tag(index)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+            }
+            if hasFullDescription && selected == names.count - 1 && names.count > 1 {
+                fullDescription
+                    .padding(.horizontal, webPage != nil && !webFailed ? 0 : 14)
+                    .padding(.bottom, 14)
+            } else if case .native(let depiction, _) = model.depiction, selected < depiction.tabs.count {
+                DepictionViews(views: depiction.tabs[selected].views)
+                    .environment(\.depictionTint, depiction.tintColor.map(\.color))
+                    .tint(depiction.tintColor.map(\.color))
+                    .padding(.bottom, 8)
+            } else if let summaryText, !summaryText.isEmpty {
+                Text(summaryText)
+                    .font(.subheadline)
+                    .foregroundColor(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
+                    .padding(.top, names.count > 1 ? 0 : 14)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .glassSurface(cornerRadius: 22)
     }
 
+    /// The package's web page, shown in the tab itself; without one, or
+    /// when it cannot load, the summary and description, with a button that
+    /// opens the page in the browser sheet.
     @ViewBuilder
-    private var descriptionText: some View {
-        if let details = record?.details, !details.isEmpty {
-            Text(details)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
+    private var fullDescription: some View {
+        if let webPage, !webFailed {
+            ZStack(alignment: .top) {
+                WebDepictionView(url: webPage, height: $webHeight, state: $webLoad, reload: webReload) { url in
+                    router.perform(.web(url))
+                }
+                .frame(height: max(webHeight, 1))
+                .opacity(webLoad == .loaded ? 1 : 0)
+                if webLoad == .loading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(24)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                if case .failed(let message) = webLoad {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let summaryText, !summaryText.isEmpty {
+                    Text(summaryText)
+                        .font(.body.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let details = record?.details, !details.isEmpty {
+                    Text(details)
+                        .font(.subheadline)
+                        .foregroundColor(Palette.muted)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if let webPage {
+                    HStack(spacing: 8) {
+                        Button("Try Again") {
+                            webLoad = .loading
+                            webReload += 1
+                        }
+                        .buttonStyle(TintedButtonStyle())
+                        Button {
+                            router.browser(webPage)
+                        } label: {
+                            Label("Open in Browser", systemImage: "safari")
+                        }
+                        .buttonStyle(TintedButtonStyle())
+                    }
+                    .padding(.top, 4)
+                    if webFailed {
+                        Button {
+                            let text = WebDiagnostics.save(context: "\(identifier) \(webPage.absoluteString)")
+                            UIPasteboard.general.string = text
+                            savedDiagnostics = true
+                        } label: {
+                            Label("Save Technical Details", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .buttonStyle(TintedButtonStyle(color: .gray))
+                        if savedDiagnostics {
+                            Text("Copied, and saved to Documents as Codling-WebKit-Log.txt.")
+                                .font(.footnote)
+                                .foregroundColor(Palette.muted)
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /// Whether the web page failed, for the tab to show the text instead.
+    private var webFailed: Bool {
+        if case .failed = webLoad { return true }
+        return false
     }
 
     // MARK: Details
 
     private var details: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Package Details")
-                .font(.headline)
-                .padding(.bottom, 6)
-                .accessibilityAddTraits(.isHeader)
-            if let record {
-                InfoRow(name: "Version", value: record.version)
-                if let version = installed.version(of: identifier) {
-                    InfoRow(name: "Installed", value: version)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Package Details", systemImage: "info.circle")
+                    .font(.headline)
+                    .foregroundColor(Palette.heading)
+                    .padding(.leading, 4)
+                    .accessibilityAddTraits(.isHeader)
+                VStack(spacing: 0) {
+                    detailRows
                 }
-                InfoRow(name: "Section", value: PackageCatalog.displaySection(record.section))
-                if let author = record.author {
-                    InfoRow(name: "Author", value: Person.name(author))
+                .padding(.vertical, 4)
+                .glassSurface(cornerRadius: 21)
+            }
+            if model.versions.count > 1 {
+                let others = model.versions.dropFirst().map(\.version)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Other Versions", systemImage: "clock.arrow.circlepath")
+                        .font(.headline)
+                        .foregroundColor(Palette.heading)
+                        .padding(.leading, 4)
+                        .accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 52), spacing: 6)], spacing: 6) {
+                        ForEach(others, id: \.self) { version in
+                            Text(version)
+                                .font(.footnote.weight(.medium).monospacedDigit())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 7)
+                                .glassSurface(cornerRadius: 8, inset: true)
+                        }
+                    }
+                    .padding(12)
+                    .glassSurface(cornerRadius: 21)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Other versions: \(others.joined(separator: ", "))")
                 }
-                if let maintainer = record.maintainer {
-                    InfoRow(name: "Maintainer", value: Person.name(maintainer))
-                }
-                if let size = record.size {
-                    InfoRow(name: "Download Size", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                }
-                InfoRow(name: "Identifier", value: record.package)
-                InfoRow(name: "Source", value: source.title)
-                if let depends = record.depends, !depends.isEmpty {
-                    InfoRow(name: "Depends", value: depends)
-                }
-                if model.versions.count > 1 {
-                    InfoRow(name: "Other Versions", value: model.versions.dropFirst().map(\.version).joined(separator: ", "))
-                }
-            } else {
-                Text("This source no longer lists this package. Refresh your sources to update the list.")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
-        .padding(16)
+    }
+
+    @ViewBuilder
+    private var detailRows: some View {
+        if let record {
+            InfoRow(name: "Version", value: record.version, first: true)
+            if let version = installed.version(of: identifier) {
+                InfoRow(name: "Installed", value: version)
+            }
+            InfoRow(name: "Section", value: PackageCatalog.displaySection(record.section))
+            if let author = record.author {
+                InfoRow(name: "Author", value: Person.name(author))
+            }
+            if let maintainer = record.maintainer {
+                InfoRow(name: "Maintainer", value: Person.name(maintainer))
+            }
+            if let size = record.size {
+                InfoRow(name: "Download Size", value: ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+            }
+            InfoRow(name: "Identifier", value: record.package, monospaced: true)
+            InfoRow(name: "Source", value: source.title)
+            if let depends = record.depends, !depends.isEmpty {
+                InfoRow(name: "Depends", value: depends)
+            }
+        } else {
+            Text("This source no longer lists this package. Refresh your sources to update the list.")
+                .font(.subheadline)
+                .foregroundColor(Palette.muted)
+                .padding(13)
+        }
     }
 }
 
@@ -248,7 +398,8 @@ private struct PackageActions: View {
                     Button("Take Off Queue") {
                         queue.remove(identifier)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(TintedButtonStyle())
+                    .frame(maxWidth: 160)
                 }
                 Text("Review it in the Queue tab.")
                     .font(.footnote)
@@ -257,14 +408,13 @@ private struct PackageActions: View {
                 HStack(spacing: 10) {
                     if installedVersion == nil {
                         if !isPaid && available != nil {
-                            action("Install", .install(identifier), prominent: true)
+                            action("Install", .install(identifier))
                         }
                     } else {
                         if upgradable && !isPaid {
-                            action("Upgrade", .install(identifier), prominent: true)
+                            action("Upgrade", .install(identifier))
                         }
-                        action("Remove", .remove(identifier), prominent: false)
-                            .tint(.red)
+                        action("Remove", .remove(identifier), destructive: true)
                     }
                 }
                 if isPaid && (installedVersion == nil || upgradable) {
@@ -276,21 +426,17 @@ private struct PackageActions: View {
         }
     }
 
-    @ViewBuilder
-    private func action(_ title: String, _ operation: PackageOperation, prominent: Bool) -> some View {
-        let button = Button {
+    /// An action as a glass button, its label in the text color, or red for
+    /// removing: a filled button in the text color would hide its label.
+    private func action(_ title: String, _ operation: PackageOperation, destructive: Bool = false) -> some View {
+        Button {
             queue.add(operation, name: name)
         } label: {
             Text(title)
-                .font(.body.weight(.semibold))
-                .frame(minWidth: 90)
+                .font(.body.weight(.bold))
+                .padding(.vertical, 3)
         }
-        .controlSize(.large)
-        if prominent {
-            button.buttonStyle(.borderedProminent)
-        } else {
-            button.buttonStyle(.bordered)
-        }
+        .buttonStyle(TintedButtonStyle(color: destructive ? .red : Palette.text))
     }
 
     private func queuedText(_ operation: PackageOperation, installed: Bool) -> String {
@@ -302,47 +448,36 @@ private struct PackageActions: View {
     }
 }
 
-/// A row that opens a web page in the browser sheet.
-struct WebDepictionLink: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Label(title, systemImage: "safari")
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.secondarySystemBackground)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(.accentColor)
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
-    }
-}
-
+/// A name and its value on one line, as a row of the details card; rows
+/// after the first draw a line above them.
 private struct InfoRow: View {
     let name: String
     let value: String
+    var monospaced = false
+    var first = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(name)
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(Palette.muted)
+            Spacer(minLength: 8)
             Text(value)
-                .font(.subheadline)
+                .font(monospaced ? .subheadline.monospaced() : .subheadline)
+                .multilineTextAlignment(.trailing)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.vertical, 5)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 8)
+        .overlay(alignment: .top) {
+            if !first {
+                Rectangle()
+                    .fill(Palette.divider.opacity(0.45))
+                    .frame(height: 1)
+                    .padding(.horizontal, 13)
+            }
+        }
         .accessibilityElement(children: .combine)
     }
 }
@@ -366,18 +501,23 @@ struct PackageLookupView: View {
                     .foregroundColor(.secondary)
                     .padding()
             } else {
-                List {
-                    Section("Offered by") {
-                        ForEach(model.offers) { offer in
+                ScrollView {
+                    VStack(spacing: 10) {
+                        CardHeading(title: "Offered by", symbol: "tray.full")
+                        let offers = model.offers.filter { sources.info(for: $0.source) != nil }
+                        CardRows(items: offers, dividerInset: 72) { offer in
                             if let info = sources.info(for: offer.source) {
                                 NavigationLink(destination: PackageView(source: info, identifier: offer.package, summary: offer)) {
-                                    CatalogRow(package: offer, source: info, showSource: true)
+                                    CatalogCardRow(package: offer, source: info, showSource: true)
                                 }
+                                .buttonStyle(CardRowButtonStyle())
                             }
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 }
-                .listStyle(.insetGrouped)
+                .background(WallBackground())
                 .navigationTitle(identifier)
             }
         }

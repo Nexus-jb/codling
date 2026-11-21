@@ -12,6 +12,7 @@ struct InstalledView: View {
         NavigationView {
             content
                 .navigationTitle("Installed")
+                .systemButton()
         }
         .navigationViewStyle(.stack)
         .task { await model.load(statusPath: environment.dpkgStatusPath) }
@@ -37,18 +38,22 @@ struct InstalledView: View {
             .padding()
         case .loaded(let packages):
             let shown = filtered(packages)
-            List {
-                Section {
-                    ForEach(shown) { package in
-                        NavigationLink(destination: PackageDetailView(package: package)) {
-                            PackageRow(package: package)
+            ScrollView {
+                VStack(spacing: 8) {
+                    if !shown.isEmpty {
+                        CardRows(items: shown) { package in
+                            NavigationLink(destination: PackageDetailView(package: package)) {
+                                PackageRow(package: package)
+                            }
+                            .buttonStyle(CardRowButtonStyle())
                         }
                     }
-                } footer: {
-                    Text(footer(shown: shown.count, total: packages.count))
+                    CardFooter(text: footer(shown: shown.count, total: packages.count))
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .listStyle(.insetGrouped)
+            .background(WallBackground())
             .searchable(text: $query, prompt: "Name, identifier or author")
             .refreshable { await model.load(statusPath: environment.dpkgStatusPath) }
         }
@@ -76,25 +81,50 @@ private struct PackageRow: View {
     let package: InstalledPackage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
+        HStack(spacing: 14) {
+            InstalledIcon(package: package)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(package.name)
-                    .font(.headline)
+                    .font(.body.weight(.semibold))
+                    .foregroundColor(.primary)
                     .lineLimit(1)
-                Spacer()
-                Text(package.version)
-                    .font(.caption.monospacedDigit())
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
+                if !package.summary.isEmpty {
+                    Text(package.summary)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
             }
-            if !package.summary.isEmpty {
-                Text(package.summary)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
+            Spacer(minLength: 8)
+            Text(package.version)
+                .font(.footnote.monospacedDigit())
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+            Chevron()
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The icon a package names, when it loads; otherwise its section's symbol
+/// on its section's color.
+private struct InstalledIcon: View {
+    let package: InstalledPackage
+    var size: CGFloat = 40
+
+    var body: some View {
+        PackageIcon(urls: iconURL.map { [$0] } ?? [], section: package.section, size: size)
+    }
+
+    private var iconURL: URL? {
+        guard let text = package.field("Icon"), let url = URL(string: text),
+              let scheme = url.scheme?.lowercased(), ["https", "http", "file"].contains(scheme) else {
+            return nil
+        }
+        return url
     }
 }
 
@@ -106,56 +136,92 @@ private struct PackageDetailView: View {
     private static let summaryFields = ["Version", "Section", "Author", "Maintainer", "Architecture", "Installed-Size"]
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(package.name)
-                        .font(.title2.bold())
-                    Text(package.identifier)
-                        .font(.footnote.monospaced())
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                    if !package.summary.isEmpty {
-                        Text(package.summary)
+        ScrollView {
+            VStack(spacing: 12) {
+                Card(padding: 14) {
+                    HStack(alignment: .top, spacing: 14) {
+                        InstalledIcon(package: package, size: 60)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(package.name)
+                                .font(.title3.bold())
+                            Text(package.identifier)
+                                .font(.footnote.monospaced())
+                                .foregroundColor(.secondary)
+                                .textSelection(.enabled)
+                            if !package.summary.isEmpty {
+                                Text(package.summary)
+                                    .font(.subheadline)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                     }
                     if !package.details.isEmpty {
                         Text(package.details)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 12)
                     }
                 }
-                .padding(.vertical, 4)
+
+                CardHeading(title: "Details", symbol: "info.circle")
+                    .padding(.top, 8)
+                CardRows(items: fields, dividerInset: 14) { field in
+                    FieldRow(name: field.name, value: field.value)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                }
+
+                Card(padding: 14) {
+                    let queued = queue.operation(for: package.identifier) != nil
+                    ToolHeader(symbol: queued ? "tray.and.arrow.down" : "trash", color: queued ? .blue : .red,
+                               title: queued ? "Queued" : "Remove") {
+                        ToolNote(text: queued
+                                 ? "Review it in the Queue tab."
+                                 : "Removing queues the change; the Queue tab shows everything apt would remove before anything happens.")
+                    }
+                    if queued {
+                        Button("Take Off Queue") {
+                            queue.remove(package.identifier)
+                        }
+                        .buttonStyle(TintedButtonStyle())
+                        .padding(.top, 12)
+                    } else {
+                        Button("Remove", role: .destructive) {
+                            queue.add(.remove(package.identifier), name: package.name)
+                        }
+                        .buttonStyle(TintedButtonStyle(color: .red))
+                        .padding(.top, 12)
+                    }
+                }
+                .padding(.top, 8)
             }
-            Section("Details") {
-                ForEach(Self.summaryFields, id: \.self) { name in
-                    if let value = package.field(name) {
-                        FieldRow(name: name == "Installed-Size" ? "Installed Size" : name,
-                                 value: name == "Installed-Size" ? Self.size(value) : InstalledPackage.withoutEmail(value))
-                    }
-                }
-                if let depends = package.field("Depends") {
-                    FieldRow(name: "Depends", value: depends)
-                }
-            }
-            Section {
-                if queue.operation(for: package.identifier) != nil {
-                    Button("Take Off Queue") {
-                        queue.remove(package.identifier)
-                    }
-                } else {
-                    Button("Remove", role: .destructive) {
-                        queue.add(.remove(package.identifier), name: package.name)
-                    }
-                }
-            } footer: {
-                Text(queue.operation(for: package.identifier) != nil
-                     ? "Queued. Review it in the Queue tab."
-                     : "Removing queues the change; the Queue tab shows everything apt would remove before anything happens.")
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .listStyle(.insetGrouped)
+        .background(WallBackground())
         .navigationTitle(package.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private struct Field: Identifiable {
+        let name: String
+        let value: String
+
+        var id: String { name }
+    }
+
+    private var fields: [Field] {
+        var found: [Field] = Self.summaryFields.compactMap { name in
+            package.field(name).map {
+                Field(name: name == "Installed-Size" ? "Installed Size" : name,
+                      value: name == "Installed-Size" ? Self.size($0) : InstalledPackage.withoutEmail($0))
+            }
+        }
+        if let depends = package.field("Depends") {
+            found.append(Field(name: "Depends", value: depends))
+        }
+        return found
     }
 
     /// dpkg's Installed-Size is in KiB.
@@ -177,8 +243,11 @@ private struct FieldRow: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             Text(value)
+                .font(.subheadline)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }

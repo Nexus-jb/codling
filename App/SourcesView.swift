@@ -34,6 +34,8 @@ struct SourcesView: View {
                                 NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
                                     CompactSourceRow(row: row)
                                 }
+                                .listRowBackground(CardCellBackground(first: row.id == model.rows.first?.id,
+                                                                      last: row.id == model.rows.last?.id))
                                 .contextMenu {
                                     Button {
                                         Presenter.share(address: row.source.uri)
@@ -80,6 +82,8 @@ struct SourcesView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .hiddenListBackground()
+                    .background(WallBackground())
                     .refreshable { await model.refresh(force: false) }
                     .environment(\.editMode, $editMode)
                 }
@@ -121,6 +125,9 @@ struct SourcesView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigationBarLeading) {
+            if !isEditing {
+                SystemButton()
+            }
             Button(isEditing ? "Done" : "Edit") {
                 withAnimation {
                     editMode = isEditing ? .inactive : .active
@@ -241,10 +248,10 @@ struct CompactSourceRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: 40)
+            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: 42)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
-                    .font(.headline)
+                    .font(.body.weight(.semibold))
                     .lineLimit(1)
                 Text(row.source.uri)
                     .font(.caption)
@@ -255,7 +262,7 @@ struct CompactSourceRow: View {
             Spacer(minLength: 4)
             trailing
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
         .accessibilityValue(accessibilitySummary)
     }
@@ -315,36 +322,31 @@ struct CompactSourceRow: View {
     }
 }
 
-/// A source in full, for its page: its icon, name and address, how its last
-/// refresh went, and what the user should know about it.
-struct SourceRow: View {
+/// The top of a source's page: its icon, name and address, who signed it,
+/// and how many packages it has.
+struct SourceHeader: View {
     let row: SourcesModel.Row
-    var iconSize: CGFloat = 40
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: iconSize)
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 14) {
+            IconView(urls: row.source.repositoryFileURLs("CydiaIcon.png"), symbol: "tray.full.fill", size: 72)
+            VStack(alignment: .leading, spacing: 5) {
                 Text(row.title)
-                    .font(.headline)
+                    .font(.title2.bold())
+                    .lineLimit(2)
                 Text(row.source.uri + (row.source.isFlat ? "" : " \(row.source.suite) \(row.source.components.joined(separator: " "))"))
-                    .font(.caption.monospaced())
+                    .font(.footnote.monospaced())
                     .foregroundColor(.secondary)
                     .lineLimit(2)
                 status
-                if PiracySources.entry(for: row.source.uri) != nil {
-                    IconLine(symbol: "exclamationmark.shield.fill", text: "Known for piracy")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundColor(.red)
-                }
                 ForEach(row.warnings, id: \.self) { warning in
                     IconLine(symbol: "exclamationmark.triangle", text: warning)
                         .font(.footnote)
                         .foregroundColor(.orange)
                 }
             }
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 
@@ -353,45 +355,35 @@ struct SourceRow: View {
         switch row.activity {
         case .waiting:
             Text("Waiting")
-                .font(.subheadline)
                 .foregroundColor(.secondary)
         case .refreshing:
             HStack(spacing: 6) {
                 ProgressView()
                     .controlSize(.small)
                 Text("Refreshing")
-                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
         case .idle:
             if case .failed(let message)? = row.outcome?.state {
                 IconLine(symbol: "xmark.octagon.fill", text: message)
-                    .font(.subheadline)
                     .foregroundColor(.red)
             } else if let count = row.packageCount {
-                IconLine(symbol: signatureSymbol, text: summary(count: count))
-                    .font(.subheadline)
-                    .foregroundColor(signatureColor)
+                signature
+                HStack(spacing: 8) {
+                    Text(count == 1 ? "1 package" : "\(count.formatted()) packages")
+                    if case .unchanged? = row.outcome?.state {
+                        Divider()
+                            .frame(height: 14)
+                        Text("Up to date")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundColor(.secondary)
             } else {
                 Text("Not refreshed yet")
-                    .font(.subheadline)
                     .foregroundColor(.secondary)
             }
         }
-    }
-
-    private func summary(count: Int) -> String {
-        var parts = [count == 1 ? "1 package" : "\(count.formatted()) packages"]
-        switch row.signature {
-        case .signed(let name)?: parts.append("signed by \(Self.signer(name))")
-        case .trustedWithoutSignature?: parts.append("trusted without a signature")
-        case .untrustedKey?, .unsigned?: parts.append("not verified")
-        case nil: break
-        }
-        if case .unchanged? = row.outcome?.state {
-            parts.append("up to date")
-        }
-        return parts.joined(separator: ", ")
     }
 
     /// The name on a key, without its comment and email address:
@@ -408,19 +400,23 @@ struct SourceRow: View {
         return name.isEmpty ? userID : name
     }
 
-    private var signatureSymbol: String {
+    @ViewBuilder
+    private var signature: some View {
         switch row.signature {
-        case .signed?: return "checkmark.seal.fill"
-        case .trustedWithoutSignature?: return "checkmark.circle"
-        default: return "exclamationmark.shield"
-        }
-    }
-
-    private var signatureColor: Color {
-        switch row.signature {
-        case .signed?: return .green
-        case .trustedWithoutSignature?: return .secondary
-        default: return .orange
+        case .signed(let name)?:
+            IconLine(symbol: "checkmark.seal.fill", text: "Signed by \(Self.signer(name))")
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.green)
+        case .trustedWithoutSignature?:
+            IconLine(symbol: "checkmark.circle", text: "Trusted without a signature")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        case .untrustedKey?, .unsigned?:
+            IconLine(symbol: "exclamationmark.shield", text: "Not verified")
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.orange)
+        case nil:
+            EmptyView()
         }
     }
 }

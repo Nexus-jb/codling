@@ -2,14 +2,16 @@
 
 import SwiftUI
 
-/// What Codling sees on the device, and whether its root helper works, so a
-/// tester can confirm the package installed correctly.
+/// The device and Codling's install, drawn as the device itself, and the
+/// tools that check and manage the system, each a card that says what it
+/// does.
 struct SystemCheckView: View {
     let environment: RuntimeEnvironment
     @ObservedObject var health: PackageHealthModel
     let sources: SourcesModel
     let burrow: BurrowModel
     @State private var helper: HelperState = .checking
+    @Environment(\.dismiss) private var dismiss
 
     enum HelperState {
         case checking
@@ -18,60 +20,71 @@ struct SystemCheckView: View {
 
     var body: some View {
         NavigationView {
-            List {
-                Section {
-                    row("Version", environment.version)
-                    row("iOS", environment.systemVersion)
-                    row("Device", environment.deviceModel)
-                } header: {
-                    Text("Codling")
-                }
+            ScrollView {
+                VStack(spacing: 14) {
+                    DeviceCard(environment: environment)
+                        .padding(.top, 8)
+                        .padding(.bottom, 18)
 
-                Section {
-                    row("Jailbreak", environment.scheme.title)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Installed at")
-                        Text(environment.displayPath)
-                            .font(.footnote.monospaced())
-                            .foregroundColor(.secondary)
-                            .textSelection(.enabled)
+                    VStack(spacing: 12) {
+                        Text("Tools")
+                            .font(.title2.bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, 4)
+                            .accessibilityAddTraits(.isHeader)
+                        burrowCard
+                        helperCard
+                        PackageHealthCard(model: health)
                     }
-                    .accessibilityElement(children: .combine)
-                } header: {
-                    Text("Installation")
+                    .toolColumn()
                 }
-
-                Section {
-                    NavigationLink(destination: BurrowView(model: burrow)) {
-                        Label("Burrow", systemImage: "puzzlepiece.extension")
-                    }
-                } header: {
-                    Text("Tweaks")
-                } footer: {
-                    Text("The loader that loads the tweaks, what Safe Mode turned off, and turning a tweak off in one app.")
-                }
-
-                Section {
-                    helperStatus
-                    Button("Check Again") {
-                        Task { await checkHelper() }
-                    }
-                    .disabled(isChecking)
-                } header: {
-                    Text("Root Helper")
-                } footer: {
-                    Text("Codling runs its helper as root to install and remove packages. The helper accepts only the commands Codling sends, and this check changes nothing.")
-                }
-
-                PackageHealthSection(model: health)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
             }
+            .background(WallBackground())
             .navigationTitle("System")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
         .navigationViewStyle(.stack)
         .task {
             health.refreshSources = { [weak sources] in await sources?.refresh(force: false) }
             await checkHelper()
             await health.check()
+        }
+    }
+
+    private var burrowCard: some View {
+        NavigationLink(destination: BurrowView(model: burrow)) {
+            Card(padding: 14) {
+                HStack(spacing: 8) {
+                    ToolHeader(symbol: "puzzlepiece.extension", color: .blue, title: "Burrow") {
+                        ToolNote(text: "Manage the tweaks it loads, see what Safe Mode turned off, and turn a tweak off in one app.")
+                    }
+                    Chevron()
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var helperCard: some View {
+        Card(padding: 14) {
+            ToolHeader(symbol: "lock.shield", color: .indigo, title: "Root Helper") {
+                helperStatus
+                ToolNote(text: "The helper installs and removes packages, and takes only Codling's commands. This check changes nothing.")
+                    .padding(.top, 2)
+            }
+            Button("Check the Root Helper") {
+                Task { await checkHelper() }
+            }
+            .buttonStyle(TintedButtonStyle())
+            .disabled(isChecking)
+            .padding(.top, 12)
         }
     }
 
@@ -84,21 +97,30 @@ struct SystemCheckView: View {
     private var helperStatus: some View {
         switch helper {
         case .checking:
-            HStack {
+            HStack(spacing: 8) {
                 ProgressView()
                 Text("Checking")
-                    .padding(.leading, 6)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
         case .checked(.success(let identity)) where identity.isRoot:
-            status(symbol: "checkmark.seal.fill", color: .green, title: "Runs as root",
-                   detail: identity.dpkgWritable
-                       ? "uid 0. It can write the package database."
-                       : "uid 0, but it cannot write the package database.")
+            StatusLine(symbol: "checkmark.circle.fill", text: "Running as root", color: .green)
+            Text(identity.dpkgWritable ? "UID 0 · Can write the package database."
+                                       : "UID 0 · Cannot write the package database.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
         case .checked(.success(let identity)):
-            status(symbol: "xmark.octagon.fill", color: .red, title: "Did not get root",
-                   detail: "It ran as uid \(identity.uid), so Codling cannot install packages.")
+            StatusLine(symbol: "xmark.octagon.fill", text: "Did not get root", color: .red)
+            Text("It ran as UID \(identity.uid), so Codling cannot install packages.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         case .checked(.failure(let failure)):
-            status(symbol: "xmark.octagon.fill", color: .red, title: "Did not run", detail: failure.message)
+            StatusLine(symbol: "xmark.octagon.fill", text: "Did not run", color: .red)
+            Text(failure.message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -107,31 +129,180 @@ struct SystemCheckView: View {
         let result = await Task.detached(priority: .userInitiated) { RootHelper.check() }.value
         helper = .checked(result)
     }
+}
 
-    private func status(symbol: String, color: Color, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol)
-                .foregroundColor(color)
-                .font(.title3)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+/// The device, drawn with plain shapes after the front of the model it is:
+/// the Dynamic Island, a notch, a home button, or a tablet. Its screen shows
+/// the device's name and model, iOS, the jailbreak, and Codling's version
+/// and place.
+struct DeviceCard: View {
+    let environment: RuntimeEnvironment
+
+    private var front: DeviceModel.Front { DeviceModel.front(for: environment.deviceModel) }
+
+    var body: some View {
+        let tablet = front == .tablet
+        let width: CGFloat = tablet ? 280 : 212
+        let bezel: CGFloat = tablet ? 12 : 8
+        let outer: CGFloat = tablet ? 24 : (front == .homeButton ? 32 : 40)
+        let inner: CGFloat = front == .homeButton ? 3 : outer - bezel
+        // A home button phone has a band above and below its screen.
+        let band: CGFloat = front == .homeButton ? 40 : 0
+
+        screen
+            .padding(.top, topSpace)
+            .padding(.bottom, 18)
+            .padding(.horizontal, 12)
+            .frame(width: width - 2 * bezel)
+            .frame(minHeight: (width - 2 * bezel) * (tablet ? 1.3 : 1.95) - 2 * band, alignment: .top)
+            .background(Palette.canvas)
+            .overlay(alignment: .top) { frontFeature }
+            .clipShape(RoundedRectangle(cornerRadius: inner, style: .continuous))
+            .padding(.horizontal, bezel)
+            .padding(.vertical, bezel + band)
+            .background(
+                RoundedRectangle(cornerRadius: outer, style: .continuous)
+                    .fill(Color(white: 0.13))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: outer, style: .continuous)
+                    .strokeBorder(Color(white: 0.32), lineWidth: 1.5)
             }
-        }
-        .accessibilityElement(children: .combine)
+            .overlay { if front == .homeButton { homeButtonBands(band: band) } }
+            .overlay(alignment: .topLeading) { if !tablet { sideButtons(left: true) } }
+            .overlay(alignment: .topTrailing) { if !tablet { sideButtons(left: false) } }
+            .shadow(color: .black.opacity(0.16), radius: 12, y: 6)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilityText)
     }
 
-    private func row(_ title: String, _ value: String) -> some View {
+    private var topSpace: CGFloat {
+        switch front {
+        case .dynamicIsland: return 46
+        case .notch: return 40
+        case .homeButton, .tablet: return 18
+        }
+    }
+
+    @ViewBuilder
+    private var frontFeature: some View {
+        switch front {
+        case .dynamicIsland:
+            Capsule()
+                .fill(Color.black)
+                .frame(width: 62, height: 19)
+                .padding(.top, 9)
+        case .notch:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.black)
+                .frame(width: 96, height: 36)
+                .offset(y: -16)
+        case .homeButton, .tablet:
+            EmptyView()
+        }
+    }
+
+    private func homeButtonBands(band: CGFloat) -> some View {
+        VStack {
+            Capsule()
+                .fill(Color(white: 0.3))
+                .frame(width: 32, height: 4)
+                .padding(.top, band / 2 + 2)
+            Spacer()
+            Circle()
+                .strokeBorder(Color(white: 0.4), lineWidth: 1.5)
+                .frame(width: 28, height: 28)
+                .padding(.bottom, band / 2 - 6)
+        }
+    }
+
+    private var screen: some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 5) {
+                IconTile(symbol: front == .tablet ? "ipad" : "iphone", size: 38)
+                Text(DeviceModel.name(for: environment.deviceModel))
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                Text("Model · \(environment.deviceModel)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            group("System") {
+                line("iOS", environment.systemVersion)
+                Divider()
+                line("Jailbreak", environment.scheme.title)
+            }
+            group("Codling") {
+                line("Version", environment.version)
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Installed at")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(environment.displayPath)
+                        .font(.caption2.monospaced())
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 7)
+            }
+        }
+    }
+
+    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+                .padding(.leading, 4)
+            VStack(spacing: 0) {
+                content()
+            }
+            .padding(.horizontal, 10)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .glassSurface(cornerRadius: 10)
+        }
+    }
+
+    private func line(_ title: String, _ value: String) -> some View {
         HStack {
             Text(title)
-            Spacer()
-            Text(value)
                 .foregroundColor(.secondary)
-                .multilineTextAlignment(.trailing)
+            Spacer(minLength: 8)
+            Text(value)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
         }
-        .accessibilityElement(children: .combine)
+        .font(.footnote)
+        .padding(.vertical, 7)
+    }
+
+    /// Volume and action buttons on the left, the side button on the right.
+    private func sideButtons(left: Bool) -> some View {
+        VStack(spacing: 8) {
+            if left {
+                button(height: 16)
+                button(height: 30)
+                button(height: 30)
+            } else {
+                button(height: 46)
+            }
+        }
+        .padding(.top, left ? 70 : 96)
+        .offset(x: left ? -2 : 2)
+    }
+
+    private func button(height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 2)
+            .fill(Color(white: 0.3))
+            .frame(width: 3, height: height)
+    }
+
+    private var accessibilityText: String {
+        "\(DeviceModel.name(for: environment.deviceModel)), model \(environment.deviceModel), iOS \(environment.systemVersion), \(environment.scheme.title) jailbreak, Codling \(environment.version), installed at \(environment.displayPath)"
     }
 }
