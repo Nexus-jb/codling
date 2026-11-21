@@ -23,6 +23,7 @@ struct PackageView: View {
     @State private var webHeight: CGFloat = 1
     @State private var webLoad: WebLoadState = .loading
     @State private var webReload = 0
+    @State private var savedDiagnostics = false
 
     var body: some View {
         ScrollView {
@@ -270,6 +271,21 @@ struct PackageView: View {
                         .buttonStyle(TintedButtonStyle())
                     }
                     .padding(.top, 4)
+                    if webFailed {
+                        Button {
+                            let text = WebDiagnostics.save(context: "\(identifier) \(webPage.absoluteString)")
+                            UIPasteboard.general.string = text
+                            savedDiagnostics = true
+                        } label: {
+                            Label("Save Technical Details", systemImage: "doc.text.magnifyingglass")
+                        }
+                        .buttonStyle(TintedButtonStyle(color: .gray))
+                        if savedDiagnostics {
+                            Text("Copied, and saved to Documents as Codling-WebKit-Log.txt.")
+                                .font(.footnote)
+                                .foregroundColor(Palette.muted)
+                        }
+                    }
                 }
             }
         }
