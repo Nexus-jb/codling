@@ -6,6 +6,8 @@ import Foundation
 struct InstalledPackage: Identifiable, Hashable {
     let identifier: String
     let fields: [(name: String, value: String)]
+    /// When dpkg last installed or upgraded it (InstallDates), when known.
+    var installed: Date?
 
     var id: String { identifier }
 
@@ -117,7 +119,15 @@ final class InstalledPackagesModel: ObservableObject {
         let result = await Task.detached(priority: .userInitiated) { () -> Result<[InstalledPackage], Error> in
             Result {
                 let data = try Data(contentsOf: URL(fileURLWithPath: statusPath))
-                return DpkgStatus.installedPackages(in: String(decoding: data, as: UTF8.self))
+                let packages = DpkgStatus.installedPackages(in: String(decoding: data, as: UTF8.self))
+                // The file lists sit beside the status file, in info.
+                let info = ((statusPath as NSString).deletingLastPathComponent as NSString).appendingPathComponent("info")
+                let dates = InstallDates.read(infoDirectory: info, identifiers: Set(packages.map(\.identifier)))
+                return packages.map { package in
+                    var dated = package
+                    dated.installed = dates[package.identifier]
+                    return dated
+                }
             }
         }.value
         switch result {

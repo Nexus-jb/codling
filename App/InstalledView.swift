@@ -2,6 +2,13 @@
 
 import SwiftUI
 
+/// The orders of the Installed list.
+enum InstalledOrder: String {
+    /// The last installed or upgraded first.
+    case newest
+    case name
+}
+
 /// The packages dpkg has installed, read from its status file.
 struct InstalledView: View {
     let environment: RuntimeEnvironment
@@ -11,6 +18,8 @@ struct InstalledView: View {
     @EnvironmentObject private var updates: UpdatesModel
     @EnvironmentObject private var queue: QueueModel
     @EnvironmentObject private var accounts: PaymentAccounts
+    /// How the list is ordered; the last one chosen is kept.
+    @AppStorage("installedOrder") private var order = InstalledOrder.newest
 
     var body: some View {
         NavigationView {
@@ -24,6 +33,18 @@ struct InstalledView: View {
                             Button("Upgrade All", action: upgradeAll)
                                 .font(.body.weight(.semibold))
                         }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Menu {
+                            Picker("Order", selection: $order) {
+                                Label("Newest First", systemImage: "clock").tag(InstalledOrder.newest)
+                                Label("Name", systemImage: "textformat").tag(InstalledOrder.name)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.arrow.down")
+                        }
+                        .accessibilityLabel("Order")
+                        .accessibilityValue(order == .newest ? "Newest first" : "Name")
                     }
                 }
         }
@@ -119,15 +140,27 @@ struct InstalledView: View {
     }
 
     private func filtered(_ packages: [InstalledPackage]) -> [InstalledPackage] {
+        let sorted = ordered(packages)
         let words = query.trimmingCharacters(in: .whitespaces)
         guard !words.isEmpty else {
-            return packages
+            return sorted
         }
-        return packages.filter { package in
+        return sorted.filter { package in
             [package.name, package.identifier, package.author ?? ""].contains {
                 $0.localizedCaseInsensitiveContains(words)
             }
         }
+    }
+
+    /// The packages come by name; newest first puts the last installed or
+    /// upgraded at the top.
+    private func ordered(_ packages: [InstalledPackage]) -> [InstalledPackage] {
+        guard order == .newest else {
+            return packages
+        }
+        let byIdentifier = Dictionary(packages.map { ($0.identifier, $0) }, uniquingKeysWith: { first, _ in first })
+        let dates = byIdentifier.compactMapValues(\.installed)
+        return InstallDates.newestFirst(packages.map(\.identifier), dates: dates).compactMap { byIdentifier[$0] }
     }
 
     private func footer(shown: Int, total: Int) -> String {
