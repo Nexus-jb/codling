@@ -322,19 +322,43 @@ struct CrashLogCard: View {
                     .textSelection(.enabled)
                     .lineLimit(growing: 3)
             }
-            if reports.sent.contains(crash.id) {
-                Label("Sent to the developer", systemImage: "checkmark.circle.fill")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(.green)
-            } else if let recipients = reports.recipients[crash.id], !recipients.isEmpty {
-                Button("Send to Developer") { reviewing = crash }
-                    .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.borderless)
+            HStack(spacing: 20) {
+                if reports.sent.contains(crash.id) {
+                    Label("Sent to the developer", systemImage: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                } else if let recipients = reports.recipients[crash.id], !recipients.isEmpty {
+                    Button("Send to Developer") { reviewing = crash }
+                }
+                if let report = reports.report(for: crash, loader: state.loader) {
+                    Button {
+                        share(report)
+                    } label: {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share the report of this crash")
+                }
             }
+            .font(.subheadline.weight(.semibold))
+            .buttonStyle(.borderless)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    /// Opens the share sheet with the report as a text file, for the user
+    /// to send wherever they choose. It holds the same as Send would send.
+    private func share(_ report: Reports.CrashReport) {
+        guard let text = try? Reports.shareText(report) else { return }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("crash-reports", isDirectory: true)
+        let file = directory.appendingPathComponent(Reports.shareFileName(report))
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: file, options: .atomic)
+            Presenter.share([file])
+        } catch {
+            Presenter.share([text])
+        }
     }
 
     private func title(_ crash: BurrowState.Crash) -> String {

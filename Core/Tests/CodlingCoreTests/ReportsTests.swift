@@ -111,6 +111,28 @@ final class ReportsTests: XCTestCase {
                                         "jailbreak", "loader", "client"])
     }
 
+    func testShareText() throws {
+        let report = try XCTUnwrap(Reports.CrashReport(crash: try crash(), id: "abc", architecture: "iphoneos-arm64",
+                                                       device: device))
+        let text = try Reports.shareText(report)
+        XCTAssertTrue(text.hasPrefix("Crash report from Codling 0.1.0\n"))
+        XCTAssertTrue(text.contains("Tweak: Foo (com.example.foo 1.2, iphoneos-arm64)\n"))
+        XCTAssertTrue(text.contains("Crashed: com.apple.springboard\n"))
+        XCTAssertTrue(text.contains("Date: 2026-11-22T08:12:00Z\n"))
+        XCTAssertTrue(text.contains("Other tweaks loaded: Bar\n"))
+        XCTAssertTrue(text.contains("Device: iPhone15,3 · iOS 16.3.1 (20D67) · rootless · burrow\n"))
+        // The details are the JSON Send would send.
+        let details = try XCTUnwrap(text.components(separatedBy: "Details:\n").last)
+        let body = try object(Data(details.utf8))
+        XCTAssertEqual(body["package"] as? String, "com.example.foo")
+        XCTAssertFalse(text.contains("11111111-2222"))
+        XCTAssertEqual(Reports.shareFileName(report), "Crash-Foo-2026-11-22.txt")
+        var odd = report
+        odd.tweak = "Ultra Themes/../x"
+        odd.date = nil
+        XCTAssertEqual(Reports.shareFileName(odd), "Crash-Ultra-Themes----x.txt")
+    }
+
     func testNoReportWithoutAPackage() throws {
         var crash = try crash()
         crash.packages["Foo"] = nil

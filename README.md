@@ -44,7 +44,7 @@ works on real devices.
 - **Crash reports, only with your consent.** The Burrow screen lists the
   crashes Burrow blames on a tweak. Send to Developer shows exactly what
   goes to the tweak's source before it is sent, and only sources that take
-  reports receive them. Share Install Results, off until you turn it on,
+  reports receive them. Share sends a report anywhere you choose. Share Install Results, off until you turn it on,
   tells sources whether their packages installed.
   [docs/reports.md](docs/reports.md) describes the format.
 - **Add to Codling buttons.** A repository's page can link to

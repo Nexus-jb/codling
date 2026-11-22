@@ -219,6 +219,42 @@ public enum Reports {
         }
     }
 
+    /// A crash report for the user to share wherever they choose, such as
+    /// a chat with the developer: a few lines to read, then the same JSON
+    /// that Send would send.
+    public static func shareText(_ report: CrashReport) throws -> String {
+        let device = [report.device.model, "iOS \(report.device.system)" + (report.device.build.map { " (\($0))" } ?? ""),
+                      report.device.jailbreak, report.device.loader].compactMap { $0 }.joined(separator: " · ")
+        var lines = [
+            "Crash report from \(report.device.client)",
+            "Tweak: \(report.tweak) (\(report.package) \(report.version), \(report.architecture))",
+            "Crashed: \(report.process)",
+        ]
+        if let date = report.date {
+            lines.append("Date: \(dateText(date))")
+        }
+        if let reason = report.reason {
+            lines.append("Reason: \(reason)")
+        }
+        if !report.otherTweaks.isEmpty {
+            lines.append("Other tweaks loaded: " + report.otherTweaks.map(\.tweak).joined(separator: ", "))
+        }
+        lines.append("Device: \(device)")
+        lines.append("")
+        lines.append("Details:")
+        lines.append(String(decoding: try body(report, pretty: true), as: UTF8.self))
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// The name of a shared crash report's file: the tweak and the day,
+    /// with only letters, digits, "-" and "_".
+    public static func shareFileName(_ report: CrashReport) -> String {
+        let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+        let tweak = String(report.tweak.map { allowed.contains($0) ? $0 : "-" }.prefix(60))
+        let day = report.date.map { String(dateText($0).prefix(10)) }
+        return (["Crash", tweak.isEmpty ? "Tweak" : tweak, day].compactMap { $0 }.joined(separator: "-")) + ".txt"
+    }
+
     /// The JSON body of a report, with its keys sorted.
     public static func body<Report: Encodable>(_ report: Report, pretty: Bool = false) throws -> Data {
         let encoder = JSONEncoder()

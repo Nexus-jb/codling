@@ -20,6 +20,11 @@ Any repository can receive reports, and Codling treats every one the same:
 a report goes only to the repository that offers the package, never to
 Codling's developers or to Nexus unless Nexus is that repository.
 
+Separately, the user can share any crash report themselves: Share on the
+Burrow screen opens the system's share sheet with the report as a text
+file, a few lines to read followed by the same JSON, to send wherever they
+choose.
+
 ## Receiving reports
 
 Serve a `reports_endpoint` file in the same places as `payment_endpoint`:
