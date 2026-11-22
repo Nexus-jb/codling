@@ -18,6 +18,7 @@ out=${1:?usage: make-safe-mode-test-package.sh <out-dir>}
 mkdir -p "$out"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
+chmod 0755 "$stage"
 
 tweaks="$stage/var/jb/usr/lib/TweakInject"
 mkdir -p "$stage/DEBIAN" "$tweaks"
