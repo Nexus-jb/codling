@@ -70,6 +70,8 @@ final class QueueModel: ObservableObject {
     }
 
     @Published private(set) var items: [Item] = []
+    /// Where install results go, when the user shares them.
+    weak var reports: ReportsModel?
     @Published private(set) var phase: Phase = .editing
     @Published private(set) var restarting = false
     @Published private(set) var history: [ChangeRecord] = ChangeHistory.load()
@@ -471,9 +473,9 @@ final class QueueModel: ObservableObject {
             phase = .finished(succeeded: false, plan: plan, diagnoses: [], output: failure.message, notes: notes)
         case .success(let command):
             let succeeded = command.status == 0
-            phase = .finished(succeeded: succeeded, plan: plan,
-                              diagnoses: succeeded ? [] : AptDiagnostics.diagnose(command.output),
-                              output: command.output, notes: notes)
+            let diagnoses = succeeded ? [] : AptDiagnostics.diagnose(command.output)
+            phase = .finished(succeeded: succeeded, plan: plan, diagnoses: diagnoses, output: command.output, notes: notes)
+            reports?.sendInstallResults(plan: plan, succeeded: succeeded, diagnoses: diagnoses)
             if succeeded {
                 items = []
                 undoing = nil

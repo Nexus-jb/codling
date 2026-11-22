@@ -105,6 +105,10 @@
 //                          loads tweaks into new processes, with burrowctl
 //                          loader. Burrow's guard goes back to ElleKit's by
 //                          itself when Burrow's loader crashes.
+//   codling-helper burrow-clear-crashes
+//                          empties Burrow's crash log with burrowctl
+//                          clear-crashes, when the user asks. Safe Mode's
+//                          settings and events stay.
 //
 // Operations name packages only: letters, digits, "+", "-" and ".", starting
 // with a letter or digit and ending with a letter, a digit or "+". A third
@@ -1744,6 +1748,15 @@ static int burrow_loader(const char *which) {
     return 0;
 }
 
+static int burrow_clear_crashes(void) {
+    char root[PATH_MAX];
+    require_root(root);
+    const char *const arguments[] = { "burrowctl", "clear-crashes", NULL };
+    run_and_report(root, burrowctl, arguments);
+    putchar('\n');
+    return 0;
+}
+
 int main(int argc, char **argv) {
     // Nothing from the caller's environment, and a known file mode mask.
     static char *clean[] = { "PATH=/usr/bin:/bin:/usr/sbin:/sbin", NULL };
@@ -1798,10 +1811,14 @@ int main(int argc, char **argv) {
     if (argc == 3 && strcmp(argv[1], "burrow-loader") == 0) {
         return burrow_loader(argv[2]);
     }
+    if (argc == 2 && strcmp(argv[1], "burrow-clear-crashes") == 0) {
+        return burrow_clear_crashes();
+    }
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
           "       apply [--trust-unsigned] [--allow-removals] OPERATION... |\n"
           "       download [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
           "       add-source URI | remove-source URI | take-purchase PACKAGE VERSION | take-file TOKEN |\n"
-          "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
+          "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit |\n"
+          "       burrow-clear-crashes\n", stderr);
     return 64;
 }

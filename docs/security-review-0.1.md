@@ -245,6 +245,32 @@ case in the scheme and host, and refusals for other schemes, `file://`, an
 address without a scheme, characters a shell or apt could read, invalid
 identifiers, unknown commands and over-long links.
 
+## After the review: crash reports and install results
+
+Added on 2026-11-22. Codling can now send data off the device for the first
+time other than to fetch sources and talk to payment providers, so this is
+held to the project's rule that crash reports and compatibility data leave
+the device only with the user's consent ([reports.md](reports.md)):
+
+- **Consent first.** A crash report goes after the user has seen it and
+  tapped Send, or for a repository they turned Always Send on for. Install
+  results go only while Share Install Results is on. Both start off.
+- **Only to the package's own repository**, when it serves a
+  `reports_endpoint` file, read over HTTPS only and with redirects only to
+  HTTPS. Codling sends nothing to its developers or to Nexus unless Nexus is
+  that repository.
+- **Nothing that identifies the user or the device.** No UDID, account,
+  crash report file, file paths, other apps or installed packages, or apt
+  output. The crash's incident identifier is hashed with SHA-256. Burrow
+  gives images by file name only (`crash_json.m`, tested in Burrow's
+  `test_crash_json`).
+- **What is sent is shown.** The crash report sheet shows every field, and
+  the exact JSON, before Send.
+
+Tested in `ReportsTests`: the fields of both reports, `null` for missing
+parts, the device and system taken from the crash, and that neither the
+incident identifier nor a UDID appears in a report.
+
 ## Testing
 
 - `scripts/test-apt-trust.sh`: 10 checks, run as root and as a normal user

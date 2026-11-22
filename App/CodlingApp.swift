@@ -10,6 +10,9 @@ struct CodlingApp: App {
     @StateObject private var health = PackageHealthModel()
     @StateObject private var queue: QueueModel
     @StateObject private var burrow: BurrowModel
+    /// Crash reports for tweaks' developers, sent only with the user's
+    /// consent (docs/reports.md).
+    @StateObject private var reports: ReportsModel
     @StateObject private var systemSheet = SystemSheet()
     @StateObject private var devicePanel = DeviceInfoPanel()
     @StateObject private var accounts: PaymentAccounts
@@ -45,10 +48,16 @@ struct CodlingApp: App {
         // on its index at once.
         _launched = State(initialValue: SourcesModel.refreshedBefore)
         _burrow = StateObject(wrappedValue: BurrowModel(environment: environment))
+
         // The queue downloads bought packages with the accounts' sign-ins.
         let accounts = PaymentAccounts(environment: environment)
         let queue = QueueModel()
         queue.accounts = accounts
+        // The queue tells the reports what a change did, for install
+        // results the user chose to share.
+        let reports = ReportsModel(environment: environment)
+        queue.reports = reports
+        _reports = StateObject(wrappedValue: reports)
         _accounts = StateObject(wrappedValue: accounts)
         _queue = StateObject(wrappedValue: queue)
         if #unavailable(iOS 26) {
@@ -273,6 +282,7 @@ struct CodlingApp: App {
                 }) {
                     SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
                         .environmentObject(systemSheet)
+                        .environmentObject(reports)
                         .environmentObject(sources)
                         .environmentObject(installed)
                         .environmentObject(queue)
@@ -287,6 +297,7 @@ struct CodlingApp: App {
                 .environmentObject(queue)
                 .environmentObject(updates)
                 .environmentObject(adder)
+                .environmentObject(reports)
                 .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
                 // The design draws buttons, links and the selected tab in
                 // the text color.
@@ -311,6 +322,8 @@ struct CodlingApp: App {
                     queue.sourcesKnown(sources.rows.map(\.source.uri))
                     adder.model = sources
                     adder.installed = installed
+                    reports.sources = sources
+                    reports.burrow = burrow
                     sourcesReady = true
                     if let link = pendingLink {
                         pendingLink = nil
@@ -324,6 +337,15 @@ struct CodlingApp: App {
                         withAnimation(.easeOut(duration: 0.25)) { launched = true }
                     }
                     await accounts.discover(sources: sources)
+                    // Crash reports the user chose to always send go when
+                    // Codling opens; no one else's leave the device.
+                    if !reports.alwaysSend.isEmpty {
+                        await burrow.load()
+                        if let state = burrow.state {
+                            await reports.prepare(state.crashLog)
+                            await reports.sendAutomatically(state.crashLog, loader: state.loader)
+                        }
+                    }
                 }
         }
     }

@@ -41,6 +41,12 @@ works on real devices.
 - Sources refresh in parallel and incrementally, into a local index.
 - Errors are explained in plain language, with a **Fix** button where one
   exists, instead of raw APT output.
+- **Crash reports, only with your consent.** The Burrow screen lists the
+  crashes Burrow blames on a tweak. Send to Developer shows exactly what
+  goes to the tweak's source before it is sent, and only sources that take
+  reports receive them. Share sends a report anywhere you choose. Share Install Results, off until you turn it on,
+  tells sources whether their packages installed.
+  [docs/reports.md](docs/reports.md) describes the format.
 - **Add to Codling buttons.** A repository's page can link to
   `codling://source/` with its address, and Codling asks before adding it.
   `codling://package/` opens a package's page.
