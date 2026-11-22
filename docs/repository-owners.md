@@ -185,6 +185,25 @@ publish your provider's address in `payment_endpoint`:
 Codling keeps each sign-in in the device's Keychain, per provider. The
 payment secret is kept behind Face ID, Touch ID or the passcode.
 
+## Add to Codling buttons
+
+A page can open Codling with a `codling://` link, as it does Sileo with
+`sileo://` and Zebra with `zbra://`:
+
+| Link | What Codling does |
+| --- | --- |
+| `codling://source/https://repo.example.com/` | Asks the user whether to add the source, showing its name from your Release file and its address |
+| `codling://sources/add/https://repo.example.com/` | The same, in Zebra's form |
+| `codling://package/com.example.tweak` | Opens the package's page, or lets the user choose when several sources offer it |
+
+The address may be percent-encoded once. Codling never adds a source
+without the user's confirmation and never installs anything from a link,
+so a button can sit beside the ones for other package managers.
+
+```html
+<a href="codling://source/https://repo.example.com/">Add to Codling</a>
+```
+
 ## Sources Codling warns about
 
 Codling keeps a short list of sources that published articles describe as

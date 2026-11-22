@@ -41,6 +41,9 @@ works on real devices.
 - Sources refresh in parallel and incrementally, into a local index.
 - Errors are explained in plain language, with a **Fix** button where one
   exists, instead of raw APT output.
+- **Add to Codling buttons.** A repository's page can link to
+  `codling://source/` with its address, and Codling asks before adding it.
+  `codling://package/` opens a package's page.
 - **Open a .deb from anywhere.** Share a `.deb` to Codling from Files,
   Safari or any other app, and it shows what the package is, warns that no
   source vouches for it, and installs it with its dependencies after the

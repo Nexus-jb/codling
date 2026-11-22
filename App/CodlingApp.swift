@@ -16,6 +16,14 @@ struct CodlingApp: App {
     @StateObject private var updates = UpdatesModel()
     /// A .deb opened from the share sheet or Files.
     @StateObject private var opened = OpenedFiles()
+    /// Adding sources, from the Sources tab or a codling://source link.
+    @StateObject private var adder = AddSourceFlow()
+    /// The package a codling://package link shows.
+    @State private var linkedPackage: LinkedPackage?
+    /// Whether the sources are read, so that a link can be followed; one
+    /// that comes before waits here.
+    @State private var sourcesReady = false
+    @State private var pendingLink: CodlingLink?
     /// The queue opens once the opened file's sheet is gone, to review it.
     @State private var queueAfterOpened = false
     @State private var tab: AppTab = .featured
@@ -149,6 +157,26 @@ struct CodlingApp: App {
         }
     }
 
+    /// Follows a codling:// link: a source is offered to add, with the
+    /// prompt over whatever is on screen, and a package opens in a sheet.
+    @MainActor
+    private func follow(_ link: CodlingLink) async {
+        switch link {
+        case .source(let uri):
+            await adder.offerLink(uri)
+        case .package(let identifier):
+            // One sheet at a time: the one up goes first.
+            if queueShown || systemSheet.shown || opened.shown || linkedPackage != nil {
+                queueShown = false
+                systemSheet.shown = false
+                opened.shown = false
+                linkedPackage = nil
+                try? await Task.sleep(nanoseconds: 700_000_000)
+            }
+            linkedPackage = LinkedPackage(identifier: identifier)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             tabs
@@ -192,9 +220,40 @@ struct CodlingApp: App {
                         .accentColor(Palette.text)
                     }
                 }
+                .sheet(item: $linkedPackage) { linked in
+                    NavigationView {
+                        PackageLookupView(identifier: linked.identifier)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Close") { linkedPackage = nil }
+                                }
+                            }
+                    }
+                    .navigationViewStyle(.stack)
+                    .environmentObject(systemSheet)
+                    .environmentObject(accounts)
+                    .environmentObject(sources)
+                    .environmentObject(installed)
+                    .environmentObject(queue)
+                    .environmentObject(updates)
+                    .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                    .tint(Palette.text)
+                    .accentColor(Palette.text)
+                }
                 // iOS hands Codling a .deb shared to it or opened from Files
-                // (CFBundleDocumentTypes in Info.plist).
+                // (CFBundleDocumentTypes in Info.plist), and codling:// links
+                // (CFBundleURLTypes).
                 .onOpenURL { url in
+                    guard url.isFileURL else {
+                        if let link = CodlingLink(url.absoluteString) {
+                            if sourcesReady {
+                                Task { await follow(link) }
+                            } else {
+                                pendingLink = link
+                            }
+                        }
+                        return
+                    }
                     Task {
                         // One sheet at a time: the one up goes first.
                         if queueShown || systemSheet.shown {
@@ -227,6 +286,7 @@ struct CodlingApp: App {
                 .environmentObject(installed)
                 .environmentObject(queue)
                 .environmentObject(updates)
+                .environmentObject(adder)
                 .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
                 // The design draws buttons, links and the selected tab in
                 // the text color.
@@ -249,6 +309,13 @@ struct CodlingApp: App {
                     // waits for the refresh.
                     await sources.load()
                     queue.sourcesKnown(sources.rows.map(\.source.uri))
+                    adder.model = sources
+                    adder.installed = installed
+                    sourcesReady = true
+                    if let link = pendingLink {
+                        pendingLink = nil
+                        Task { await follow(link) }
+                    }
                     if sources.hasIndex {
                         withAnimation(.easeOut(duration: 0.25)) { launched = true }
                         await sources.start()
@@ -260,4 +327,10 @@ struct CodlingApp: App {
                 }
         }
     }
+}
+
+/// A package a codling://package link asked to show.
+struct LinkedPackage: Identifiable {
+    let identifier: String
+    var id: String { identifier }
 }

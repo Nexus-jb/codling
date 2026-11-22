@@ -21,7 +21,9 @@ choice therefore reaches root. The inputs that can do that are:
   Codling's caches;
 - web content shown in depictions.
 
-Codling registers no URL schemes, so other apps cannot send it commands.
+At the time of the review, Codling registered no URL schemes, so other apps
+could not send it commands. The `codling://` links added since are covered
+under "After the review: codling:// links".
 
 ## Findings
 
@@ -144,7 +146,8 @@ last one. Tested in `scripts/test-purchases.sh`.
   - Backups and purchases live in directories only root can write.
   - Removing a backup or source never follows links.
 - **Links.**
-  - Codling registers no URL schemes.
+  - Codling registered no URL schemes at the time; see "After the review:
+    codling:// links".
   - Links in depictions and pages open only `http`, `https`, other
     depictions, packages, and `mailto`, `tel` and `sms`. Anything else does
     nothing.
@@ -178,8 +181,7 @@ last one. Tested in `scripts/test-purchases.sh`.
 Added on 2026-11-21, after the findings above were fixed. Codling now
 declares the Debian package type (`CFBundleDocumentTypes` in `App/Info.plist`),
 so it shows in the share sheet and in Files for a `.deb`, as Sileo and Zebra
-do. This gives other apps a new input: a file they hand to Codling. It still
-registers no URL schemes.
+do. This gives other apps a new input: a file they hand to Codling.
 
 - **Nothing happens without the user.** Opening a file only shows what its
   control fields say. It is installed after the user taps Install and then
@@ -211,6 +213,37 @@ and reading control fields) and `scripts/test-apt-trust.sh` (an opened file
 installs with its dependency from a source, one whose dependency no source
 has is refused, and the helper reads real `dpkg-deb` output), and in
 `OpenedPackageTests`.
+
+## After the review: codling:// links
+
+Added on 2026-11-22. Codling now registers the `codling` URL scheme
+(`CFBundleURLTypes` in `App/Info.plist`), so that a repository's page can
+have an "Add to Codling" button, as it has for Sileo and Zebra, and a page
+or app can link to a package. Any web page or app can open such a link, so
+a link can only show something:
+
+- **Only two forms are accepted**, parsed by `CodlingLink` in CodlingCore:
+  `codling://source/URL` (or `codling://sources/add/URL`) and
+  `codling://package/IDENTIFIER`. Anything else does nothing. The address
+  goes through the same check as a typed one (`SourceList.repositoryURI`):
+  `http` or `https`, a host of letters, digits, dots and hyphens, and a path
+  without `..` or characters the helper does not write. The identifier must
+  be a valid package name.
+- **A source is added only after the user confirms.** The prompt names the
+  source, as its Release file gives it, shows its address and says that a
+  web page or another app asked for it. A source on the piracy list gets
+  the usual warning first. A source that is already there is not added
+  again.
+- **A package link only opens the package's page**, through the same lookup
+  depictions use: one source's page, a choice when several sources offer
+  it, or a note when none does. Nothing is queued or installed from a link.
+- **No other command is reachable.** Links cannot remove sources, queue or
+  apply changes, respring or reach the root helper.
+
+Tested in `CodlingLinkTests`: both source forms, a percent-encoded address,
+case in the scheme and host, and refusals for other schemes, `file://`, an
+address without a scheme, characters a shell or apt could read, invalid
+identifiers, unknown commands and over-long links.
 
 ## Testing
 
