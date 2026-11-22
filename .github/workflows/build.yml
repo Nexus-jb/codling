@@ -83,10 +83,21 @@ jobs:
       - name: Package
         run: scripts/package-deb.sh build/Release-iphoneos/Codling.app "${{ steps.version.outputs.version }}" dist
 
-      # A test package for trying Codling's repairs on a device. It is kept
-      # apart from the packages Codling ships, and is not attested.
+      # Test packages for trying Codling's repairs and Safe Mode list on a
+      # device. They are kept apart from the packages Codling ships, and are
+      # not attested.
       - name: Build the setup test package
         run: scripts/make-test-package.sh dist/test
+
+      - name: Build the Safe Mode test package
+        run: |
+          deb=$(scripts/make-safe-mode-test-package.sh dist/test)
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          check=$(mktemp -d)
+          dpkg-deb -x "$deb" "$check"
+          lipo -info "$check/var/jb/usr/lib/TweakInject/CodlingSafeModeTest.dylib"
+          (cd dist/test && shasum -a 256 *.deb > SHA256SUMS && cat SHA256SUMS)
 
       - name: Inspect the packages
         run: |
@@ -155,8 +166,12 @@ jobs:
           cp com.nexusjb.codling_*_iphoneos-arm64e.deb codling-roothide.deb
           notes="A development build of $REF_NAME ($SHA), for testing on a device. It is not a release.
 
-          codling-rootless.deb is for rootless jailbreaks such as Dopamine, and codling-roothide.deb is for roothide."
+          codling-rootless.deb is for rootless jailbreaks such as Dopamine, and codling-roothide.deb is for roothide.
+
+          The com.nexusjb.codling-test-* packages are rootless test packages for trying Codling on a device; test-SHA256SUMS lists them. com.nexusjb.codling-test-crash crashes SpringBoard once on purpose."
+          cp test/SHA256SUMS test-SHA256SUMS
           gh release delete dev --repo "$REPO" --yes --cleanup-tag || true
           gh release create dev --repo "$REPO" --prerelease --latest=false --target "$SHA" \
             --title "Development build $VERSION" --notes "$notes" \
-            codling-rootless.deb codling-roothide.deb com.nexusjb.codling_*.deb SHA256SUMS
+            codling-rootless.deb codling-roothide.deb com.nexusjb.codling_*.deb SHA256SUMS \
+            test/com.nexusjb.codling-test-*.deb test-SHA256SUMS
