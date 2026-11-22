@@ -64,18 +64,22 @@ struct SourcesView: View {
                                     Label("Refresh", systemImage: "arrow.clockwise")
                                 }
                                 .disabled(model.isRefreshing || row.activity != .idle)
-                                Button(role: .destructive) {
-                                    confirmRemoval(row.source)
-                                } label: {
-                                    Label("Remove", systemImage: "trash")
-                                }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if !isEditing {
+                                if !model.isJailbreakSource(row.source) {
                                     Button(role: .destructive) {
                                         confirmRemoval(row.source)
                                     } label: {
                                         Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if !isEditing {
+                                    if !model.isJailbreakSource(row.source) {
+                                        Button(role: .destructive) {
+                                            confirmRemoval(row.source)
+                                        } label: {
+                                            Label("Remove", systemImage: "trash")
+                                        }
                                     }
                                     Button {
                                         Task { await model.refresh(id: row.id) }
@@ -138,7 +142,7 @@ struct SourcesView: View {
     /// Asks before removing a source, in the middle of the screen.
     private func confirmRemoval(_ source: Source) {
         ConfirmPopup.show(.init(symbol: "trash", color: .red, title: "Remove \(source.host)?",
-                                message: SourcesModel.removalNote(for: source, jailbreak: model.isJailbreakSource(source)),
+                                message: SourcesModel.removalNote(for: source),
                                 confirmTitle: "Remove", destructive: true)) {
             Task { problem = await model.remove(source) }
         }

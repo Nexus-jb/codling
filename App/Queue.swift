@@ -69,7 +69,17 @@ final class QueueModel: ObservableObject {
         case finished(succeeded: Bool, plan: AptPlan, diagnoses: [AptDiagnosis], output: String, notes: [String])
     }
 
-    @Published private(set) var items: [Item] = []
+    @Published private(set) var items: [Item] = [] {
+        didSet {
+            if items.isEmpty {
+                notice = nil
+            }
+        }
+    }
+    /// A note about what is queued, shown over it and in its review, such as
+    /// the essentials Codling offers on its first launch. It goes when the
+    /// queue empties.
+    @Published var notice: String?
     /// The settings each package the review removes would leave behind.
     @Published private(set) var leftovers: [String: SettingsLeftovers] = [:]
     /// The packages whose settings the user chose to remove too.
@@ -621,7 +631,7 @@ struct QueueView: View {
         case .preparing(let message):
             progress(message)
         case .review(let plan, let warnings, let notes):
-            ReviewView(plan: plan, warnings: warnings, notes: notes, undoing: queue.undoing, names: names,
+            ReviewView(plan: plan, warnings: warnings, notes: notes, notice: queue.notice, undoing: queue.undoing, names: names,
                        leftovers: queue.leftovers, clearsSettings: $queue.clearsSettings,
                        onCancel: { queue.backToEditing() }) {
                 Task { await queue.apply(plan, installed: installed, statusPath: environment.dpkgStatusPath, names: names) }
@@ -690,6 +700,10 @@ struct QueueView: View {
                                color: .blue)
                     ToolNote(text: "The review shows everything apt would change, including the packages these need, before anything happens.")
                         .padding(.top, 2)
+                    if let notice = queue.notice {
+                        ToolNote(text: notice)
+                            .padding(.top, 4)
+                    }
                 }
             }
             if !queue.items.isEmpty {
@@ -880,6 +894,8 @@ private struct ReviewView: View {
 
     let warnings: [AptDiagnosis]
     let notes: [String]
+    /// QueueModel's notice about what is queued.
+    let notice: String?
     /// The title of the change being undone, when this reviews an undo.
     let undoing: String?
     let names: [String: String]
@@ -901,6 +917,10 @@ private struct ReviewView: View {
                                      : "Nothing can be undone automatically.")
                         } else {
                             ToolNote(text: "Everything apt would change, including the packages these need. Nothing happens until you confirm.")
+                        }
+                        if let notice, undoing == nil {
+                            ToolNote(text: notice)
+                                .padding(.top, 4)
                         }
                         ForEach(notes, id: \.self) { note in
                             Label(note, systemImage: "exclamationmark.triangle.fill")

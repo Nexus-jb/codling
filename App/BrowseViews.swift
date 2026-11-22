@@ -57,36 +57,44 @@ struct SourceDetailView: View {
                     securityCheck
                 }
 
-                Card(padding: 0) {
-                    Button(role: .destructive) {
-                        ConfirmPopup.show(.init(symbol: "trash", color: .red, title: "Remove \(row.source.host)?",
-                                                message: SourcesModel.removalNote(for: row.source,
-                                                                                  jailbreak: sources.isJailbreakSource(row.source)),
-                                                confirmTitle: "Remove", destructive: true)) {
-                            Task {
-                                if let reason = await sources.remove(row.source) {
-                                    problem = reason
-                                } else {
-                                    dismiss()
+                if sources.isJailbreakSource(row.source) {
+                    Card(padding: 14) {
+                        StatusLine(symbol: "lock.fill", text: "Kept by Codling", color: .secondary)
+                        ToolNote(text: SourcesModel.jailbreakSourceNote)
+                            .padding(.top, 2)
+                    }
+                    .padding(.top, 8)
+                } else {
+                    Card(padding: 0) {
+                        Button(role: .destructive) {
+                            ConfirmPopup.show(.init(symbol: "trash", color: .red, title: "Remove \(row.source.host)?",
+                                                    message: SourcesModel.removalNote(for: row.source),
+                                                    confirmTitle: "Remove", destructive: true)) {
+                                Task {
+                                    if let reason = await sources.remove(row.source) {
+                                        problem = reason
+                                    } else {
+                                        dismiss()
+                                    }
                                 }
                             }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "trash")
+                                    .font(.title3)
+                                    .accessibilityHidden(true)
+                                Text("Remove Source")
+                                    .font(.body.weight(.semibold))
+                                Spacer()
+                            }
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 15)
                         }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "trash")
-                                .font(.title3)
-                                .accessibilityHidden(true)
-                            Text("Remove Source")
-                                .font(.body.weight(.semibold))
-                            Spacer()
-                        }
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 15)
+                        .buttonStyle(CardRowButtonStyle())
                     }
-                    .buttonStyle(CardRowButtonStyle())
+                    .padding(.top, 8)
                 }
-                .padding(.top, 8)
                 CardFooter(text: sources.isCodlingSource(row.source)
                            ? "Added with Codling."
                            : "Listed in \((row.source.file as NSString).lastPathComponent).")
