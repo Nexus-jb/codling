@@ -253,7 +253,6 @@ struct CrashLogCard: View {
     @EnvironmentObject private var reports: ReportsModel
     @State private var expanded = false
     @State private var reviewing: BurrowState.Crash?
-    @State private var confirmingClear = false
 
     var body: some View {
         let crashes = state.crashLog
@@ -266,7 +265,11 @@ struct CrashLogCard: View {
                 Divider()
                     .padding(.leading, 16)
                 Button(role: .destructive) {
-                    confirmingClear = true
+                    ConfirmPopup.show(.init(symbol: "trash", color: .red, title: "Clear the crash log?",
+                                            message: "Burrow forgets these crashes and deletes its copies of their reports. Tweaks Safe Mode turned off stay off, and reports not sent or shared yet are gone.",
+                                            confirmTitle: "Clear", destructive: true)) {
+                        Task { await model.clearCrashLog(origin: Self.origin) }
+                    }
                 } label: {
                     Label("Clear Crash Log", systemImage: "trash")
                         .font(.subheadline.weight(.semibold))
@@ -277,13 +280,6 @@ struct CrashLogCard: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(model.working != nil)
-            }
-            .confirmationDialog("Clear the crash log?", isPresented: $confirmingClear, titleVisibility: .visible) {
-                Button("Clear Crash Log", role: .destructive) {
-                    Task { await model.clearCrashLog(origin: Self.origin) }
-                }
-            } message: {
-                Text("Burrow forgets these crashes and deletes its copies of their reports. Tweaks Safe Mode turned off stay off, and reports not sent yet cannot be sent.")
             }
             .padding(.top, 8)
             .task(id: crashes.map(\.id)) {
