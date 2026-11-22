@@ -4,9 +4,17 @@ import SwiftUI
 
 /// The orders of the Installed list.
 enum InstalledOrder: String {
-    /// The last installed or upgraded first.
+    /// By date: the last installed or upgraded first.
     case newest
+    /// By name, from A to Z.
     case name
+
+    var title: String {
+        switch self {
+        case .newest: return "Date"
+        case .name: return "A to Z"
+        }
+    }
 }
 
 /// The packages dpkg has installed, read from its status file.
@@ -37,14 +45,21 @@ struct InstalledView: View {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Menu {
                             Picker("Order", selection: $order) {
-                                Label("Newest First", systemImage: "clock").tag(InstalledOrder.newest)
-                                Label("Name", systemImage: "textformat").tag(InstalledOrder.name)
+                                Label(InstalledOrder.newest.title, systemImage: "calendar").tag(InstalledOrder.newest)
+                                Label(InstalledOrder.name.title, systemImage: "textformat").tag(InstalledOrder.name)
                             }
                         } label: {
-                            Image(systemName: "arrow.up.arrow.down")
+                            // The order in use, in words.
+                            HStack(spacing: 3) {
+                                Text(order.title)
+                                Image(systemName: "chevron.down")
+                                    .imageScale(.small)
+                                    .accessibilityHidden(true)
+                            }
+                            .font(.subheadline.weight(.semibold))
                         }
                         .accessibilityLabel("Order")
-                        .accessibilityValue(order == .newest ? "Newest first" : "Name")
+                        .accessibilityValue(order == .newest ? "Date, newest first" : "A to Z")
                     }
                 }
         }
