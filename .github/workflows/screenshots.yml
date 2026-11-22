@@ -9,8 +9,6 @@ name: Layout screenshots
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ipad-layout]
 
 permissions:
   contents: read

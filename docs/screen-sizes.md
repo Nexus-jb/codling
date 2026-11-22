@@ -64,3 +64,4 @@ iOS 18, which draw Codling's own tab bar, and iPhone 17 Pro Max and iPad Pro
 | --- | --- | --- |
 | 2026-11-21 | All nine simulators, before the changes above | On iPads every page stretched across the window and the tab bar ran from edge to edge; on an iPhone on its side the tab bar took a third of the height |
 | 2026-11-21 | All nine simulators, after them | Pages in a centered column on iPads, the tab bar at most 520 points wide and 50 high on an iPhone on its side; iPhones held upright unchanged |
+| 2026-11-21 | Sources in two columns: iPad mini and iPad (10th generation) upright, iPad Pro 13-inch on its side (iOS 18 and 26), iPhone 17 Pro Max on its side | The sources beside All Packages, and a package opened beside them, upright too |
