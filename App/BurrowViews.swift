@@ -228,7 +228,6 @@ private struct BurrowStateSections: View {
     let state: BurrowState
     @EnvironmentObject private var queue: QueueModel
     @EnvironmentObject private var systemSheet: SystemSheet
-    @State private var confirmingLoader = false
     @State private var showsSafeMode = false
     @State private var showsTweaks = false
 
@@ -382,21 +381,21 @@ private struct BurrowStateSections: View {
             }
             if state.loader == "Burrow" || state.loader == "ElleKit" {
                 Button(state.usesBurrowLoader ? "Go Back to ElleKit's Loader" : "Use Burrow's Loader") {
-                    confirmingLoader = true
+                    let toBurrow = !state.usesBurrowLoader
+                    ConfirmPopup.show(.init(
+                        symbol: toBurrow ? "shield.lefthalf.filled" : "arrow.uturn.backward",
+                        color: toBurrow ? .blue : .orange,
+                        title: toBurrow ? "Use Burrow's loader?" : "Go back to ElleKit's loader?",
+                        message: toBurrow
+                            ? "Burrow's loader loads the same tweaks, adds Safe Mode and per-app settings, and goes back to ElleKit's loader by itself if it crashes."
+                            : "Tweaks keep loading, but without Burrow's per-app settings and Safe Mode.",
+                        confirmTitle: toBurrow ? "Use Burrow's Loader" : "Use ElleKit's Loader")) {
+                        Task { await model.useLoader(burrow: toBurrow, origin: Self.origin) }
+                    }
                 }
                 .buttonStyle(TintedButtonStyle())
                 .disabled(model.working != nil)
                 .padding(.top, 12)
-                .confirmationDialog(state.usesBurrowLoader ? "Go back to ElleKit's loader?" : "Use Burrow's loader?",
-                                    isPresented: $confirmingLoader, titleVisibility: .visible) {
-                    Button(state.usesBurrowLoader ? "Use ElleKit's Loader" : "Use Burrow's Loader") {
-                        Task { await model.useLoader(burrow: !state.usesBurrowLoader, origin: Self.origin) }
-                    }
-                } message: {
-                    Text(state.usesBurrowLoader
-                         ? "Tweaks keep loading, but without Burrow's per-app settings and Safe Mode."
-                         : "Burrow's loader loads the same tweaks, adds Safe Mode and per-app settings, and goes back to ElleKit's loader by itself if it crashes.")
-                }
             }
         }
     }

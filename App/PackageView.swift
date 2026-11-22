@@ -391,7 +391,6 @@ private struct PackageActions: View {
     @EnvironmentObject private var sources: SourcesModel
     @State private var offer: PaidOffer = .loading
     @State private var buying = false
-    @State private var confirming = false
     @State private var problem: String?
 
     /// What Codling knows about buying a paid package.
@@ -460,14 +459,6 @@ private struct PackageActions: View {
                 await loadOffer()
             }
         }
-        .alert(confirmTitle, isPresented: $confirming) {
-            Button(confirmButton) {
-                Task { await buy() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(confirmMessage)
-        }
         .alert("Purchase", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -529,7 +520,10 @@ private struct PackageActions: View {
             } else if price.available {
                 Button(price.price ?? "BUY") {
                     if accounts.isSignedIn(provider) {
-                        confirming = true
+                        ConfirmPopup.show(.init(symbol: "creditcard", color: .blue, title: confirmTitle,
+                                                message: confirmMessage, confirmTitle: confirmButton)) {
+                            Task { await buy() }
+                        }
                     } else {
                         Task { await signIn(provider) }
                     }

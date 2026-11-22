@@ -80,7 +80,6 @@ final class PackageHealthModel: ObservableObject {
 /// where there is one, and a button to check again.
 struct PackageHealthCard: View {
     @ObservedObject var model: PackageHealthModel
-    @State private var confirming: AptDiagnosis.Fix?
 
     var body: some View {
         Card(padding: 14) {
@@ -96,17 +95,6 @@ struct PackageHealthCard: View {
             .buttonStyle(TintedButtonStyle())
             .disabled(isBusy)
             .padding(.top, 12)
-        }
-        .confirmationDialog("Finish setting up the packages?", isPresented: Binding(
-            get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible) {
-            Button("Finish Setting Up") {
-                if let fix = confirming {
-                    Task { await model.perform(fix) }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Codling runs dpkg --configure -a as root. It runs the setup scripts of the packages that did not finish, and keeps any configuration file you changed.")
         }
     }
 
@@ -166,7 +154,12 @@ struct PackageHealthCard: View {
                 ForEach(diagnoses, id: \.id) { diagnosis in
                     DiagnosisView(diagnosis: diagnosis, showsFix: true) { fix in
                         if fix == .configurePending {
-                            confirming = fix
+                            ConfirmPopup.show(.init(symbol: "wrench.and.screwdriver", color: .orange,
+                                                    title: "Finish setting up the packages?",
+                                                    message: "Codling runs dpkg --configure -a as root. It runs the setup scripts of the packages that did not finish, and keeps any configuration file you changed.",
+                                                    confirmTitle: "Finish Setting Up")) {
+                                Task { await model.perform(fix) }
+                            }
                         } else {
                             Task { await model.perform(fix) }
                         }
