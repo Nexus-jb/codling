@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
-// Tests what the helper uses to take a purchased package: SHA-256
-// (sha256.c), reading the SHA256 fields apt-cache prints, the
-// $package=version operation's parts, and finding a checked copy. It
-// includes the helper with its main renamed, so that the static functions
-// are in reach.
+// Tests what the helper uses to take a purchased package or a .deb the user
+// opened: SHA-256 (sha256.c), reading the SHA256 fields apt-cache prints,
+// the $package=version and %TOKEN operations' parts, reading control fields,
+// and finding a checked copy. It includes the helper with its main renamed,
+// so that the static functions are in reach.
 
 #define main codling_helper_main
 #include "../codling-helper.c"
@@ -60,12 +60,34 @@ static int find_in_uris(const char *path, const char *package, const char *versi
     return 0;
 }
 
+// driver field FILE NAME: prints the field that control_field finds in
+// FILE, which holds what dpkg-deb --field printed, so that
+// scripts/test-apt-trust.sh can check it against a real dpkg-deb.
+static int find_field(const char *path, const char *name) {
+    static char text[1 << 16];
+    FILE *input = fopen(path, "r");
+    if (!input) {
+        return 2;
+    }
+    size_t length = fread(text, 1, sizeof text, input);
+    fclose(input);
+    char value[512];
+    if (control_field(text, length, name, value, sizeof value) != 0) {
+        return 1;
+    }
+    puts(value);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc == 5 && strcmp(argv[1], "uris") == 0) {
         return find_in_uris(argv[2], argv[3], argv[4]);
     }
+    if (argc == 4 && strcmp(argv[1], "field") == 0) {
+        return find_field(argv[2], argv[3]);
+    }
     if (argc != 2) {
-        fprintf(stderr, "usage: %s DIRECTORY | uris FILE PACKAGE VERSION\n", argv[0]);
+        fprintf(stderr, "usage: %s DIRECTORY | uris FILE PACKAGE VERSION | field FILE NAME\n", argv[0]);
         return 2;
     }
     char hex[65];
@@ -245,20 +267,38 @@ int main(int argc, char **argv) {
     snprintf(placed, sizeof placed, "%s/missing", root);
     expect(place_archive(source, placed, "x_1.0_all.deb") != 0, "a missing cache fails cleanly");
 
-    // The inbox is reached only through real directories.
+    // The inboxes are reached only through real directories.
     char home[PATH_MAX];
     snprintf(home, sizeof home, "%s/home", root);
     expect(mkdir(home, 0755) == 0, "a home is made");
-    expect(open_inbox(home) < 0, "no inbox yet");
+    expect(open_inbox(home, purchases_inbox) < 0, "no inbox yet");
     char step[PATH_MAX];
     snprintf(step, sizeof step, "%s", home);
-    for (size_t i = 0; i < sizeof inbox_directories / sizeof *inbox_directories; i++) {
+    for (size_t i = 0; i < sizeof inbox_parents / sizeof *inbox_parents; i++) {
         size_t step_length = strlen(step);
-        snprintf(step + step_length, sizeof step - step_length, "/%s", inbox_directories[i]);
+        snprintf(step + step_length, sizeof step - step_length, "/%s", inbox_parents[i]);
         mkdir(step, 0755);
     }
-    int inbox = open_inbox(home);
-    expect(inbox >= 0, "the inbox opens");
+    expect(open_inbox(home, purchases_inbox) < 0, "no purchases inbox yet");
+    expect(open_inbox(home, files_inbox) < 0, "no files inbox yet");
+    char inbox_path[PATH_MAX];
+    snprintf(inbox_path, sizeof inbox_path, "%s/%s", step, purchases_inbox);
+    expect(mkdir(inbox_path, 0755) == 0, "the purchases inbox is made");
+    int inbox = open_inbox(home, purchases_inbox);
+    expect(inbox >= 0, "the purchases inbox opens");
+    if (inbox >= 0) {
+        close(inbox);
+    }
+    expect(open_inbox(home, files_inbox) < 0, "the files inbox is still missing");
+    char files_path[PATH_MAX];
+    snprintf(files_path, sizeof files_path, "%s/files-elsewhere", root);
+    expect(mkdir(files_path, 0755) == 0, "a directory elsewhere is made");
+    snprintf(inbox_path, sizeof inbox_path, "%s/%s", step, files_inbox);
+    expect(symlink(files_path, inbox_path) == 0, "a link takes the files inbox's place");
+    expect(open_inbox(home, files_inbox) < 0, "a linked files inbox is not followed");
+    expect(unlink(inbox_path) == 0 && mkdir(inbox_path, 0755) == 0, "the files inbox is made");
+    inbox = open_inbox(home, files_inbox);
+    expect(inbox >= 0, "the files inbox opens");
     if (inbox >= 0) {
         close(inbox);
     }
@@ -269,11 +309,66 @@ int main(int argc, char **argv) {
     snprintf(moved, sizeof moved, "%s/Library/Caches/moved", home);
     expect(rename(cache, moved) == 0, "the cache directory is moved away");
     expect(symlink(moved, cache) == 0, "a link takes its place");
-    expect(open_inbox(home) < 0, "a link on the way is not followed");
+    expect(open_inbox(home, purchases_inbox) < 0, "a link on the way is not followed");
+    expect(open_inbox(home, files_inbox) < 0, "a link on the way to the files inbox is not followed");
     char linked_home[PATH_MAX];
     snprintf(linked_home, sizeof linked_home, "%s/linked-home", root);
     expect(symlink(home, linked_home) == 0, "a link to the home is made");
-    expect(open_inbox(linked_home) < 0, "a linked home is not followed");
+    expect(open_inbox(linked_home, purchases_inbox) < 0, "a linked home is not followed");
+
+    // Tokens for opened files: 32 lowercase hex digits and nothing else.
+    expect(valid_file_token("0123456789abcdef0123456789abcdef"), "a token of 32 hex digits");
+    expect(!valid_file_token("0123456789abcdef0123456789abcde"), "31 digits are too few");
+    expect(!valid_file_token("0123456789abcdef0123456789abcdef0"), "33 digits are too many");
+    expect(!valid_file_token("0123456789ABCDEF0123456789abcdef"), "upper case is not a token");
+    expect(!valid_file_token("0123456789abcdef0123456789abcde/"), "a slash is not a token");
+    expect(!valid_file_token("../3456789abcdef0123456789abcdef"), "a parent directory is not a token");
+    expect(!valid_file_token(""), "nothing is not a token");
+
+    // The kept copy is found only when it is a real file.
+    const char *token = "00112233445566778899aabbccddeeff";
+    char kept[backup_path_size];
+    expect(file_copy_path(root, token, kept) != 0, "no kept copy yet");
+    snprintf(step, sizeof step, "%s/var/lib/codling/files", root);
+    mkdir(step, 0755);
+    snprintf(step, sizeof step, "%s/var/lib/codling/files/%s.deb", root, token);
+    written = fopen(step, "w");
+    expect(written != NULL, "a kept copy is written");
+    if (written) {
+        fputs("!<arch>\n", written);
+        fclose(written);
+    }
+    if (getuid() == 0) {
+        expect(file_copy_path(root, token, kept) == 0, "the kept copy is found");
+        expect_string(kept, step, "the kept copy's path");
+    } else {
+        expect(file_copy_path(root, token, kept) != 0, "a copy that is not root's is not used");
+    }
+    expect(file_copy_path(root, "../../../../../../etc/passwd", kept) != 0, "a path is not a token");
+    snprintf(kept, sizeof kept, "%s/var/lib/codling/files/%s.deb", root, "ffeeddccbbaa99887766554433221100");
+    expect(symlink(step, kept) == 0, "a link to the kept copy is made");
+    expect(file_copy_path(root, "ffeeddccbbaa99887766554433221100", kept) != 0, "a linked copy is not used");
+
+    // Control fields as dpkg-deb --field prints them.
+    const char *control =
+        "Package: com.ultrateam.ultradock\nName: UltraDock\nversion:\t1.0.3 \r\n"
+        "Architecture: iphoneos-arm64\nDescription: A dock\n  with a second line\n"
+        "Depends: firmware (>= 15.0), mobilesubstrate\nPackaged: no\n";
+    size_t control_length = strlen(control);
+    char value[130];
+    expect(control_field(control, control_length, "Package", value, sizeof value) == 0, "the package is read");
+    expect_string(value, "com.ultrateam.ultradock", "the package");
+    expect(control_field(control, control_length, "Version", value, sizeof value) == 0,
+           "a field is read whatever its case");
+    expect_string(value, "1.0.3", "the version without its spaces");
+    expect(control_field(control, control_length, "Description", value, sizeof value) == 0, "the description");
+    expect_string(value, "A dock", "the description's first line");
+    expect(control_field(control, control_length, "Pack", value, sizeof value) != 0, "a prefix is not a field");
+    expect(control_field(control, control_length, "Maintainer", value, sizeof value) != 0, "a missing field");
+    char small[6];
+    expect(control_field(control, control_length, "Package", small, sizeof small) != 0, "a value too long fails");
+    expect(control_field("Package:", 8, "Package", value, sizeof value) == 0 && value[0] == '\0',
+           "an empty field at the end");
 
     if (failures) {
         fprintf(stderr, "[purchases] %d of %d checks failed\n", failures, checks);

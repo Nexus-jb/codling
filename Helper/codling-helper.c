@@ -79,6 +79,16 @@
 //                          JAILBREAK/var/lib/codling/purchases, which only
 //                          root can write. The download is deleted either
 //                          way.
+//   codling-helper take-file TOKEN
+//                          takes a .deb the user opened in Codling from its
+//                          caches (TOKEN.deb in the files inbox below, TOKEN
+//                          being 32 hex digits Codling chose, opened without
+//                          following links), keeps it in
+//                          JAILBREAK/var/lib/codling/files, which only root
+//                          can write, and prints its control fields as
+//                          dpkg-deb reads them. No source vouches for such a
+//                          file: the user chose it. The file in the caches is
+//                          deleted either way.
 //   codling-helper burrow-state
 //                          runs Burrow's burrowctl json, which prints the
 //                          tweak loader in use, the loader settings, every
@@ -98,10 +108,11 @@
 //
 // Operations name packages only: letters, digits, "+", "-" and ".", starting
 // with a letter or digit and ending with a letter, a digit or "+". A third
-// operation, @package=version, installs that version from its backup, and a
+// operation, @package=version, installs that version from its backup, a
 // fourth, $package=version, installs a purchased package that take-purchase
-// checked; the version is checked too, and the helper finds the file itself.
-// A purchase reaches apt as package=version, never as a file: see
+// checked, and a fifth, %TOKEN, installs the file take-file kept; the
+// version and the token are checked too, and the helper finds the file
+// itself. A purchase reaches apt as package=version, never as a file: see
 // stage_purchases. Nothing else from the caller reaches apt.
 
 #include "repack.h"
@@ -361,13 +372,17 @@ static int split_versioned(const char *text, char package[name_limit + 1], const
 
 static const char purchases_suffix[] = "/var/lib/codling/purchases";
 
-// Where Codling, which runs as mobile, leaves a package it downloaded after
-// a purchase: Library/Caches/com.nexusjb.codling/purchases in mobile's home.
-// The helper takes it from here into purchases_suffix. Any program running
-// as mobile can change these directories, so each is opened without
-// following a link (open_inbox).
+// Where Codling, which runs as mobile, leaves a package for the helper:
+// Library/Caches/com.nexusjb.codling/purchases in mobile's home for one it
+// downloaded after a purchase, and .../files for a .deb the user opened in
+// Codling. The helper takes them from here into purchases_suffix and
+// files_suffix. Any program running as mobile can change these directories,
+// so each is opened without following a link (open_inbox).
 static const char mobile_home[] = "/private/var/mobile";
-static const char *const inbox_directories[] = { "Library", "Caches", "com.nexusjb.codling", "purchases" };
+static const char *const inbox_parents[] = { "Library", "Caches", "com.nexusjb.codling" };
+static const char purchases_inbox[] = "purchases";
+static const char files_inbox[] = "files";
+static const char files_suffix[] = "/var/lib/codling/files";
 
 // Where apt keeps the archives it downloads, and an empty one for asking apt
 // what it would download (stage_purchases).
@@ -464,16 +479,85 @@ static int backup_path(const char *root, const char *name, const char *version, 
     return found;
 }
 
-// The inbox directory under home, every directory on the way opened without
-// following a link. Returns its descriptor, or -1.
-static int open_inbox(const char *home) {
+// The inbox directory under home, purchases_inbox or files_inbox, every
+// directory on the way opened without following a link. Returns its
+// descriptor, or -1.
+static int open_inbox(const char *home, const char *inbox) {
     int directory = open(home, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    for (size_t i = 0; directory >= 0 && i < sizeof inbox_directories / sizeof *inbox_directories; i++) {
-        int next = openat(directory, inbox_directories[i], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    for (size_t i = 0; directory >= 0 && i <= sizeof inbox_parents / sizeof *inbox_parents; i++) {
+        const char *name = i < sizeof inbox_parents / sizeof *inbox_parents ? inbox_parents[i] : inbox;
+        int next = openat(directory, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
         close(directory);
         directory = next;
     }
     return directory;
+}
+
+// Only the newest opened files are kept: one the user opened and never
+// installed has no other use, and an installed one is in dpkg.
+enum { file_token_length = 32, files_kept = 10 };
+
+// A token Codling chose for an opened file: 32 lowercase hex digits, so the
+// file's name, TOKEN.deb, has no "/" and does not start with ".".
+static int valid_file_token(const char *token) {
+    size_t length = strlen(token);
+    if (length != file_token_length) {
+        return 0;
+    }
+    for (size_t i = 0; i < length; i++) {
+        char c = token[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// The kept copy of an opened file. 0 when it exists, is a file and is
+// root's.
+static int file_copy_path(const char *root, const char *token, char path[backup_path_size]) {
+    struct stat info;
+    if (!valid_file_token(token)) {
+        return -1;
+    }
+    int written = snprintf(path, backup_path_size, "%s%s/%s.deb", root, files_suffix, token);
+    if (written < 0 || written >= backup_path_size) {
+        return -1;
+    }
+    return lstat(path, &info) == 0 && S_ISREG(info.st_mode) && info.st_uid == 0 ? 0 : -1;
+}
+
+// The value of field in a control stanza as dpkg-deb --field prints it: the
+// first line of "Field: value", case as in the stanza. 0 when it is there
+// and fits in size bytes with its null.
+static int control_field(const char *text, size_t length, const char *field, char *value, size_t size) {
+    size_t field_length = strlen(field);
+    size_t start = 0;
+    while (start < length) {
+        size_t end = start;
+        while (end < length && text[end] != '\n') {
+            end++;
+        }
+        if (end - start > field_length && strncasecmp(text + start, field, field_length) == 0
+            && text[start + field_length] == ':') {
+            size_t first = start + field_length + 1;
+            size_t last = end;
+            while (first < last && (text[first] == ' ' || text[first] == '\t')) {
+                first++;
+            }
+            while (last > first && (text[last - 1] == ' ' || text[last - 1] == '\t' || text[last - 1] == '\r')) {
+                last--;
+            }
+            if (last - first + 1 > size) {
+                return -1;
+            }
+            memcpy(value, text + first, last - first);
+            value[last - first] = '\0';
+            return 0;
+        }
+        start = end + 1;
+    }
+    return -1;
 }
 
 // The file name apt gives its download of name at version, from what
@@ -645,8 +729,10 @@ static void stage_purchases(const char *root, int count, char **operations) {
 // Turns operations into apt-get install arguments: +name installs name,
 // -name removes it (name-), @name=version installs the backup's file, and
 // $name=version installs that version of a purchased package, which
-// stage_purchases put in apt's archive cache. The strings stay owned by argv
-// or the buffer. Sets *restores when any operation restores a backup.
+// stage_purchases put in apt's archive cache, and %TOKEN installs the file
+// take-file kept. The strings stay owned by argv or the buffer. Sets
+// *restores when any operation restores a backup or installs a file, either
+// of which may be older than the version installed.
 static size_t add_operations(const char *root, int count, char **operations, const char **arguments, size_t used,
                              char buffer[][backup_path_size], int *restores) {
     if (count < 1) {
@@ -685,8 +771,22 @@ static size_t add_operations(const char *root, int count, char **operations, con
             arguments[used++] = buffer[i];
             continue;
         }
+        if (kind == '%') {
+            if (!valid_file_token(name)) {
+                usage_error("An opened file is not %TOKEN with a valid token.");
+            }
+            if (file_copy_path(root, name, buffer[i]) != 0) {
+                usage_error("Codling no longer has that opened file. Open the package again.");
+            }
+            // A path, which apt installs as a file: the one the user chose,
+            // which they may also install older than the version installed.
+            arguments[used++] = buffer[i];
+            *restores = 1;
+            continue;
+        }
         if ((kind != '+' && kind != '-') || !valid_package(name)) {
-            usage_error("An operation is not +package, -package, @package=version or $package=version with valid names.");
+            usage_error("An operation is not +package, -package, @package=version, $package=version or %TOKEN "
+                        "with valid names.");
         }
         if (kind == '+') {
             arguments[used++] = name;
@@ -784,9 +884,9 @@ static int install(int count, char **words, int download_only) {
     return 0;
 }
 
-// Deletes all but the newest backups_kept packages in a directory of
-// backups or purchases.
-static void prune_backups(const char *directory) {
+// Deletes all but the newest kept packages in a directory of backups,
+// purchases or opened files.
+static void prune_backups(const char *directory, size_t kept) {
     DIR *listing = opendir(directory);
     if (!listing) {
         return;
@@ -809,7 +909,7 @@ static void prune_backups(const char *directory) {
         }
     }
     closedir(listing);
-    while (count > backups_kept) {
+    while (count > kept) {
         size_t oldest = 0;
         for (size_t i = 1; i < count; i++) {
             if (files[i].time < files[oldest].time) {
@@ -883,7 +983,7 @@ static int backup(int count, char **names) {
     }
     puts("]}");
     codling_remove_tree(staging);
-    prune_backups(directory);
+    prune_backups(directory, backups_kept);
     return 0;
 }
 
@@ -915,7 +1015,7 @@ static int take_purchase(const char *package, const char *version) {
 
     // The download is used once, whatever happens next: it is unlinked as
     // soon as it is open, and read through the open file.
-    int inbox = open_inbox(mobile_home);
+    int inbox = open_inbox(mobile_home, purchases_inbox);
     int in = inbox >= 0 ? openat(inbox, file, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) : -1;
     if (inbox >= 0) {
         unlinkat(inbox, file, 0);
@@ -1002,7 +1102,7 @@ static int take_purchase(const char *package, const char *version) {
                 : !matches ? "The download does not match the package your source lists, so Codling did not keep it."
                            : "The checked copy of the package cannot be kept.");
     }
-    prune_backups(directory);
+    prune_backups(directory, backups_kept);
     fputs("{\"package\":", stdout);
     print_json_string(package, strlen(package));
     fputs(",\"version\":", stdout);
@@ -1010,6 +1110,117 @@ static int take_purchase(const char *package, const char *version) {
     fputs(",\"sha256\":", stdout);
     print_json_string(digest, strlen(digest));
     puts("}");
+    return 0;
+}
+
+// The control fields take-file prints at most.
+enum { control_limit = 64 * 1024 };
+
+static int take_file(const char *token) {
+    char root[PATH_MAX];
+    require_root(root);
+    if (!valid_file_token(token)) {
+        usage_error("The token is not 32 hex digits.");
+    }
+    char file[file_token_length + 5];
+    snprintf(file, sizeof file, "%s.deb", token);
+
+    // The file is used once, whatever happens next: it is unlinked as soon
+    // as it is open, and read through the open file.
+    int inbox = open_inbox(mobile_home, files_inbox);
+    int in = inbox >= 0 ? openat(inbox, file, O_RDONLY | O_NOFOLLOW | O_CLOEXEC) : -1;
+    if (inbox >= 0) {
+        unlinkat(inbox, file, 0);
+        close(inbox);
+    }
+    struct stat info;
+    if (in < 0 || fstat(in, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != mobile_uid
+        || info.st_size <= 0 || info.st_size > purchase_size_limit) {
+        failure("The opened file is missing, or is not a file Codling made.");
+    }
+
+    char codling[PATH_MAX];
+    char directory[PATH_MAX];
+    char target[PATH_MAX];
+    char partial[PATH_MAX];
+    snprintf(codling, sizeof codling, "%s/var/lib/codling", root);
+    snprintf(directory, sizeof directory, "%s%s", root, files_suffix);
+    for (const char *made = codling; made; made = made == codling ? directory : NULL) {
+        // Root's alone, whoever made it.
+        if ((mkdir(made, 0755) != 0 && errno != EEXIST) || chown(made, 0, 0) != 0 || chmod(made, 0755) != 0) {
+            failure("The directory for opened packages cannot be made root's.");
+        }
+    }
+    if (snprintf(target, sizeof target, "%s/%s", directory, file) >= (int)sizeof target
+        || snprintf(partial, sizeof partial, "%s.part", target) >= (int)sizeof partial) {
+        failure("The path of the opened package is too long.");
+    }
+    unlink(partial);
+    int out = open(partial, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0644);
+    if (out < 0) {
+        failure("The copy of the opened package cannot be written.");
+    }
+    static char chunk[1 << 16];
+    long long total = 0;
+    int copied = 1;
+    while (copied) {
+        ssize_t got = read(in, chunk, sizeof chunk);
+        if (got < 0 && errno == EINTR) {
+            continue;
+        }
+        if (got <= 0) {
+            copied = got == 0;
+            break;
+        }
+        total += got;
+        if (total > purchase_size_limit) {
+            copied = 0;
+            break;
+        }
+        ssize_t done = 0;
+        while (done < got) {
+            ssize_t wrote = write(out, chunk + done, (size_t)(got - done));
+            if (wrote < 0 && errno == EINTR) {
+                continue;
+            }
+            if (wrote <= 0) {
+                copied = 0;
+                break;
+            }
+            done += wrote;
+        }
+    }
+    close(in);
+    if (close(out) != 0) {
+        copied = 0;
+    }
+    if (!copied || rename(partial, target) != 0) {
+        unlink(partial);
+        failure("The opened package could not be copied.");
+    }
+
+    // What the package says it is, as dpkg-deb reads it: a file dpkg-deb
+    // cannot read, or that names no valid package and version, is not kept.
+    const char *const arguments[] = { "dpkg-deb", "--field", target, NULL };
+    char *output = NULL;
+    size_t length = 0;
+    int status = run_collect(root, "/usr/bin/dpkg-deb", arguments, &output, &length);
+    char package[name_limit + 1];
+    char version[130];
+    if (status != 0 || !output || length == 0 || length > control_limit
+        || control_field(output, length, "Package", package, sizeof package) != 0 || !valid_package(package)
+        || control_field(output, length, "Version", version, sizeof version) != 0 || !valid_version(version)) {
+        free(output);
+        unlink(target);
+        failure("This file is not a Debian package Codling can install: dpkg-deb cannot read its name and version.");
+    }
+    prune_backups(directory, files_kept);
+    fputs("{\"token\":", stdout);
+    print_json_string(token, strlen(token));
+    fputs(",\"control\":", stdout);
+    print_json_string(output, length);
+    puts("}");
+    free(output);
     return 0;
 }
 
@@ -1575,6 +1786,9 @@ int main(int argc, char **argv) {
     if (argc == 4 && strcmp(argv[1], "take-purchase") == 0) {
         return take_purchase(argv[2], argv[3]);
     }
+    if (argc == 3 && strcmp(argv[1], "take-file") == 0) {
+        return take_file(argv[2]);
+    }
     if (argc == 2 && strcmp(argv[1], "burrow-state") == 0) {
         return burrow_state();
     }
@@ -1587,7 +1801,7 @@ int main(int argc, char **argv) {
     fputs("usage: codling-helper check | audit | configure-pending | update-lists | simulate OPERATION... |\n"
           "       apply [--trust-unsigned] [--allow-removals] OPERATION... |\n"
           "       download [--trust-unsigned] [--allow-removals] OPERATION... | respring | backup PACKAGE... |\n"
-          "       add-source URI | remove-source URI | take-purchase PACKAGE VERSION |\n"
+          "       add-source URI | remove-source URI | take-purchase PACKAGE VERSION | take-file TOKEN |\n"
           "       burrow-state | burrow-tweak on|off TWEAK [PROCESS] | burrow-loader burrow|ellekit\n", stderr);
     return 64;
 }

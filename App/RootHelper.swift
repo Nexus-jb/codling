@@ -196,6 +196,23 @@ enum RootHelper {
             .flatMap { decode(PurchaseCopy.self, from: $0) }
     }
 
+    /// What take-file reports about the .deb it kept: the token, and the
+    /// package's control fields as dpkg-deb printed them.
+    struct FileCopy: Decodable, Equatable {
+        let token: String
+        let control: String
+    }
+
+    /// Has the helper take a .deb the user opened in Codling from the files
+    /// inbox (OpenedFiles), keep it where only root can write, and read its
+    /// control fields with dpkg-deb, for a %TOKEN operation.
+    static func takeFile(_ token: String) -> Result<FileCopy, Failure> {
+        guard PackageOperation.isValidFileToken(token) else {
+            return .failure(.failed(status: 64, message: "The opened file's token is not one the helper accepts."))
+        }
+        return run(["take-file", token], timeoutMilliseconds: 120_000).flatMap { decode(FileCopy.self, from: $0) }
+    }
+
     /// Runs Burrow's `burrowctl json`, which reports the tweak loader, the
     /// loader settings, every tweak and Safe Mode's events. It changes nothing.
     static func burrowState() -> Result<CommandResult, Failure> {
