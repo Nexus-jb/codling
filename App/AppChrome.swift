@@ -7,6 +7,9 @@ import SwiftUI
 @MainActor
 final class SystemSheet: ObservableObject {
     @Published var shown = false
+    /// The queue opens once the sheet is gone, to review a change queued
+    /// from it.
+    var queueAfterClosing = false
 }
 
 /// The gear that opens the System screen.

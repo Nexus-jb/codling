@@ -183,6 +183,14 @@ public struct BurrowState: Decodable, Equatable {
         }
     }
 
+    /// The tweak to remove for what Safe Mode turned off, with the package
+    /// that installed it. Nil for every tweak, and for a tweak no package
+    /// installed, which only its own files can take away.
+    public func removableTweak(for event: Event) -> Tweak? {
+        guard event.tweak != Self.everyTweak else { return nil }
+        return tweaks.first { $0.name == event.tweak && !($0.package ?? "").isEmpty }
+    }
+
     /// The name burrowctl uses for every tweak, and for every process in
     /// events.
     public static let everyTweak = "*"
