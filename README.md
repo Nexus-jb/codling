@@ -64,8 +64,12 @@ explains what Codling reads from it and what to publish.
 
 iOS 15 and later. Rootful jailbreaks are not planned for 1.0.
 
-Devices with an Apple A12 chip or newer: iPhone XS, iPhone XR and later.
-The package refuses to install on older chips.
+Devices with an Apple A12 chip or newer: iPhone XS, iPhone XR and later,
+and the iPads with an A12 chip or newer. The package refuses to install on
+older chips. The layout follows the window, from the 4.7-inch iPhone SE to
+the 13-inch iPad Pro, upright and on its side;
+[docs/screen-sizes.md](docs/screen-sizes.md) explains how, and how it is
+checked on simulators.
 
 ## How Codling gets root
 

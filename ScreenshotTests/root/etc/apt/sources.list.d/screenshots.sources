@@ -1,0 +1,19 @@
+Types: deb
+URIs: https://repo.nexusjb.com/
+Suites: ./
+Components:
+
+Types: deb
+URIs: https://havoc.app/
+Suites: ./
+Components:
+
+Types: deb
+URIs: https://repo.chariz.com/
+Suites: ./
+Components:
+
+Types: deb
+URIs: https://apt.procursus.us/
+Suites: iphoneos-arm64/1900
+Components: main

@@ -1,0 +1,138 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Screenshots of Codling's main pages on simulators of every screen size
+# that can be jailbroken, upright and on their side, for checking the layout
+# on iPhones and iPads nobody on the team has. Started by hand; the
+# screenshots are published as the layout-screenshots prerelease, which
+# each run replaces. See scripts/layout-screenshots.sh.
+name: Layout screenshots
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build for the simulator
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: brew install xcodegen
+
+      - name: Use Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -iv beta | sort -V | tail -n 1)
+          if [ -z "$xcode" ]; then
+            echo "Xcode 26 is not installed on this runner. Installed:" >&2
+            ls -d /Applications/Xcode*.app >&2
+            exit 1
+          fi
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+
+      - name: Build
+        run: |
+          xcodegen generate
+          scripts/layout-screenshots.sh build products
+          tar -czf products.tar.gz products
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simulator-products
+          path: products.tar.gz
+          retention-days: 1
+
+  shoot:
+    name: ${{ matrix.device }} (iOS ${{ matrix.ios }})
+    needs: build
+    runs-on: macos-15-intel
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Before iOS 26 Codling draws its own tab bar; on iOS 26 it uses
+          # the system's.
+          - { ios: "18", device: "iPhone SE (3rd generation)" }
+          - { ios: "18", device: "iPhone 12 mini" }
+          - { ios: "18", device: "iPhone 11 Pro Max" }
+          - { ios: "18", device: "iPhone 16 Pro Max" }
+          - { ios: "18", device: "iPad mini (6th generation)" }
+          - { ios: "18", device: "iPad (10th generation)" }
+          - { ios: "18", device: "iPad Pro 13-inch (M4)" }
+          - { ios: "26", device: "iPhone 17 Pro Max" }
+          - { ios: "26", device: "iPad Pro 13-inch (M5)" }
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install tools
+        run: brew install gnupg
+
+      - name: Use Xcode 26
+        run: |
+          xcode=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -iv beta | sort -V | tail -n 1)
+          sudo xcode-select -s "$xcode"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: simulator-products
+
+      - name: Take the screenshots
+        env:
+          IOS: ${{ matrix.ios }}
+          DEVICE: ${{ matrix.device }}
+        run: |
+          tar -xzf products.tar.gz
+          scripts/layout-screenshots.sh shoot products "$IOS" "$DEVICE" screenshots
+
+      - name: Name the upload
+        if: always()
+        id: name
+        env:
+          IOS: ${{ matrix.ios }}
+          DEVICE: ${{ matrix.device }}
+        run: echo "name=screenshots-$(printf '%s-%s' "$IOS" "$DEVICE" | tr -c 'A-Za-z0-9-' '-')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: screenshots/
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish:
+    name: Publish the screenshots
+    needs: shoot
+    if: always() && needs.shoot.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: screenshots-*
+          path: screenshots
+          merge-multiple: true
+
+      - name: Replace the layout-screenshots prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          (cd screenshots && zip -qr ../layout-screenshots.zip .)
+          notes="Simulator screenshots of $REF_NAME ($SHA), for checking the layout. Not a release."
+          gh release delete layout-screenshots --repo "$REPO" --yes --cleanup-tag || true
+          gh release create layout-screenshots --repo "$REPO" --prerelease --latest=false --target "$SHA" \
+            --title "Layout screenshots" --notes "$notes" layout-screenshots.zip

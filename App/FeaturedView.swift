@@ -137,6 +137,7 @@ struct FeaturedView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                .pageColumn()
             }
             .background(WallBackground())
             .navigationTitle("Featured")
@@ -298,6 +299,7 @@ struct ArrivalsView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .pageColumn()
         }
         .background(WallBackground())
         .navigationTitle("New & Updated")
@@ -502,6 +504,7 @@ struct CategoryPackagesView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .pageColumn()
         }
         .background(WallBackground())
         .searchable(text: $query, prompt: "Filter by name, author or identifier")
@@ -535,12 +538,16 @@ struct CategoryPackagesView: View {
     }
 }
 
-/// The banners side by side, two to a screen, each with its source's name.
+/// The banners side by side, each with its source's name: two across the
+/// column on an iPhone, more where each can still be 250 points wide.
 private struct FeaturedCarousel: View {
     let items: [FeaturedModel.Item]
+    @Environment(\.columnWidth) private var columnWidth
 
     var body: some View {
-        let width = ((min(UIScreen.main.bounds.width, 500) - 32 - 10) / 2).rounded(.down)
+        let available = (columnWidth ?? PageLayout.assumedWidth) - 32
+        let across = max(2, Int((available + 10) / 260))
+        let width = ((available - 10 * CGFloat(across - 1)) / CGFloat(across)).rounded(.down)
         let size = CGSize(width: width, height: (width * 148 / 263).rounded())
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(alignment: .top, spacing: 10) {

@@ -295,6 +295,7 @@ private struct VideoTile: View {
 private struct ScreenshotsElement: View {
     let screenshots: DepictionScreenshots
     @State private var gallery: GalleryStart?
+    @Environment(\.columnWidth) private var columnWidth
 
     struct GalleryStart: Identifiable {
         let index: Int
@@ -335,9 +336,9 @@ private struct ScreenshotsElement: View {
         }
     }
 
-    /// The item size, scaled down when it is wider than the screen.
+    /// The item size, scaled down when it is wider than the column.
     private func fitted(_ size: DepictionSize) -> CGSize {
-        let available = UIScreen.main.bounds.width - 48
+        let available = (columnWidth ?? PageLayout.assumedWidth) - 48
         let scale = min(1, available / size.width)
         return CGSize(width: size.width * scale, height: size.height * scale)
     }

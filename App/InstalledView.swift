@@ -16,6 +16,7 @@ struct InstalledView: View {
         NavigationView {
             content
                 .navigationTitle("Installed")
+                .titleOverColumn()
                 .systemButton()
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -86,6 +87,7 @@ struct InstalledView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
+                .pageColumn()
             }
             .background(WallBackground())
             .searchable(text: $query, prompt: "Name, identifier or author")
@@ -255,6 +257,7 @@ private struct PackageDetailView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+            .pageColumn()
         }
         .background(WallBackground())
         .navigationTitle(package.name)
