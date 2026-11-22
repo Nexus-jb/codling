@@ -92,6 +92,30 @@ final class BurrowModel: ObservableObject {
 
     /// Turns a tweak on or off in one process, or everywhere with process
     /// "*". Tweak "*" is every tweak.
+    /// Empties Burrow's crash log, when the user asks.
+    func clearCrashLog(origin: String) async {
+        guard working == nil else {
+            return
+        }
+        working = "Clearing the crash log"
+        let result = await Task.detached(priority: .userInitiated) { RootHelper.burrowClearCrashes() }.value
+        working = nil
+        switch result {
+        case .failure(let failure):
+            outcome = Outcome(origin: origin, title: "The Crash Log Was Not Cleared", message: failure.message,
+                              offersRespring: false)
+        case .success(let command) where command.status != 0:
+            outcome = Outcome(origin: origin, title: "The Crash Log Was Not Cleared",
+                              message: command.output.hasPrefix("usage:")
+                                  ? "This version of Burrow cannot clear its crash log. Update Burrow to clear it here."
+                                  : command.output.trimmingCharacters(in: .whitespacesAndNewlines),
+                              offersRespring: false)
+        case .success:
+            break
+        }
+        await load()
+    }
+
     func setTweak(_ tweak: String, on: Bool, in process: String, origin: String) async {
         guard working == nil else {
             return
@@ -286,7 +310,7 @@ private struct BurrowStateSections: View {
             }
         }
 
-        CrashLogCard(state: state)
+        CrashLogCard(model: model, state: state)
 
         if state.tweaks.isEmpty {
             Card(padding: 14) {

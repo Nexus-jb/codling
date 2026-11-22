@@ -226,6 +226,11 @@ enum RootHelper {
             .flatMap { decode(CommandResult.self, from: $0) }
     }
 
+    /// Empties Burrow's crash log. Safe Mode's settings and events stay.
+    static func burrowClearCrashes() -> Result<CommandResult, Failure> {
+        run(["burrow-clear-crashes"], timeoutMilliseconds: 30_000).flatMap { decode(CommandResult.self, from: $0) }
+    }
+
     /// Makes Burrow's or ElleKit's loader load the tweaks into new processes.
     static func burrowLoader(burrow: Bool) -> Result<CommandResult, Failure> {
         run(["burrow-loader", burrow ? "burrow" : "ellekit"], timeoutMilliseconds: 60_000)

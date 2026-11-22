@@ -246,10 +246,14 @@ struct InstallResultsCard: View {
 /// Burrow's crash log on the Burrow screen: each crash with a tweak to
 /// blame, and Send to Developer where the tweak's source takes reports.
 struct CrashLogCard: View {
+    /// The Burrow screen's, which shows the alert when clearing fails.
+    static let origin = "burrow"
+    @ObservedObject var model: BurrowModel
     let state: BurrowState
     @EnvironmentObject private var reports: ReportsModel
     @State private var expanded = false
     @State private var reviewing: BurrowState.Crash?
+    @State private var confirmingClear = false
 
     var body: some View {
         let crashes = state.crashLog
@@ -259,6 +263,27 @@ struct CrashLogCard: View {
                 DividedRows(items: crashes, dividerInset: 16) { crash in
                     row(crash)
                 }
+                Divider()
+                    .padding(.leading, 16)
+                Button(role: .destructive) {
+                    confirmingClear = true
+                } label: {
+                    Label("Clear Crash Log", systemImage: "trash")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(model.working == nil ? .red : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderless)
+                .disabled(model.working != nil)
+            }
+            .confirmationDialog("Clear the crash log?", isPresented: $confirmingClear, titleVisibility: .visible) {
+                Button("Clear Crash Log", role: .destructive) {
+                    Task { await model.clearCrashLog(origin: Self.origin) }
+                }
+            } message: {
+                Text("Burrow forgets these crashes and deletes its copies of their reports. Tweaks Safe Mode turned off stay off, and reports not sent yet cannot be sent.")
             }
             .padding(.top, 8)
             .task(id: crashes.map(\.id)) {
@@ -314,7 +339,7 @@ struct CrashLogCard: View {
 
     private func title(_ crash: BurrowState.Crash) -> String {
         let tweak = crash.package?.name ?? crash.tweak ?? "A tweak"
-        return "\(tweak) crashed \(crash.bundleIdentifier ?? crash.process ?? "a process")"
+        return "\(tweak) crashed \(crash.process ?? crash.bundleIdentifier ?? "a process")"
     }
 }
 
