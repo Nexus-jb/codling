@@ -78,6 +78,21 @@
 			</array>
 		</dict>
 	</array>
+	<!-- codling:// links from repository pages and other apps, such as an
+	     "Add to Codling" button (CodlingLink in CodlingCore). A link only
+	     opens something to look at: Codling asks before it adds a source,
+	     and installs nothing from a link. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.nexusjb.codling.link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>codling</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSFaceIDUsageDescription</key>

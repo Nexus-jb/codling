@@ -11,7 +11,7 @@ struct SourcesView: View {
     @ObservedObject var model: SourcesModel
     @EnvironmentObject private var installed: InstalledPackagesModel
     @EnvironmentObject private var accounts: PaymentAccounts
-    @StateObject private var adder = AddSourceFlow()
+    @EnvironmentObject private var adder: AddSourceFlow
     @State private var removing: Source?
     @State private var problem: String?
     @State private var editMode: EditMode = .inactive
@@ -589,8 +589,24 @@ final class AddSourceFlow: ObservableObject {
         await add([uri])
     }
 
-    /// Offers the addresses copied to the clipboard.
-    private func offer(_ uris: [String]) async {
+    /// A codling://source link from a web page or another app. Nothing is
+    /// added until the user confirms, and the prompt says where the request
+    /// came from.
+    func offerLink(_ uri: String) async {
+        guard working == nil else { return }
+        if let existing = model?.existing(uri: uri) {
+            let alert = UIAlertController(title: "Already Added",
+                                          message: "\(existing.uri) is already in apt's lists.", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+            await present(alert)
+            return
+        }
+        await offer([uri], fromLink: true)
+    }
+
+    /// Offers the addresses copied to the clipboard, or one a link asked
+    /// for.
+    private func offer(_ uris: [String], fromLink: Bool = false) async {
         guard uris.count == 1, let uri = uris.first else {
             confirm(title: "Add \(uris.count) Sources?",
                     message: "From the clipboard:\n" + uris.joined(separator: "\n")) {
@@ -610,7 +626,9 @@ final class AddSourceFlow: ObservableObject {
         case .failure(let error)?:
             askForAddress(uri, problem: error.message)
         case .success(let name)?:
-            confirm(title: "Add This Source?", message: [name, uri].compactMap { $0 }.joined(separator: "\n")) {
+            let origin = fromLink ? "A web page or another app asked Codling to add it." : nil
+            confirm(title: "Add This Source?", message: [name, uri, origin].compactMap { $0 }.joined(separator: "\n"),
+                    retype: !fromLink) {
                 await self.add([uri], checked: true)
             }
         case nil:
@@ -796,10 +814,14 @@ final class AddSourceFlow: ObservableObject {
 
     /// A question with Add and Don't Add; Don't Add asks for an address
     /// instead.
-    private func confirm(title: String, message: String, add: @escaping () async -> Void) {
+    /// Asks before adding. Don't Add asks for another address, unless
+    /// retype is false, as for a link.
+    private func confirm(title: String, message: String, retype: Bool = true, add: @escaping () async -> Void) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Don't Add", style: .cancel) { _ in
-            Task { @MainActor in self.askForAddress("https://") }
+            if retype {
+                Task { @MainActor in self.askForAddress("https://") }
+            }
         })
         let action = UIAlertAction(title: "Add", style: .default) { _ in
             Task { @MainActor in await add() }
