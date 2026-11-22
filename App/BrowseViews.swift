@@ -9,7 +9,6 @@ struct SourceDetailView: View {
     @EnvironmentObject private var installed: InstalledPackagesModel
     @State private var findings: [SourceScan.Finding]?
     @StateObject private var model = SourceDetailModel()
-    @State private var confirmingRemoval = false
     @State private var problem: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -60,7 +59,18 @@ struct SourceDetailView: View {
 
                 Card(padding: 0) {
                     Button(role: .destructive) {
-                        confirmingRemoval = true
+                        ConfirmPopup.show(.init(symbol: "trash", color: .red, title: "Remove \(row.source.host)?",
+                                                message: SourcesModel.removalNote(for: row.source,
+                                                                                  jailbreak: sources.isJailbreakSource(row.source)),
+                                                confirmTitle: "Remove", destructive: true)) {
+                            Task {
+                                if let reason = await sources.remove(row.source) {
+                                    problem = reason
+                                } else {
+                                    dismiss()
+                                }
+                            }
+                        }
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "trash")
@@ -95,19 +105,6 @@ struct SourceDetailView: View {
         }
         .refreshable {
             await model.load(store: sources.store, source: row.source, reloadBanners: true)
-        }
-        .confirmationDialog("Remove this source?", isPresented: $confirmingRemoval, titleVisibility: .visible) {
-            Button("Remove \(row.source.host)", role: .destructive) {
-                Task {
-                    if let reason = await sources.remove(row.source) {
-                        problem = reason
-                    } else {
-                        dismiss()
-                    }
-                }
-            }
-        } message: {
-            Text(SourcesModel.removalNote(for: row.source, jailbreak: sources.isJailbreakSource(row.source)))
         }
         .alert("The source was not removed", isPresented: Binding(
             get: { problem != nil }, set: { if !$0 { problem = nil } })) {

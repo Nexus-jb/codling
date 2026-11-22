@@ -12,7 +12,6 @@ struct SourcesView: View {
     @EnvironmentObject private var installed: InstalledPackagesModel
     @EnvironmentObject private var accounts: PaymentAccounts
     @EnvironmentObject private var adder: AddSourceFlow
-    @State private var removing: Source?
     @State private var problem: String?
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<String>()
@@ -66,7 +65,7 @@ struct SourcesView: View {
                                 }
                                 .disabled(model.isRefreshing || row.activity != .idle)
                                 Button(role: .destructive) {
-                                    removing = row.source
+                                    confirmRemoval(row.source)
                                 } label: {
                                     Label("Remove", systemImage: "trash")
                                 }
@@ -74,7 +73,7 @@ struct SourcesView: View {
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 if !isEditing {
                                     Button(role: .destructive) {
-                                        removing = row.source
+                                        confirmRemoval(row.source)
                                     } label: {
                                         Label("Remove", systemImage: "trash")
                                     }
@@ -136,6 +135,15 @@ struct SourcesView: View {
         }
     }
 
+    /// Asks before removing a source, in the middle of the screen.
+    private func confirmRemoval(_ source: Source) {
+        ConfirmPopup.show(.init(symbol: "trash", color: .red, title: "Remove \(source.host)?",
+                                message: SourcesModel.removalNote(for: source, jailbreak: model.isJailbreakSource(source)),
+                                confirmTitle: "Remove", destructive: true)) {
+            Task { problem = await model.remove(source) }
+        }
+    }
+
     var body: some View {
         navigation
             .task { await model.start() }
@@ -145,15 +153,6 @@ struct SourcesView: View {
             .onAppear {
                 adder.model = model
                 adder.installed = installed
-            }
-            .confirmationDialog("Remove this source?", isPresented: Binding(
-                get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible,
-                presenting: removing) { source in
-                Button("Remove \(source.host)", role: .destructive) {
-                    Task { problem = await model.remove(source) }
-                }
-            } message: { source in
-                Text(SourcesModel.removalNote(for: source, jailbreak: model.isJailbreakSource(source)))
             }
             .alert("Export All Sources?", isPresented: $exporting) {
                 Button("Copy") { export(share: false) }
