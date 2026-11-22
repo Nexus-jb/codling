@@ -29,6 +29,70 @@ public struct BurrowState: Decodable, Equatable {
     public var disabledInProcesses: [String: [String]]
     public var tweaks: [Tweak]
     public var events: [Event]
+    /// The newest crashes with a tweak to blame, newest first. Older Burrow
+    /// builds do not give them.
+    public var crashes: [Crash]?
+
+    /// The crash log, empty when Burrow does not give it.
+    public var crashLog: [Crash] { crashes ?? [] }
+
+    /// A crash from Burrow's crash log, as `burrowctl json` gives it.
+    public struct Crash: Decodable, Equatable, Identifiable {
+        public struct Package: Decodable, Equatable {
+            public var package: String?
+            public var name: String?
+            public var version: String?
+
+            public init(package: String?, name: String? = nil, version: String?) {
+                self.package = package
+                self.name = name
+                self.version = version
+            }
+        }
+
+        public struct Exception: Decodable, Equatable {
+            public var type: String?
+            public var signal: String?
+            public var subtype: String?
+            /// An uncaught Objective-C exception's name and message.
+            public var name: String?
+            public var message: String?
+        }
+
+        public struct Frame: Decodable, Equatable {
+            /// The image's file name, never its path.
+            public var image: String?
+            public var offset: UInt64
+            public var symbol: String?
+            public var symbolOffset: UInt64
+        }
+
+        /// The crash report's incident identifier, which tells crashes
+        /// apart.
+        public var incident: String?
+        public var date: Date?
+        public var process: String?
+        public var bundleIdentifier: String?
+        /// The tweak to blame.
+        public var tweak: String?
+        /// Every tweak loaded in the process.
+        public var tweaks: [String]
+        /// The package that installed each tweak, by tweak.
+        public var packages: [String: Package]
+        public var reason: String?
+        /// Such as "iPhone OS 16.3.1 (20D67)".
+        public var system: String?
+        public var device: String?
+        public var exception: Exception?
+        public var frames: [Frame]
+
+        public var id: String {
+            incident ?? [process, tweak, date.map { String($0.timeIntervalSince1970) }].compactMap { $0 }.joined(separator: " ")
+        }
+
+        /// The package that installed the tweak to blame.
+        public var package: Package? { tweak.flatMap { packages[$0] } }
+    }
 
     public struct WentBack: Decodable, Equatable {
         public var date: Date?

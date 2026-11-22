@@ -238,7 +238,7 @@ struct PaymentClient {
 /// Keeps requests to payment providers on HTTPS: a redirect to plain HTTP
 /// would send the user's token where anyone on the network could read it.
 /// A refused redirect ends the request with the redirect's own answer.
-private final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
+final class HTTPSOnlyRedirects: NSObject, URLSessionTaskDelegate {
     static let shared = HTTPSOnlyRedirects()
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,

@@ -286,6 +286,8 @@ private struct BurrowStateSections: View {
             }
         }
 
+        CrashLogCard(state: state)
+
         if state.tweaks.isEmpty {
             Card(padding: 14) {
                 ToolHeader(symbol: SectionSymbol.name(for: "Tweaks"), color: SectionSymbol.color(for: "Tweaks"),

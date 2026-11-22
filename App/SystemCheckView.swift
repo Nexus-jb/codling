@@ -35,6 +35,7 @@ struct SystemCheckView: View {
                         burrowCard
                         helperCard
                         PackageHealthCard(model: health)
+                        InstallResultsCard()
                     }
                     .toolColumn()
                 }
