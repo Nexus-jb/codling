@@ -23,127 +23,150 @@ struct SourcesView: View {
 
     private var isEditing: Bool { editMode.isEditing }
 
-    var body: some View {
-        NavigationView {
-            Group {
-                if let error = model.setupError {
-                    Text(error)
-                        .multilineTextAlignment(.center)
-                        .padding()
-                } else {
-                    List(selection: $selection) {
-                        if !isEditing {
-                            Section {
-                                NavigationLink(destination: CategoryPackagesView(category: .everything)) {
-                                    AllPackagesRow(count: packageTotal)
-                                }
-                                .listRowBackground(CardCellBackground(first: true, last: true))
-                            }
-                        }
+    /// The list of sources, with its bar and banner.
+    private var sourcesPage: some View {
+        Group {
+            if let error = model.setupError {
+                Text(error)
+                    .multilineTextAlignment(.center)
+                    .padding()
+            } else {
+                List(selection: $selection) {
+                    if !isEditing {
                         Section {
-                            ForEach(model.rows) { row in
-                                NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
-                                    CompactSourceRow(row: row)
+                            NavigationLink(destination: CategoryPackagesView(category: .everything)) {
+                                AllPackagesRow(count: packageTotal)
+                            }
+                            .listRowBackground(CardCellBackground(first: true, last: true))
+                        }
+                    }
+                    Section {
+                        ForEach(model.rows) { row in
+                            NavigationLink(destination: SourceDetailView(sourceID: row.id)) {
+                                CompactSourceRow(row: row)
+                            }
+                            .listRowBackground(CardCellBackground(first: row.id == model.rows.first?.id,
+                                                                  last: row.id == model.rows.last?.id))
+                            .contextMenu {
+                                Button {
+                                    Presenter.share(address: row.source.uri)
+                                } label: {
+                                    Label("Share", systemImage: "square.and.arrow.up")
                                 }
-                                .listRowBackground(CardCellBackground(first: row.id == model.rows.first?.id,
-                                                                      last: row.id == model.rows.last?.id))
-                                .contextMenu {
-                                    Button {
-                                        Presenter.share(address: row.source.uri)
+                                Button {
+                                    UIPasteboard.general.string = row.source.uri
+                                    flash("Copied \(row.source.host)")
+                                } label: {
+                                    Label("Copy Address", systemImage: "doc.on.doc")
+                                }
+                                Button {
+                                    Task { await model.refresh(id: row.id) }
+                                } label: {
+                                    Label("Refresh", systemImage: "arrow.clockwise")
+                                }
+                                .disabled(model.isRefreshing || row.activity != .idle)
+                                Button(role: .destructive) {
+                                    removing = row.source
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if !isEditing {
+                                    Button(role: .destructive) {
+                                        removing = row.source
                                     } label: {
-                                        Label("Share", systemImage: "square.and.arrow.up")
-                                    }
-                                    Button {
-                                        UIPasteboard.general.string = row.source.uri
-                                        flash("Copied \(row.source.host)")
-                                    } label: {
-                                        Label("Copy Address", systemImage: "doc.on.doc")
+                                        Label("Remove", systemImage: "trash")
                                     }
                                     Button {
                                         Task { await model.refresh(id: row.id) }
                                     } label: {
                                         Label("Refresh", systemImage: "arrow.clockwise")
                                     }
+                                    .tint(.blue)
                                     .disabled(model.isRefreshing || row.activity != .idle)
-                                    Button(role: .destructive) {
-                                        removing = row.source
-                                    } label: {
-                                        Label("Remove", systemImage: "trash")
-                                    }
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    if !isEditing {
-                                        Button(role: .destructive) {
-                                            removing = row.source
-                                        } label: {
-                                            Label("Remove", systemImage: "trash")
-                                        }
-                                        Button {
-                                            Task { await model.refresh(id: row.id) }
-                                        } label: {
-                                            Label("Refresh", systemImage: "arrow.clockwise")
-                                        }
-                                        .tint(.blue)
-                                        .disabled(model.isRefreshing || row.activity != .idle)
-                                    }
                                 }
                             }
-                        } header: {
-                            Text("Repositories")
-                                .font(.title3.bold())
-                                .foregroundColor(.primary)
-                                .textCase(nil)
-                                .padding(.leading, -16)
-                                .accessibilityAddTraits(.isHeader)
-                        } footer: {
-                            Text(isEditing ? "Select sources to copy their addresses." : footer)
                         }
+                    } header: {
+                        Text("Repositories")
+                            .font(.title3.bold())
+                            .foregroundColor(.primary)
+                            .textCase(nil)
+                            .padding(.leading, -16)
+                            .accessibilityAddTraits(.isHeader)
+                    } footer: {
+                        Text(isEditing ? "Select sources to copy their addresses." : footer)
                     }
-                    .listStyle(.insetGrouped)
-                    .hiddenListBackground()
-                    .frame(maxWidth: PageLayout.readableWidth)
-                    .frame(maxWidth: .infinity)
-                    .background(WallBackground())
-                    .refreshable { await model.refresh(force: false) }
-                    .environment(\.editMode, $editMode)
                 }
+                .listStyle(.insetGrouped)
+                .hiddenListBackground()
+                .frame(maxWidth: PageLayout.readableWidth)
+                .frame(maxWidth: .infinity)
+                .background(WallBackground())
+                .refreshable { await model.refresh(force: false) }
+                .environment(\.editMode, $editMode)
             }
-            .navigationTitle("Sources")
-            .titleOverColumn()
-            .toolbar { toolbar }
-            .overlay(alignment: .bottom) { banner }
         }
-        .navigationViewStyle(.stack)
-        .task { await model.start() }
-        .task(id: model.indexGeneration) {
-            packageTotal = try? await model.store?.packageCount()
-        }
-        .onAppear {
-            adder.model = model
-            adder.installed = installed
-        }
-        .confirmationDialog("Remove this source?", isPresented: Binding(
-            get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible,
-            presenting: removing) { source in
-            Button("Remove \(source.host)", role: .destructive) {
-                Task { problem = await model.remove(source) }
+        .navigationTitle("Sources")
+        .toolbar { toolbar }
+        .overlay(alignment: .bottom) { banner }
+    }
+
+    @Environment(\.horizontalSizeClass) private var horizontalSize
+
+    /// One column on an iPhone. In a regular-width window, as Sileo does on
+    /// an iPad, the sources stay beside the page of the source chosen: All
+    /// Packages to begin with.
+    @ViewBuilder
+    private var navigation: some View {
+        if horizontalSize == .regular {
+            NavigationView {
+                sourcesPage
+                    .background(SplitColumnsShown())
+                CategoryPackagesView(category: .everything)
             }
-        } message: { source in
-            Text(SourcesModel.removalNote(for: source, jailbreak: model.isJailbreakSource(source)))
+            .navigationViewStyle(.columns)
+        } else {
+            NavigationView {
+                sourcesPage
+            }
+            .navigationViewStyle(.stack)
         }
-        .alert("Export All Sources?", isPresented: $exporting) {
-            Button("Copy") { export(share: false) }
-            Button("Share") { export(share: true) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The addresses of all \(model.rows.count) sources, one per line, to paste into another device or package manager.")
-        }
-        .alert("The source was not removed", isPresented: Binding(
-            get: { problem != nil }, set: { if !$0 { problem = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(problem ?? "")
-        }
+    }
+
+    var body: some View {
+        navigation
+            .task { await model.start() }
+            .task(id: model.indexGeneration) {
+                packageTotal = try? await model.store?.packageCount()
+            }
+            .onAppear {
+                adder.model = model
+                adder.installed = installed
+            }
+            .confirmationDialog("Remove this source?", isPresented: Binding(
+                get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible,
+                presenting: removing) { source in
+                Button("Remove \(source.host)", role: .destructive) {
+                    Task { problem = await model.remove(source) }
+                }
+            } message: { source in
+                Text(SourcesModel.removalNote(for: source, jailbreak: model.isJailbreakSource(source)))
+            }
+            .alert("Export All Sources?", isPresented: $exporting) {
+                Button("Copy") { export(share: false) }
+                Button("Share") { export(share: true) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The addresses of all \(model.rows.count) sources, one per line, to paste into another device or package manager.")
+            }
+            .alert("The source was not removed", isPresented: Binding(
+                get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(problem ?? "")
+            }
     }
 
     @ToolbarContentBuilder

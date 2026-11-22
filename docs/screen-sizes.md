@@ -15,10 +15,14 @@ iPad the window can be a third of the screen.
   most 592 (`PageLayout` in `App/AppChrome.swift`). On an iPhone held upright
   the column is the window. On an iPad, or an iPhone on its side, the column
   stays in the middle instead of stretching across the window.
-- **Titles.** Over such a column, in a regular-width window, Sources and
-  Installed show their title in the middle of the navigation bar instead of
-  as a large title at the left edge. On an iPad with iOS 26 they keep the
-  large title, since the tab bar takes the middle of the bar there.
+- **Sources in two columns.** In a regular-width window, as on an iPad or
+  an iPhone Pro Max on its side, Sources shows the list of sources beside
+  the page of the source chosen, All Packages to begin with, as Sileo does
+  on an iPad. Both columns stay on screen, upright too.
+- **Titles.** Over a centered column, in a regular-width window, Installed
+  shows its title in the middle of the navigation bar instead of as a large
+  title at the left edge. On an iPad with iOS 26 it keeps the large title,
+  since the tab bar takes the middle of the bar there.
 - **Sizes from the column.** Featured's banners, a source's banners and a
   depiction's screenshots are sized from the column's measured width.
   Featured shows two banners across on an iPhone and more where each can be

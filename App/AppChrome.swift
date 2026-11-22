@@ -639,6 +639,50 @@ private struct PageColumn: ViewModifier {
     }
 }
 
+/// Keeps both columns of the split view it is inside on screen, upright
+/// too, as Sileo's Sources do on an iPad: SwiftUI's column navigation hides
+/// the first column of an iPad held upright behind a button.
+struct SplitColumnsShown: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Probe {
+        Probe()
+    }
+
+    func updateUIViewController(_ controller: Probe, context: Context) {
+        controller.apply()
+    }
+
+    final class Probe: UIViewController {
+        override func loadView() {
+            view = UIView()
+            view.isUserInteractionEnabled = false
+            view.backgroundColor = .clear
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            apply()
+        }
+
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            apply()
+        }
+
+        func apply() {
+            var controller: UIViewController? = self
+            while let current = controller, !(current is UISplitViewController) {
+                controller = current.parent
+            }
+            guard let split = controller as? UISplitViewController else { return }
+            if split.preferredDisplayMode != .oneBesideSecondary {
+                split.preferredDisplayMode = .oneBesideSecondary
+            }
+            split.preferredSplitBehavior = .tile
+            split.presentsWithGesture = false
+        }
+    }
+}
+
 /// A large title on an iPhone held upright; over a centered column, in a
 /// regular-width window, the title sits in the middle of the bar above it.
 /// Not on an iPad with iOS 26, whose tab bar takes the middle of the bar

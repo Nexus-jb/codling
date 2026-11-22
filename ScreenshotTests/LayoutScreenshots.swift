@@ -106,8 +106,10 @@ final class LayoutScreenshots: XCTestCase {
     }
 
     private func goBack() {
-        let back = app.navigationBars.buttons.element(boundBy: 0)
-        if back.exists {
+        // UIKit's back button. With Sources in two columns on an iPad, the
+        // first button of the first bar is the sources' own.
+        let back = app.navigationBars.buttons["BackButton"].firstMatch
+        if back.exists && back.isHittable {
             back.tap()
             settle(1)
         }
