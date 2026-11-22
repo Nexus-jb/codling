@@ -12,7 +12,10 @@
 #   3. from a signed source it is installed from the cache, with no
 #      download (paid packages cannot be downloaded from the source);
 #   4. apt-get install --print-uris with an empty cache names the archive,
-#      and the helper reads that name from apt's real output.
+#      and the helper reads that name from apt's real output;
+#   5. a .deb the user opened in Codling (take-file, the %TOKEN operation)
+#      is installed as a file, its dependencies come from the sources, and
+#      the helper reads its name and version from dpkg-deb's real output.
 #
 # Two flat repositories, one signed with a throwaway key, are served on
 # 127.0.0.1. Needs apt, dpkg-deb, gpg, python3 and a C compiler, as on
@@ -53,6 +56,17 @@ package() {
 }
 package paid-unsigned 1.0
 package paid-signed 2:1.0-1
+
+# A package the user opened from a file, which depends on one from a source
+# and on one no source has.
+opened() {
+    mkdir -p "$work/build/$1/DEBIAN"
+    printf 'Package: %s\nName: Opened Tweak\nVersion: 1.0.3\nArchitecture: all\nMaintainer: Test <test@example.com>\nDepends: %s\nDescription: opened from a file\n second line\n' \
+        "$1" "$2" > "$work/build/$1/DEBIAN/control"
+    dpkg-deb -b -Zgzip "$work/build/$1" "$work/build/$1.deb" > /dev/null
+}
+opened opened-tweak paid-signed
+opened opened-broken no-source-has-this
 
 python3 -I - "$work" <<'EOF'
 import hashlib, os, subprocess, sys
@@ -155,6 +169,22 @@ cp "$work/build/paid-signed.deb" "$archives/$name"
 expect "$(run paid-signed=2:1.0-1)" 0 "a cached package from a signed source is taken"
 expect "$(found "Download complete" "$work/run.log")" 0 "apt finished without fetching it"
 expect "$(found "paid-signed" "$work/http.log")" 1 "the paid package was not asked for from the source"
+
+# 5. An opened file is installed as a file, with its dependencies from the
+# sources, and the helper reads what dpkg-deb prints.
+dpkg-deb --field "$work/build/opened-tweak.deb" > "$work/fields.txt"
+expect "$("$work/driver" field "$work/fields.txt" Package || true)" "opened-tweak" "the helper reads the package"
+expect "$("$work/driver" field "$work/fields.txt" Version || true)" "1.0.3" "the helper reads the version"
+expect "$("$work/driver" field "$work/fields.txt" Name || true)" "Opened Tweak" "the helper reads the name"
+status=0
+apt-get install -s -q "$work/build/opened-tweak.deb" > "$work/opened.log" 2>&1 || status=$?
+expect "$status" 0 "an opened file is planned"
+expect "$(found "^Inst opened-tweak " "$work/opened.log")" 0 "the opened file is installed"
+expect "$(found "^Inst paid-signed " "$work/opened.log")" 0 "its dependency comes from a source"
+status=0
+apt-get install -s -q "$work/build/opened-broken.deb" > "$work/broken.log" 2>&1 || status=$?
+expect "$status" 100 "an opened file whose dependency no source has is refused"
+expect "$(found "no-source-has-this" "$work/broken.log")" 0 "apt names the missing dependency"
 
 if [ "$failures" -ne 0 ]; then
     echo "[apt trust] $failures of $checks checks failed" >&2

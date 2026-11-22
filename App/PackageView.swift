@@ -617,7 +617,7 @@ private struct PackageActions: View {
 
     private func queuedText(_ operation: PackageOperation, installed: Bool) -> String {
         switch operation {
-        case .install, .purchased: return installed ? "Queued to upgrade" : "Queued to install"
+        case .install, .purchased, .file: return installed ? "Queued to upgrade" : "Queued to install"
         case .remove: return "Queued to remove"
         case .restore: return "Queued to restore"
         }
@@ -626,7 +626,7 @@ private struct PackageActions: View {
 
 /// A name and its value on one line, as a row of the details card; rows
 /// after the first draw a line above them.
-private struct InfoRow: View {
+struct InfoRow: View {
     let name: String
     let value: String
     var monospaced = false

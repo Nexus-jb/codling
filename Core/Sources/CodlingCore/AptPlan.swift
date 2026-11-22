@@ -11,34 +11,59 @@ public enum PackageOperation: Hashable {
     /// Installs a purchased package from the download the helper checked
     /// with take-purchase.
     case purchased(String, version: String)
+    /// Installs a .deb the user opened in Codling, which the helper kept
+    /// with take-file under its token. The name is the package's, as the
+    /// file's control says.
+    case file(String, token: String)
 
     public var package: String {
         switch self {
-        case .install(let name), .remove(let name), .restore(let name, _), .purchased(let name, _): return name
+        case .install(let name), .remove(let name), .restore(let name, _), .purchased(let name, _), .file(let name, _):
+            return name
         }
     }
 
-    /// The form the root helper takes: +name, -name, @name=version or
-    /// $name=version.
+    /// The form the root helper takes: +name, -name, @name=version,
+    /// $name=version or %TOKEN.
     public var helperArgument: String {
         switch self {
         case .install(let name): return "+" + name
         case .remove(let name): return "-" + name
         case .restore(let name, let version): return "@" + name + "=" + version
         case .purchased(let name, let version): return "$" + name + "=" + version
+        case .file(_, let token): return "%" + token
         }
     }
 
-    /// Whether the helper accepts it: a valid name, and for a restore or a
-    /// purchase a valid version.
+    /// Whether the helper accepts it: a valid name, for a restore or a
+    /// purchase a valid version, and for a file a valid token.
     public var isValid: Bool {
         switch self {
         case .restore(_, let version), .purchased(_, let version):
             guard Self.isValidVersion(version) else { return false }
+        case .file(_, let token):
+            guard Self.isValidFileToken(token) else { return false }
         case .install, .remove:
             break
         }
         return Self.isValidName(package)
+    }
+
+    /// A token for an opened file as the helper's take-file accepts it: 32
+    /// lowercase hex digits, so the file's name, TOKEN.deb, has no "/" and
+    /// does not start with ".".
+    public static func isValidFileToken(_ token: String) -> Bool {
+        let scalars = Array(token.unicodeScalars)
+        return scalars.count == 32 && scalars.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    /// A new token for an opened file: 128 random bits in hex.
+    public static func newFileToken() -> String {
+        var generator = SystemRandomNumberGenerator()
+        return (0..<2).map { _ in
+            let hex = String(generator.next() as UInt64, radix: 16)
+            return String(repeating: "0", count: 16 - hex.count) + hex
+        }.joined()
     }
 
     /// The file name of a purchased package's download, NAME_VERSION.deb

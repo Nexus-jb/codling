@@ -14,6 +14,10 @@ struct CodlingApp: App {
     @StateObject private var devicePanel = DeviceInfoPanel()
     @StateObject private var accounts: PaymentAccounts
     @StateObject private var updates = UpdatesModel()
+    /// A .deb opened from the share sheet or Files.
+    @StateObject private var opened = OpenedFiles()
+    /// The queue opens once the opened file's sheet is gone, to review it.
+    @State private var queueAfterOpened = false
     @State private var tab: AppTab = .featured
     /// The queue, opened from the queue bar over the current page.
     @State private var queueShown = false
@@ -169,6 +173,42 @@ struct CodlingApp: App {
                         .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
                         .tint(Palette.text)
                         .accentColor(Palette.text)
+                }
+                .sheet(isPresented: $opened.shown, onDismiss: {
+                    opened.dismissed()
+                    if queueAfterOpened {
+                        queueAfterOpened = false
+                        queueShown = true
+                    }
+                }) {
+                    if let state = opened.state {
+                        OpenedPackageView(state: state, environment: environment, queue: queue, onInstall: { package in
+                            // A review on screen is of the queue before this file.
+                            switch queue.phase {
+                            case .review, .blocked: queue.backToEditing()
+                            default: break
+                            }
+                            queue.add(.file(package.package, token: package.token), name: package.displayName)
+                            queueAfterOpened = true
+                            opened.shown = false
+                        }, onClose: { opened.shown = false })
+                        .environmentObject(installed)
+                        .tint(Palette.text)
+                        .accentColor(Palette.text)
+                    }
+                }
+                // iOS hands Codling a .deb shared to it or opened from Files
+                // (CFBundleDocumentTypes in Info.plist).
+                .onOpenURL { url in
+                    Task {
+                        // One sheet at a time: the one up goes first.
+                        if queueShown || systemSheet.shown {
+                            queueShown = false
+                            systemSheet.shown = false
+                            try? await Task.sleep(nanoseconds: 700_000_000)
+                        }
+                        await opened.open(url)
+                    }
                 }
                 .sheet(isPresented: $systemSheet.shown) {
                     SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)

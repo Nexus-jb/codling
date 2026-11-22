@@ -768,6 +768,7 @@ struct QueueView: View {
         case .remove: return "trash"
         case .restore: return "arrow.uturn.backward.circle"
         case .purchased: return "arrow.down.circle"
+        case .file: return "arrow.down.doc"
         }
     }
 
@@ -777,6 +778,7 @@ struct QueueView: View {
         case .remove: return "Remove"
         case .restore(_, let version): return "Restore \(version)"
         case .purchased(let package, _): return installed.version(of: package) == nil ? "Install" : "Upgrade"
+        case .file(let package, _): return installed.version(of: package) == nil ? "Install from file" : "Replace from file"
         }
     }
 }

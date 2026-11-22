@@ -33,6 +33,53 @@
 	     is never shown and the permission is asked again and again. -->
 	<key>SBAppUsesLocalNotifications</key>
 	<true/>
+	<!-- Debian packages (.deb). Codling shows in the share sheet and in
+	     Files for them, as Sileo and Zebra do, and offers to install the
+	     package after the user reviews it (OpenedFiles.swift). iOS hands
+	     Codling a copy of the file; Codling never opens it in place. -->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.debian.deb-archive</string>
+			<key>UTTypeDescription</key>
+			<string>Debian Package</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+				<string>public.archive</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>deb</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/vnd.debian.binary-package</string>
+					<string>application/x-deb</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Debian Package</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.debian.deb-archive</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Codling asks for Face ID before it uses your payment details to buy a package.</string>
 	<key>LSRequiresIPhoneOS</key>

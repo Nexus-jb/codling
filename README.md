@@ -41,6 +41,10 @@ works on real devices.
 - Sources refresh in parallel and incrementally, into a local index.
 - Errors are explained in plain language, with a **Fix** button where one
   exists, instead of raw APT output.
+- **Open a .deb from anywhere.** Share a `.deb` to Codling from Files,
+  Safari or any other app, and it shows what the package is, warns that no
+  source vouches for it, and installs it with its dependencies after the
+  usual review.
 - A native iOS design with full VoiceOver and Dynamic Type support. Sileo
   native depictions are drawn with the system's own fonts and colors.
 
@@ -78,7 +82,10 @@ inside the app bundle, as root through a spawn persona, which takes an
 entitlement only Codling holds. The helper has no setuid bit, so any other
 program that runs it gets nothing more than it had. The helper does only the
 commands it knows, takes no paths from its caller, and starts with a clean
-environment. Its source is [Helper/codling-helper.c](Helper/codling-helper.c).
+environment. A `.deb` you open in Codling reaches it as a random token, never
+as a path: Codling copies the file into its caches, and the helper takes it
+from there into a directory only root can write. Its source is
+[Helper/codling-helper.c](Helper/codling-helper.c).
 
 ## Building
 

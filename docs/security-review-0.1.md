@@ -173,6 +173,45 @@ last one. Tested in `scripts/test-purchases.sh`.
   with other package managers. Nothing else about the device is sent, and
   Codling does not track its users.
 
+## After the review: opening .deb files
+
+Added on 2026-11-21, after the findings above were fixed. Codling now
+declares the Debian package type (`CFBundleDocumentTypes` in `App/Info.plist`),
+so it shows in the share sheet and in Files for a `.deb`, as Sileo and Zebra
+do. This gives other apps a new input: a file they hand to Codling. It still
+registers no URL schemes.
+
+- **Nothing happens without the user.** Opening a file only shows what its
+  control fields say. It is installed after the user taps Install and then
+  Confirm in the queue's review, which lists everything apt would change.
+- **No paths reach root.** Codling copies the file iOS gives it to
+  `Library/Caches/com.nexusjb.codling/files/TOKEN.deb`, where TOKEN is 128
+  random bits in hex. `take-file TOKEN` accepts only 32 lowercase hex digits,
+  opens the inbox through each directory without following links, as
+  `take-purchase` does (finding 7), and takes only a regular file owned by
+  `mobile`, at most 1 GB. It unlinks the file as soon as it is open, copies
+  it to `/var/lib/codling/files`, which only root can write, and reads the
+  control fields from that copy with `dpkg-deb --field`. A file `dpkg-deb`
+  cannot read, or that names no valid package and version, is deleted.
+- **What the user sees is what is installed.** The `%TOKEN` operation gives
+  apt the path of root's copy, the same file `dpkg-deb` read. A program
+  running as `mobile` can swap the file in the inbox before the helper opens
+  it, but then the user sees that file's name and version, and it could as
+  well have changed the file before it was shared.
+- **No source vouches for it.** apt does not check signatures for a file named
+  on its command line (`scripts/test-apt-trust.sh`, check 1). That is what
+  the user chose, so the sheet says plainly that Codling cannot check who made
+  the file. Its dependencies still come from the sources, with their usual
+  checks.
+- **Wrong architecture.** A package for rootful jailbreaks (`iphoneos-arm`) or
+  for the other scheme cannot be queued, and the sheet says why.
+
+Tested with `scripts/test-purchases.sh` (tokens, the files inbox, root's copy
+and reading control fields) and `scripts/test-apt-trust.sh` (an opened file
+installs with its dependency from a source, one whose dependency no source
+has is refused, and the helper reads real `dpkg-deb` output), and in
+`OpenedPackageTests`.
+
 ## Testing
 
 - `scripts/test-apt-trust.sh`: 10 checks, run as root and as a normal user
