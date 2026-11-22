@@ -92,17 +92,27 @@ final class LayoutScreenshots: XCTestCase {
                 field.typeText("theme\n")
             }
             settle(4)
-            // The floating tab bar steps aside while the keyboard is up.
-            if app.keyboards.firstMatch.exists {
-                app.swipeDown()
-                settle(1)
-            }
             shoot("6-search")
+            hideKeyboard()
         }
     }
 
+    /// Before iOS 26 the floating tab bar steps aside while the keyboard is
+    /// up, so the keyboard goes first.
     private func tab(_ title: String) -> XCUIElement {
-        app.buttons[title].firstMatch
+        hideKeyboard()
+        return app.buttons[title].firstMatch
+    }
+
+    private func hideKeyboard() {
+        guard app.keyboards.firstMatch.exists else { return }
+        let cancel = app.buttons["Cancel"].firstMatch
+        if cancel.exists && cancel.isHittable {
+            cancel.tap()
+        } else {
+            app.swipeDown()
+        }
+        settle(1)
     }
 
     private func goBack() {
