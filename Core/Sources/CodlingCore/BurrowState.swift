@@ -172,6 +172,17 @@ public struct BurrowState: Decodable, Equatable {
         return disabledInProcesses[event.process]?.contains(event.tweak) == true
     }
 
+    /// What Safe Mode turned off that is still off and still installed,
+    /// newest first. A tweak removed since is left out: there is nothing to
+    /// turn back on. Its setting stays, so if it comes back it shows here
+    /// again, still off where it crashed.
+    public var turnedOffBySafeMode: [Event] {
+        let installed = Set(tweaks.map(\.name))
+        return safeModeEvents.filter { event in
+            isStillOff(event) && (event.tweak == Self.everyTweak || installed.contains(event.tweak))
+        }
+    }
+
     /// The name burrowctl uses for every tweak, and for every process in
     /// events.
     public static let everyTweak = "*"
