@@ -349,7 +349,7 @@ struct CodlingApp: App {
                     // The first launch on a device queues the essentials it
                     // lacks, and opens the queue to review them.
                     if await EssentialsOffer.queueOnce(store: sources.store, installed: installed, queue: queue),
-                       !opened.shown, !systemSheet.shown {
+                       !opened.shown, !systemSheet.shown, linkedPackage == nil {
                         queueShown = true
                     }
                 }
