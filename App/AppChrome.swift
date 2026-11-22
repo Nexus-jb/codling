@@ -641,7 +641,8 @@ private struct PageColumn: ViewModifier {
 
 /// Keeps both columns of the split view it is inside on screen, upright
 /// too, as Sileo's Sources do on an iPad: SwiftUI's column navigation hides
-/// the first column of an iPad held upright behind a button.
+/// the first column of an iPad held upright behind a button. Each column
+/// carries one, since a hidden column's never appears.
 struct SplitColumnsShown: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> Probe {
         Probe()
@@ -665,6 +666,13 @@ struct SplitColumnsShown: UIViewControllerRepresentable {
 
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
+            apply()
+        }
+
+        // After a rotation or a window resize, which can bring the hidden
+        // column back.
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
             apply()
         }
 

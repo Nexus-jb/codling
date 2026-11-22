@@ -125,6 +125,7 @@ struct SourcesView: View {
                 sourcesPage
                     .background(SplitColumnsShown())
                 CategoryPackagesView(category: .everything)
+                    .background(SplitColumnsShown())
             }
             .navigationViewStyle(.columns)
         } else {
