@@ -63,6 +63,19 @@ final class BurrowStateTests: XCTestCase {
         XCTAssertTrue(state.isStillOff(state.safeModeEvents[1]))
     }
 
+    func testRemovedTweaksLeaveSafeModesList() throws {
+        // Safe Mode turned Gone off in SpringBoard, and it has been removed
+        // since; Foo is still installed.
+        let removed = sample
+            .replacingOccurrences(of: #""com.apple.springboard":["Baz","Foo"]"#,
+                                  with: #""com.apple.springboard":["Baz","Foo","Gone"]"#)
+            .replacingOccurrences(of: #""events":["#, with: #""events":[{"action":"safe-mode","date":"2026-11-21T01:06:00Z","process":"com.apple.springboard","tweak":"Gone","text":"turned off Gone in com.apple.springboard"},"#)
+        let state = try BurrowState.decode(Data(removed.utf8))
+        XCTAssertEqual(state.safeModeEvents.map(\.tweak), ["Bar", "Foo", "Gone"])
+        XCTAssertTrue(state.isStillOff(state.safeModeEvents[2]))
+        XCTAssertEqual(state.turnedOffBySafeMode.map(\.tweak), ["Foo"])
+    }
+
     func testGroupsByPackage() throws {
         let state = try BurrowState.decode(Data(sample.utf8))
         // The two tweaks of com.example.foo are one group, under its name.
