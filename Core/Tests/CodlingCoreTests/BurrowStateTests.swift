@@ -76,6 +76,25 @@ final class BurrowStateTests: XCTestCase {
         XCTAssertEqual(state.turnedOffBySafeMode.map(\.tweak), ["Foo"])
     }
 
+    func testSafeModesTweaksCanBeRemovedWithTheirPackage() throws {
+        let state = try BurrowState.decode(Data(sample.utf8))
+        let byTweak = Dictionary(state.safeModeEvents.map { ($0.tweak, $0) }, uniquingKeysWith: { first, _ in first })
+        // Foo came with com.example.foo, which also installed FooApp.
+        let foo = try XCTUnwrap(byTweak["Foo"])
+        XCTAssertEqual(state.removableTweak(for: foo)?.package, "com.example.foo")
+        XCTAssertEqual(state.removableTweak(for: foo)?.displayName, "Foo Tweak")
+        // Bar is a file no package installed.
+        let bar = try XCTUnwrap(byTweak["Bar"])
+        XCTAssertNil(state.removableTweak(for: bar))
+        // Every tweak, or a tweak removed since, has no package to remove.
+        var every = foo
+        every.tweak = BurrowState.everyTweak
+        XCTAssertNil(state.removableTweak(for: every))
+        var gone = foo
+        gone.tweak = "Gone"
+        XCTAssertNil(state.removableTweak(for: gone))
+    }
+
     func testGroupsByPackage() throws {
         let state = try BurrowState.decode(Data(sample.utf8))
         // The two tweaks of com.example.foo are one group, under its name.

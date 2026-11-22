@@ -183,12 +183,7 @@ struct CodlingApp: App {
                 }) {
                     if let state = opened.state {
                         OpenedPackageView(state: state, environment: environment, queue: queue, onInstall: { package in
-                            // A review on screen is of the queue before this file.
-                            switch queue.phase {
-                            case .review, .blocked: queue.backToEditing()
-                            default: break
-                            }
-                            queue.add(.file(package.package, token: package.token), name: package.displayName)
+                            queue.addForReview(.file(package.package, token: package.token), name: package.displayName)
                             queueAfterOpened = true
                             opened.shown = false
                         }, onClose: { opened.shown = false })
@@ -210,8 +205,15 @@ struct CodlingApp: App {
                         await opened.open(url)
                     }
                 }
-                .sheet(isPresented: $systemSheet.shown) {
+                .sheet(isPresented: $systemSheet.shown, onDismiss: {
+                    // Burrow's Safe Mode list queued a removal to review.
+                    if systemSheet.queueAfterClosing {
+                        systemSheet.queueAfterClosing = false
+                        queueShown = true
+                    }
+                }) {
                     SystemCheckView(environment: environment, health: health, sources: sources, burrow: burrow)
+                        .environmentObject(systemSheet)
                         .environmentObject(sources)
                         .environmentObject(installed)
                         .environmentObject(queue)

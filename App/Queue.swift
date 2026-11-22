@@ -132,6 +132,25 @@ final class QueueModel: ObservableObject {
         }
     }
 
+    /// Queues an operation from a screen outside the queue, which then opens
+    /// to review it. A review on screen is of the queue before it, so the
+    /// queue goes back to editing first.
+    func addForReview(_ operation: PackageOperation, name: String) {
+        switch phase {
+        case .review, .blocked: backToEditing()
+        default: break
+        }
+        add(operation, name: name)
+    }
+
+    /// apt is at work, so nothing more can be queued for now.
+    var isBusy: Bool {
+        switch phase {
+        case .preparing, .applying: return true
+        default: return restarting
+        }
+    }
+
     func remove(_ package: String) {
         reviewed = []
         items.removeAll { $0.id == package }

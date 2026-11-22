@@ -226,6 +226,8 @@ private struct BurrowStateSections: View {
     static let origin = "burrow"
     @ObservedObject var model: BurrowModel
     let state: BurrowState
+    @EnvironmentObject private var queue: QueueModel
+    @EnvironmentObject private var systemSheet: SystemSheet
     @State private var confirmingLoader = false
     @State private var showsSafeMode = false
     @State private var showsTweaks = false
@@ -261,12 +263,17 @@ private struct BurrowStateSections: View {
                             .foregroundColor(.secondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
-                        Button(row.event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
-                            Task { await model.setTweak(row.event.tweak, on: true, in: row.event.process, origin: Self.origin) }
+                        HStack(spacing: 20) {
+                            Button(row.event.tweak == BurrowState.everyTweak ? "Turn Every Tweak Back On" : "Turn Back On") {
+                                Task { await model.setTweak(row.event.tweak, on: true, in: row.event.process, origin: Self.origin) }
+                            }
+                            .disabled(!state.canChangeSettings || model.working != nil)
+                            if let tweak = state.removableTweak(for: row.event), let package = tweak.package {
+                                removeButton(package: package, name: tweak.displayName)
+                            }
                         }
                         .font(.subheadline.weight(.semibold))
                         .buttonStyle(.borderless)
-                        .disabled(!state.canChangeSettings || model.working != nil)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
@@ -275,9 +282,8 @@ private struct BurrowStateSections: View {
             }
             .padding(.top, 8)
             if showsSafeMode {
-                CardFooter(text: events.count > 10
-                           ? "The latest 10 are shown. Safe Mode turns a tweak off in the app it crashed, and nowhere else."
-                           : "Safe Mode turns a tweak off in the app it crashed, and nowhere else.")
+                CardFooter(text: (events.count > 10 ? "The latest 10 are shown. " : "")
+                           + "Safe Mode turns a tweak off in the app it crashed, and nowhere else. Remove takes off the package that installed the tweak, after you review the change.")
             }
         }
 
@@ -324,6 +330,26 @@ private struct BurrowStateSections: View {
                 }
             }
             .padding(.top, 8)
+        }
+    }
+
+    /// Queues the removal of the package that installed a tweak, and opens
+    /// the queue to review it once this sheet is gone.
+    @ViewBuilder
+    private func removeButton(package: String, name: String) -> some View {
+        if queue.operation(for: package) == .remove(package) {
+            Text("Queued to remove")
+                .foregroundColor(.secondary)
+        } else {
+            let disabled = queue.isBusy || model.working != nil
+            Button("Remove", role: .destructive) {
+                queue.addForReview(.remove(package), name: name)
+                systemSheet.queueAfterClosing = true
+                systemSheet.shown = false
+            }
+            .foregroundColor(disabled ? .secondary : .red)
+            .disabled(disabled)
+            .accessibilityLabel("Remove \(name)")
         }
     }
 

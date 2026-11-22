@@ -179,7 +179,7 @@ struct OpenedPackageView: View {
                     if let installedVersion = installed.version(of: package.package) {
                         CardFooter(text: replacing(package, installed: installedVersion))
                     }
-                    if busy {
+                    if queue.isBusy {
                         CardFooter(text: "Codling is making another change. You can install this when it is done.")
                     }
                     if let summary = package.summary {
@@ -244,7 +244,7 @@ struct OpenedPackageView: View {
             onInstall(package)
         }
         .buttonStyle(CapsuleButtonStyle())
-        .disabled(busy || problem(package) != nil)
+        .disabled(queue.isBusy || problem(package) != nil)
     }
 
     private func details(_ package: OpenedPackage, file: String) -> some View {
@@ -272,14 +272,6 @@ struct OpenedPackageView: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassSurface(cornerRadius: 22)
-    }
-
-    /// apt is at work, so nothing more can be queued for now.
-    private var busy: Bool {
-        switch queue.phase {
-        case .preparing, .applying: return true
-        default: return queue.restarting
-        }
     }
 
     /// Why the package cannot be installed here, or nil.
