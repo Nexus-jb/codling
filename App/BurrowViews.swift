@@ -247,7 +247,7 @@ private struct BurrowStateSections: View {
             }
         }
 
-        let events = state.safeModeEvents.filter(state.isStillOff)
+        let events = state.turnedOffBySafeMode
         if !events.isEmpty {
             CollapsibleCard(title: "Turned Off by Safe Mode", symbol: "shield.lefthalf.filled", color: .red,
                             count: events.count, expanded: $showsSafeMode) {
