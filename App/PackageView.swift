@@ -402,6 +402,9 @@ private struct PackageActions: View {
         case failed(String)
         /// The provider answered that it does not sell it, with its reason.
         case refused(String)
+        /// Signed out, the provider did not tell the price; signed in, it
+        /// will.
+        case signInFirst(endpoint: URL)
         case ready(endpoint: URL, price: PaymentProvider.Price)
     }
 
@@ -481,10 +484,12 @@ private struct PackageActions: View {
     // MARK: Paid packages
 
     private var provider: PaymentAccounts.Provider? {
-        if case .ready(let endpoint, _) = offer {
+        switch offer {
+        case .ready(let endpoint, _), .signInFirst(let endpoint):
             return accounts.provider(at: endpoint)
+        default:
+            return nil
         }
-        return nil
     }
 
     private var price: PaymentProvider.Price? {
@@ -511,6 +516,12 @@ private struct PackageActions: View {
             }
             .buttonStyle(CapsuleButtonStyle())
             .accessibilityLabel("Try Again")
+        } else if case .signInFirst = offer, let provider {
+            Button("SIGN IN") {
+                Task { await signIn(provider) }
+            }
+            .buttonStyle(CapsuleButtonStyle())
+            .accessibilityLabel("Sign In")
         } else if let provider, let price, let available {
             if price.purchased {
                 action(update ? "UPDATE" : "GET", .install(identifier),
@@ -544,6 +555,10 @@ private struct PackageActions: View {
             return "\(source.title) does not sell this package to package managers. Buy it on the source's website."
         case .failed(let message), .refused(let message):
             return message
+        case .signInFirst:
+            let seller = provider?.name ?? source.title
+            return "\(seller) did not show this package's price without an account. "
+                + "Sign in to \(seller) to buy it, or to download it if you already did."
         case .ready(_, let price):
             guard let provider else { return nil }
             if !price.available && !price.purchased {
@@ -564,6 +579,8 @@ private struct PackageActions: View {
         }
         do {
             offer = .ready(endpoint: provider.endpoint, price: try await accounts.price(of: identifier, at: provider))
+        } catch is PaymentClient.PriceNeedsSignIn {
+            offer = .signInFirst(endpoint: provider.endpoint)
         } catch let failure as PaymentProvider.Failure {
             offer = failure.fromProvider ? .refused(failure.message) : .failed(failure.message)
         } catch {

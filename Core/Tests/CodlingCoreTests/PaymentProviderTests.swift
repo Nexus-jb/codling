@@ -53,6 +53,14 @@ final class PaymentProviderTests: XCTestCase {
         XCTAssertEqual(signedIn.url, signedOut.url)
     }
 
+    func testSignedOutRetryIsAPostWithoutTheUDID() {
+        let endpoint = URL(string: "https://api.example.com/v1/sileo/")!
+        let retry = PaymentProvider.signedOutPriceRetry(endpoint, package: "com.example.tweak", device: "iPhone15,3")
+        XCTAssertEqual(retry.method, "POST")
+        XCTAssertEqual(retry.body, ["device": "iPhone15,3"])
+        XCTAssertEqual(retry.url.absoluteString, "https://api.example.com/v1/sileo/package/com.example.tweak/info")
+    }
+
     func testPaths() {
         let endpoint = URL(string: "https://api.example.com/v1/sileo/")!
         XCTAssertEqual(PaymentProvider.url(endpoint, "info").absoluteString, "https://api.example.com/v1/sileo/info")

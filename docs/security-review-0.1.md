@@ -85,10 +85,13 @@ that carried the device's UDID, even when the user had never signed in to
 that provider.
 
 **Fix.** Signed out, Codling asks with a GET that carries nothing about the
-device, as Zebra does. Signed in, it sends the token and the device as
-before, which the provider needs to say whether the user bought the package.
-The UDID now leaves the device only for providers the user signed in to,
-and on the sign-in page itself. Tested in `PaymentProviderTests`.
+device, as Zebra does. A provider that does not answer that GET (Havoc
+answers 404) is asked again with a POST that carries the device model only;
+if that fails too, the package's page offers to sign in. Signed in, it sends
+the token and the device as before, which the provider needs to say whether
+the user bought the package. The UDID now leaves the device only for
+providers the user signed in to, and on the sign-in page itself. Tested in
+`PaymentProviderTests`.
 
 ### 4. Payment provider named over HTTP (Low)
 
