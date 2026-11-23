@@ -149,7 +149,25 @@ struct PaymentClient {
         if let body = request.body {
             return try PaymentProvider.price(try await post(request.url, body))
         }
-        return try PaymentProvider.price(try await get(request.url))
+        do {
+            return try PaymentProvider.price(try await get(request.url))
+        } catch let failure as PaymentProvider.Failure where !failure.fromProvider {
+            // Some providers answer only a POST here, as Sileo asks, and
+            // Havoc answers the GET with 404: ask again that way, still
+            // without the UDID.
+            let retry = PaymentProvider.signedOutPriceRetry(endpoint, package: package, device: model)
+            do {
+                return try PaymentProvider.price(try await post(retry.url, retry.body ?? [:]))
+            } catch let second as PaymentProvider.Failure {
+                throw PriceNeedsSignIn(message: second.message)
+            }
+        }
+    }
+
+    /// Signed out, the provider answered neither way of asking for a
+    /// package's price; signed in, it gets the token and the device.
+    struct PriceNeedsSignIn: Error {
+        let message: String
     }
 
     func purchase(_ endpoint: URL, package: String, token: String, secret: String?) async throws -> PaymentProvider.Purchase {

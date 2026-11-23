@@ -171,8 +171,10 @@ publish your provider's address in `payment_endpoint`:
   `sileo://authentication_success`), `user_info`, `sign_out`, and
   `package/<identifier>/` `info`, `purchase` and `authorize_download`.
 - Signed out, Codling asks `package/<identifier>/info` with a GET and sends
-  nothing about the device. Signed in, it asks with a POST that carries the
-  token, the UDID and the model.
+  nothing about the device. If the GET fails, it asks again with a POST
+  that carries only `device`, the model. Signed in, it asks with a POST that
+  carries the token, the UDID and the model. Answering the signed-out GET
+  saves your users a second request.
 - `authorize_download` gets `token`, `udid`, `device`, `version`, `repo` and
   `architecture`. `architecture` is the `Architecture` of the record, so a
   provider with separate builds for rootless and RootHide can send the

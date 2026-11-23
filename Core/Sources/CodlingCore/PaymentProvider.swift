@@ -75,6 +75,13 @@ public enum PaymentProvider {
         return PriceRequest(url: address, method: "POST", body: ["token": token, "udid": udid, "device": device])
     }
 
+    /// Signed out, for a provider that does not answer that GET (Havoc
+    /// answers 404 there): a POST, as Sileo asks, with the device model
+    /// only. The UDID still goes only to a provider the user signed in to.
+    public static func signedOutPriceRetry(_ endpoint: URL, package: String, device: String) -> PriceRequest {
+        PriceRequest(url: url(endpoint, packagePath(package, "info")), method: "POST", body: ["device": device])
+    }
+
     /// The address of a path under the provider, such as "info" or
     /// "package/com.example.tweak/info". The package identifier is escaped.
     public static func url(_ endpoint: URL, _ path: String) -> URL {
