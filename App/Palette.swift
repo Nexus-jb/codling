@@ -120,6 +120,52 @@ struct FramedPackageBanner: View {
             .background(Palette.surfaceTop, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(2)
             .glassSurface(cornerRadius: 16, inset: true)
+            .overlay(NeonEdge(cornerRadius: 16))
             .accessibilityHidden(true)
     }
+}
+
+/// A band of rainbow light that runs around a rounded edge, as on a neon
+/// sign, with a soft glow inside the edge. It stands still with Reduce
+/// Motion, and stops drawing while off screen.
+struct NeonEdge: View {
+    let cornerRadius: CGFloat
+    var lineWidth: CGFloat = 2
+    /// Seconds for one turn around the edge.
+    var period: Double = 3.2
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var onScreen = false
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || !onScreen)) { context in
+            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            let turn = reduceMotion ? 0.1
+                : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+            // The angle grows clockwise, so the band runs clockwise with
+            // its orange head in front and its blue tail fading behind.
+            let light = AngularGradient(gradient: Self.light, center: .center, angle: .degrees(turn * 360))
+            ZStack {
+                shape.strokeBorder(light, lineWidth: lineWidth * 4)
+                    .blur(radius: lineWidth * 3)
+                    .opacity(0.7)
+                shape.strokeBorder(light, lineWidth: lineWidth)
+            }
+            .clipShape(shape)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
+    }
+
+    private static let light = Gradient(stops: [
+        .init(color: .clear, location: 0),
+        .init(color: .clear, location: 0.58),
+        .init(color: Color(red: 0.25, green: 0.42, blue: 1), location: 0.68),
+        .init(color: Color(red: 0.2, green: 0.82, blue: 1), location: 0.76),
+        .init(color: Color(red: 0.32, green: 0.93, blue: 0.45), location: 0.84),
+        .init(color: Color(red: 1, green: 0.84, blue: 0.24), location: 0.91),
+        .init(color: Color(red: 1, green: 0.48, blue: 0.2), location: 0.97),
+        .init(color: .clear, location: 1),
+    ])
 }
