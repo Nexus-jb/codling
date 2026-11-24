@@ -391,6 +391,11 @@ private struct PackageActions: View {
     @EnvironmentObject private var sources: SourcesModel
     @State private var offer: PaidOffer = .loading
     @State private var buying = false
+    /// The button whose edge the light runs around once, after a tap that
+    /// queues its package; it stays until the turn ends.
+    @State private var lit: String?
+    @State private var litSince = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var problem: String?
 
     /// What Codling knows about buying a paid package.
@@ -414,7 +419,7 @@ private struct PackageActions: View {
             available.map { DebianVersion($0) > DebianVersion(current) }
         } ?? false
         VStack(alignment: .leading, spacing: 8) {
-            if let queued = queue.operation(for: identifier) {
+            if let queued = queue.operation(for: identifier), lit == nil {
                 HStack {
                     Label(queuedText(queued, installed: installedVersion != nil), systemImage: "clock.fill")
                         .foregroundColor(.secondary)
@@ -475,10 +480,34 @@ private struct PackageActions: View {
                         purchase: PurchaseRequest? = nil) -> some View {
         Button(title) {
             queue.add(operation, name: name, purchase: purchase)
+            if !destructive {
+                light(title)
+            }
         }
         .buttonStyle(CapsuleButtonStyle(color: destructive ? .red : Palette.text))
+        .overlay {
+            if lit == title {
+                NeonEdge(shape: Capsule(), once: litSince)
+            }
+        }
         // VoiceOver spells a word in capitals letter by letter.
         .accessibilityLabel(title.capitalized)
+    }
+
+    /// Runs the light once around the button just tapped, then shows the
+    /// queued package.
+    private func light(_ title: String) {
+        guard !reduceMotion else { return }
+        lit = title
+        litSince = Date()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(NeonLight.onceDuration * 1_000_000_000))
+            if lit == title {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    lit = nil
+                }
+            }
+        }
     }
 
     // MARK: Paid packages
