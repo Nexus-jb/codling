@@ -120,30 +120,31 @@ struct FramedPackageBanner: View {
             .background(Palette.surfaceTop, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(2)
             .glassSurface(cornerRadius: 16, inset: true)
-            .overlay(NeonEdge(cornerRadius: 16))
+            .overlay(NeonEdge(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)))
             .accessibilityHidden(true)
     }
 }
 
-/// A band of rainbow light that runs around a rounded edge, as on a neon
-/// sign, with a soft glow inside the edge. It stands still with Reduce
-/// Motion, and stops drawing while off screen.
-struct NeonEdge: View {
-    let cornerRadius: CGFloat
+/// A band of rainbow light that runs around an edge, as on a neon sign,
+/// with a soft glow inside the edge. It runs on, or once from a moment and
+/// fades out. It stands still with Reduce Motion (and a single turn does
+/// not show), and stops drawing while off screen.
+struct NeonEdge<Edge: InsettableShape>: View {
+    let shape: Edge
     var lineWidth: CGFloat = 2
-    /// Seconds for one turn around the edge.
+    /// Seconds for one turn around the edge, when it runs on.
     var period: Double = 3.2
+    /// When set, the band runs once around the edge from this moment.
+    var once: Date?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var onScreen = false
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || !onScreen)) { context in
-            let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            let turn = reduceMotion ? 0.1
-                : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+            let phase = phase(at: context.date)
             // The angle grows clockwise, so the band runs clockwise with
             // its orange head in front and its blue tail fading behind.
-            let light = AngularGradient(gradient: Self.light, center: .center, angle: .degrees(turn * 360))
+            let light = AngularGradient(gradient: NeonLight.band, center: .center, angle: .degrees(phase.turn * 360))
             ZStack {
                 shape.strokeBorder(light, lineWidth: lineWidth * 4)
                     .blur(radius: lineWidth * 3)
@@ -151,6 +152,7 @@ struct NeonEdge: View {
                 shape.strokeBorder(light, lineWidth: lineWidth)
             }
             .clipShape(shape)
+            .opacity(phase.strength)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -158,7 +160,25 @@ struct NeonEdge: View {
         .onDisappear { onScreen = false }
     }
 
-    private static let light = Gradient(stops: [
+    /// Where the band is, as a part of a turn, and how bright it is.
+    private func phase(at date: Date) -> (turn: Double, strength: Double) {
+        if reduceMotion {
+            return (0.1, once == nil ? 1 : 0)
+        }
+        guard let once else {
+            return (date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period, 1)
+        }
+        let progress = min(max(date.timeIntervalSince(once) / NeonLight.onceDuration, 0), 1)
+        // It lights up at the start and fades over the last third.
+        return (progress, min(progress / 0.1, 1) * min((1 - progress) / 0.35, 1))
+    }
+}
+
+enum NeonLight {
+    /// Seconds for the single turn around a button.
+    static let onceDuration = 0.9
+
+    static let band = Gradient(stops: [
         .init(color: .clear, location: 0),
         .init(color: .clear, location: 0.58),
         .init(color: Color(red: 0.25, green: 0.42, blue: 1), location: 0.68),
