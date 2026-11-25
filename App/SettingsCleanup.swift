@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import CodlingCore
 import CoreFoundation
 import Foundation
 
