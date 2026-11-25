@@ -409,6 +409,9 @@ private struct WelcomeCard: View {
                         .foregroundColor(.secondary)
                     Text("Codling")
                         .font(.largeTitle.bold())
+                    Text("by Ultra Team")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.secondary)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isHeader)
@@ -422,50 +425,54 @@ private struct WelcomeCard: View {
     }
 }
 
-/// Codling's own pages elsewhere. A link shows only once it has an
-/// address; until then the card does not show.
+/// Codling's own pages elsewhere: its website and its account on X side by
+/// side, and below them support, which writes an email.
 private struct CommunityLinksCard: View {
-    struct Entry: Identifiable {
-        let title: String
-        let symbol: String
-        let url: URL?
-
-        var id: String { title }
-    }
-
-    static let links = [
-        Entry(title: "Twitter", symbol: "at", url: nil),
-        Entry(title: "Support", symbol: "headphones", url: nil),
-        Entry(title: "Website", symbol: "globe", url: nil),
-    ]
+    static let website = URL(string: "https://nexus-jb.github.io/codling/")!
+    static let account = URL(string: "https://x.com/CodlingApp")!
+    static let support = URL(string: "mailto:codlingapp@gmail.com")!
 
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let shown = Self.links.filter { $0.url != nil }
-        if !shown.isEmpty {
-            Card(padding: 0) {
+        Card(padding: 0) {
+            VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    ForEach(shown) { link in
-                        if link.id != shown.first?.id {
-                            Divider()
-                                .frame(height: 24)
-                        }
-                        Button {
-                            if let url = link.url {
-                                openURL(url)
-                            }
-                        } label: {
-                            Label(link.title, systemImage: link.symbol)
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 13)
-                        }
-                        .buttonStyle(CardRowButtonStyle())
+                    link("Website", url: Self.website) {
+                        Image(systemName: "globe")
+                    }
+                    Divider()
+                        .frame(height: 24)
+                    // X's own mark is a double-struck X; the letter stands for it.
+                    link("CodlingApp", url: Self.account) {
+                        Text("\u{1D54F}")
+                            .font(.body.weight(.bold))
                     }
                 }
+                Divider()
+                    .padding(.horizontal, 16)
+                link("Support", url: Self.support) {
+                    Image(systemName: "envelope")
+                }
+                .accessibilityHint("Writes an email to Codling's support")
             }
         }
+    }
+
+    private func link<Icon: View>(_ title: String, url: URL, @ViewBuilder icon: () -> Icon) -> some View {
+        Button {
+            openURL(url)
+        } label: {
+            Label {
+                Text(title)
+            } icon: {
+                icon()
+            }
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
+        }
+        .buttonStyle(CardRowButtonStyle())
     }
 }
 
