@@ -31,7 +31,8 @@ enum SettingsCleanup {
                     let file = SettingsLeftovers.file(for: domain)
                     guard FileManager.default.fileExists(atPath: file) else { return nil }
                     return .init(name: domain, file: file,
-                                 mayHoldActivation: SettingsLeftovers.mayHoldActivation(readPlist(file)))
+                                 mayHoldActivation: SettingsLeftovers.nameSuggestsActivation(domain)
+                                     || SettingsLeftovers.mayHoldActivation(readPlist(file)))
                 }
             if !domains.isEmpty {
                 found[package] = SettingsLeftovers(domains: domains)

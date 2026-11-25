@@ -61,6 +61,16 @@ final class SettingsLeftoversTests: XCTestCase {
         XCTAssertTrue(SettingsLeftovers.mayHoldActivation(["a", "b"]))
     }
 
+    func testActivationNamesKeepTheDomain() {
+        for domain in ["com.example.tweak.license", "com.example.tweakLicence", "com.example.activation",
+                       "com.example.serial", "com.example.tweakkey", "com.example.key.store", "com.example.drm"] {
+            XCTAssertTrue(SettingsLeftovers.nameSuggestsActivation(domain), domain)
+        }
+        for domain in ["com.example.tweak", "com.example.tweakprefs", "com.example.keyboardtweak"] {
+            XCTAssertFalse(SettingsLeftovers.nameSuggestsActivation(domain), domain)
+        }
+    }
+
     func testRemovableAndKept() {
         let leftovers = SettingsLeftovers(domains: [
             .init(name: "com.example.tweak", file: SettingsLeftovers.file(for: "com.example.tweak"), mayHoldActivation: false),

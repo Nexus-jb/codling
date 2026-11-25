@@ -9,8 +9,9 @@ import Foundation
 ///
 /// Only a preference domain the package itself names, from its own vendor,
 /// qualifies; never Apple's, nor one that belongs to another installed
-/// package. A domain whose file may hold an activation (a license, a serial,
-/// a token) is kept, so that removing settings never loses a purchase.
+/// package. A domain whose name or file may hold an activation (a license,
+/// a serial, a key, a token) is kept, whatever source the package came
+/// from, so that removing settings never loses a purchase.
 public struct SettingsLeftovers: Equatable {
     public struct Domain: Equatable {
         /// The preference domain, such as com.example.tweak.
@@ -111,6 +112,18 @@ public struct SettingsLeftovers: Equatable {
         return vendor.count == 2 && Array(domain.split(separator: ".").prefix(2)) == Array(vendor)
     }
 
+    /// Words that name an activation, in a key or in a domain's name.
+    static let activationMarkers = ["licen", "activat", "serial", "registr", "purchas", "drm", "token", "unlock",
+                                    "receipt", "udid", "entitle"]
+
+    /// Whether a domain's name says it holds an activation, as
+    /// com.example.tweak.license or com.example.serialkey do.
+    public static func nameSuggestsActivation(_ domain: String) -> Bool {
+        let lowered = domain.lowercased()
+        return activationMarkers.contains { lowered.contains($0) } || lowered.hasSuffix("key")
+            || lowered.contains("key.") || lowered.hasSuffix("code")
+    }
+
     /// Whether a preferences file may hold an activation: any key, at the
     /// top or one level down, that names a license, a serial, a token or a
     /// purchase, or ends in "key" or "code". A file that is not a dictionary
@@ -123,10 +136,10 @@ public struct SettingsLeftovers: Equatable {
                 keys.append(contentsOf: inner.keys)
             }
         }
-        let markers = ["licen", "activat", "serial", "registr", "purchas", "drm", "token", "unlock", "receipt", "udid", "entitle"]
         return keys.contains { key in
             let lowered = key.lowercased()
-            return markers.contains { lowered.contains($0) } || lowered.hasSuffix("key") || lowered.hasSuffix("code")
+            return activationMarkers.contains { lowered.contains($0) } || lowered.hasSuffix("key")
+                || lowered.hasSuffix("code")
         }
     }
 }
