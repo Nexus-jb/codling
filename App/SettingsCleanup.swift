@@ -72,19 +72,45 @@ enum SettingsCleanup {
 
     /// Removes a leftover: preferences through the preferences daemon, so
     /// that no process writes back what it cached, then the file or folder
-    /// itself. Returns why it failed.
-    static func remove(_ item: SettingsLeftovers.Item) -> String? {
-        if case .preferences(let domain) = item.kind {
-            let name = domain as CFString
-            if let keys = CFPreferencesCopyKeyList(name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String],
-               !keys.isEmpty {
-                CFPreferencesSetMultiple(nil, keys as CFArray, name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
-                CFPreferencesSynchronize(name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
-            }
+    /// itself. The daemon writes the emptied preferences a moment later,
+    /// which brings the file back empty, so a preferences file is removed
+    /// again until it stays gone. Returns why it failed.
+    static func remove(_ item: SettingsLeftovers.Item) async -> String? {
+        guard case .preferences(let domain) = item.kind else {
+            return removeEntry(item.path)
         }
-        guard (try? FileManager.default.attributesOfItem(atPath: item.path)) != nil else { return nil }
+        let name = domain as CFString
+        if let keys = CFPreferencesCopyKeyList(name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String],
+           !keys.isEmpty {
+            CFPreferencesSetMultiple(nil, keys as CFArray, name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            CFPreferencesSynchronize(name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        }
+        var goneFor = 0
+        for _ in 0..<12 {
+            if exists(item.path) {
+                goneFor = 0
+                if let problem = removeEntry(item.path) {
+                    return problem
+                }
+            } else {
+                goneFor += 1
+                if goneFor == 3 {
+                    return nil
+                }
+            }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return exists(item.path) ? "it came back; restart SpringBoard and remove the package's leftovers again" : nil
+    }
+
+    private static func exists(_ path: String) -> Bool {
+        (try? FileManager.default.attributesOfItem(atPath: path)) != nil
+    }
+
+    private static func removeEntry(_ path: String) -> String? {
+        guard exists(path) else { return nil }
         do {
-            try FileManager.default.removeItem(atPath: item.path)
+            try FileManager.default.removeItem(atPath: path)
             return nil
         } catch {
             return error.localizedDescription

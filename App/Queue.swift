@@ -367,14 +367,17 @@ final class QueueModel: ObservableObject {
     /// Removes the settings the user chose, for packages the change did
     /// remove: what was removed, and what could not be.
     private func removeChosenSettings(stillInstalled: Set<String>,
-                                      names: [String: String]) -> (done: [String], problems: [String]) {
+                                      names: [String: String]) async -> (done: [String], problems: [String]) {
         var done: [String] = []
         var problems: [String] = []
         for package in clearsSettings.sorted() where !stillInstalled.contains(package) {
             guard let settings = leftovers[package] else { continue }
             let name = names[package] ?? package
-            let failures = settings.removable.compactMap { item in
-                SettingsCleanup.remove(item).map { "\(item.shortName): \($0)" }
+            var failures: [String] = []
+            for item in settings.removable {
+                if let problem = await SettingsCleanup.remove(item) {
+                    failures.append("\(item.shortName): \(problem)")
+                }
             }
             if failures.isEmpty {
                 done.append("Removed what \(name) left behind.")
@@ -521,7 +524,7 @@ final class QueueModel: ObservableObject {
             let succeeded = command.status == 0
             let diagnoses = succeeded ? [] : AptDiagnostics.diagnose(command.output)
             if succeeded {
-                let cleaned = removeChosenSettings(stillInstalled: Set(after.keys), names: names)
+                let cleaned = await removeChosenSettings(stillInstalled: Set(after.keys), names: names)
                 doneNotes = cleaned.done
                 notes += cleaned.problems
             }
