@@ -240,11 +240,19 @@ struct OpenedPackageView: View {
     }
 
     private func installButton(_ package: OpenedPackage) -> some View {
-        Button(installed.version(of: package.package) == nil ? "Install" : "Replace") {
+        Button(installTitle(package)) {
             onInstall(package)
         }
         .buttonStyle(CapsuleButtonStyle())
         .disabled(queue.isBusy || problem(package) != nil)
+    }
+
+    /// Install, or what installing the file does to the installed version:
+    /// Update, Reinstall or Downgrade.
+    private func installTitle(_ package: OpenedPackage) -> String {
+        guard let version = installed.version(of: package.package) else { return "Install" }
+        let order = DebianVersion.compare(DebianVersion(package.version), DebianVersion(version))
+        return order > 0 ? "Update" : order == 0 ? "Reinstall" : "Downgrade"
     }
 
     private func details(_ package: OpenedPackage, file: String) -> some View {
