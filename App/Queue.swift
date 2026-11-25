@@ -373,13 +373,13 @@ final class QueueModel: ObservableObject {
         for package in clearsSettings.sorted() where !stillInstalled.contains(package) {
             guard let settings = leftovers[package] else { continue }
             let name = names[package] ?? package
-            let failures = settings.removable.compactMap { domain in
-                SettingsCleanup.remove(domain).map { "\(domain.name): \($0)" }
+            let failures = settings.removable.compactMap { item in
+                SettingsCleanup.remove(item).map { "\(item.shortName): \($0)" }
             }
             if failures.isEmpty {
-                done.append("Removed the settings of \(name).")
+                done.append("Removed what \(name) left behind.")
             } else {
-                problems.append("Some settings of \(name) could not be removed: \(failures.joined(separator: "; ")).")
+                problems.append("Some of what \(name) left behind could not be removed: \(failures.joined(separator: "; ")).")
             }
         }
         clearsSettings = []
@@ -965,8 +965,8 @@ extension ReviewView {
     /// unless the user turns it on.
     fileprivate var settingsCard: some View {
         Card(padding: 14) {
-            ToolHeader(symbol: "slider.horizontal.3", color: .orange, title: "Settings") {
-                ToolNote(text: "Removing a package keeps its settings, so they are there if you install it again. Codling can remove them too. Undo does not bring them back, and settings that may hold an activation stay.")
+            ToolHeader(symbol: "sparkles", color: .orange, title: "Settings and Files") {
+                ToolNote(text: "Removing a package keeps its settings and the files it made, so they are there if you install it again. Codling can remove them too: everything named after the package or its files. Undo does not bring them back, and anything that may hold an activation stays.")
             }
             ForEach(leftovers.keys.sorted(by: { (names[$0] ?? $0) < (names[$1] ?? $1) }), id: \.self) { package in
                 if let settings = leftovers[package] {
@@ -975,6 +975,13 @@ extension ReviewView {
                 }
             }
         }
+    }
+
+    /// The leftovers' names, one a line, up to eight, then how many more.
+    private func listed(_ items: [SettingsLeftovers.Item]) -> String {
+        let names = items.map(\.shortName)
+        let shown = names.prefix(8).joined(separator: "\n")
+        return names.count > 8 ? shown + "\nand \(names.count - 8) more" : shown
     }
 
     @ViewBuilder
@@ -987,9 +994,9 @@ extension ReviewView {
                                          if on { clearsSettings.insert(package) } else { clearsSettings.remove(package) }
                                      })) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Remove the settings of \(name)")
+                        Text("Remove what \(name) leaves behind")
                             .font(.subheadline.weight(.semibold))
-                        Text(settings.removable.map(\.name).joined(separator: ", "))
+                        Text(listed(settings.removable))
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -997,8 +1004,8 @@ extension ReviewView {
                 }
                 .tint(.red)
             }
-            ForEach(settings.kept, id: \.name) { domain in
-                Label("\(name) keeps \(domain.name): it may hold an activation.", systemImage: "key.fill")
+            ForEach(settings.kept, id: \.path) { item in
+                Label("Keeps \(item.shortName): it may hold an activation.", systemImage: "key.fill")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -2,53 +2,75 @@
 
 import Foundation
 
-/// The settings a package leaves behind when it is removed: dpkg removes
-/// the files the package brought, but not the preferences its settings page
-/// wrote. They are found before the removal, from the package's own
-/// settings files, so that the user can choose to remove them too.
+/// What a package leaves behind when it is removed: dpkg removes the files
+/// the package brought, but not the preferences its settings page wrote nor
+/// the files the tweak made while it ran. They are found before the
+/// removal, so that the user can choose to remove them too.
 ///
-/// Only a preference domain the package itself names, from its own vendor,
-/// qualifies; never Apple's, nor one that belongs to another installed
-/// package. A domain whose name or file may hold an activation (a license,
-/// a serial, a key, a token) is kept, whatever source the package came
-/// from, so that removing settings never loses a purchase.
+/// A leftover is an entry in the user's data folders whose name starts with
+/// the package's identifier, a preference domain its settings page names,
+/// or the name of one of its own libraries or preference bundles.
+/// Never Apple's, never one that matches another installed package more
+/// closely, and never anything that may hold an activation (a license, a
+/// serial, a key, a token): those are kept, whatever source the package came
+/// from, so that removing leftovers never loses a purchase.
 public struct SettingsLeftovers: Equatable {
-    public struct Domain: Equatable {
-        /// The preference domain, such as com.example.tweak.
-        public let name: String
-        /// Its file under the user's preferences.
-        public let file: String
-        /// The file has a key that looks like an activation, or could not be
-        /// read: Codling keeps it.
+    public struct Item: Equatable {
+        public enum Kind: Equatable {
+            /// A preferences file, removed through the preferences daemon.
+            case preferences(domain: String)
+            case file
+            case folder
+        }
+
+        public let kind: Kind
+        public let path: String
+        /// It may hold an activation, or Codling could not tell: it stays.
         public let mayHoldActivation: Bool
 
-        public init(name: String, file: String, mayHoldActivation: Bool) {
-            self.name = name
-            self.file = file
+        public init(kind: Kind, path: String, mayHoldActivation: Bool) {
+            self.kind = kind
+            self.path = path
             self.mayHoldActivation = mayHoldActivation
+        }
+
+        /// The path from the user's Library or home, as
+        /// Caches/com.example.tweak.
+        public var shortName: String {
+            for marker in ["/var/mobile/Library/", "/var/mobile/"] {
+                if let range = path.range(of: marker) {
+                    return String(path[range.upperBound...])
+                }
+            }
+            return path
         }
     }
 
-    public var domains: [Domain]
+    public var items: [Item]
 
-    public init(domains: [Domain]) {
-        self.domains = domains
+    public init(items: [Item]) {
+        self.items = items
     }
 
-    /// What removing the settings removes.
-    public var removable: [Domain] { domains.filter { !$0.mayHoldActivation } }
+    /// What removing the leftovers removes.
+    public var removable: [Item] { items.filter { !$0.mayHoldActivation } }
     /// What it keeps, because it may hold an activation.
-    public var kept: [Domain] { domains.filter(\.mayHoldActivation) }
-    public var isEmpty: Bool { domains.isEmpty }
+    public var kept: [Item] { items.filter(\.mayHoldActivation) }
+    public var isEmpty: Bool { items.isEmpty }
 
-    /// Where the user's preferences live. On a rootless jailbreak, the
-    /// preferences daemon keeps those of tweaks under the jailbreak's root
-    /// instead, as /var/jb/var/mobile/Library/Preferences.
-    public static let preferencesDirectory = "/var/mobile/Library/Preferences"
+    /// The folders, under /var/mobile, where tweaks keep what they make. On
+    /// a rootless jailbreak the same folders also exist under the
+    /// jailbreak's root, where the preferences daemon keeps tweaks'
+    /// preferences, as /var/jb/var/mobile/Library/Preferences.
+    public static let dataFolders = [
+        "/var/mobile/Library/Preferences",
+        "/var/mobile/Library/Caches",
+        "/var/mobile/Library/Application Support",
+        "/var/mobile/Library",
+        "/var/mobile/Documents",
+    ]
 
-    public static func file(for domain: String) -> String {
-        "\(preferencesDirectory)/\(domain).plist"
-    }
+    public static let preferencesFolder = "/var/mobile/Library/Preferences"
 
     /// A file of the package that describes its settings page: a
     /// PreferenceLoader entry or a plist inside its preference bundle.
@@ -75,9 +97,9 @@ public struct SettingsLeftovers: Equatable {
         return found
     }
 
-    /// The domains the package's settings could live in, in order: its own
-    /// identifier, then those its settings files name, each once and only
-    /// when it qualifies.
+    /// The names the package's leftovers start with, in order: its own
+    /// identifier, then the domains its settings files name, each once and
+    /// only when it qualifies.
     public static func candidateDomains(package: String, settingsPlists: [Any], otherPackages: Set<String>) -> [String] {
         var result: [String] = []
         for domain in [package] + settingsPlists.flatMap(namedDomains) where !result.contains(domain) {
@@ -114,16 +136,78 @@ public struct SettingsLeftovers: Equatable {
         return vendor.count == 2 && Array(domain.split(separator: ".").prefix(2)) == Array(vendor)
     }
 
-    /// Words that name an activation, in a key or in a domain's name.
+    /// Names Apple and the system use for folders and files in the user's
+    /// data, which a tweak's file of the same name must not reach.
+    static let systemNames: Set<String> = [
+        "preferences", "caches", "application support", "documents", "library", "logs", "cookies", "webkit",
+        "springboard", "safari", "mobile", "settings", "widgets", "keyboard", "keyboards", "media", "photos",
+        "mail", "notes", "calendar", "addressbook", "sms", "voicemail", "shortcuts", "backup", "backups", "tweaks",
+        "tweak", "prefs", "preference", "bundle", "resources", "assets", "images", "icons", "themes", "default",
+    ]
+
+    /// The names of the tweak's own files, from the files dpkg lists for
+    /// the package: its libraries, as VersionSpoof from VersionSpoof.dylib,
+    /// and its preference bundles, as VersionSpoofPrefs. Only names of six
+    /// letters or more that no system folder uses, so a tweak's file named
+    /// Settings never reaches Apple's.
+    public static func ownFileNames(_ owned: [String]) -> [String] {
+        var names: [String] = []
+        for path in owned {
+            let file = path.split(separator: "/").last.map(String.init) ?? ""
+            let name: String
+            if file.hasSuffix(".dylib"), path.contains("/DynamicLibraries/") || path.contains("/TweakInject/") {
+                name = String(file.dropLast(6))
+            } else if file.hasSuffix(".bundle"), path.contains("/PreferenceBundles/") {
+                name = String(file.dropLast(7))
+            } else {
+                continue
+            }
+            if name.count >= 6, !systemNames.contains(name.lowercased()), name.contains(where: \.isLetter),
+               !names.contains(name) {
+                names.append(name)
+            }
+        }
+        return names
+    }
+
+    /// How closely an entry's name matches a name it may start with: the
+    /// name's length when the entry is that name, or that name followed by
+    /// ".", "_" or "-" (as com.example.tweak.plist or com.example.tweak_log);
+    /// zero otherwise. Letter case does not matter.
+    public static func match(_ entry: String, _ name: String) -> Int {
+        let entry = entry.lowercased(), name = name.lowercased()
+        guard !name.isEmpty else { return 0 }
+        if entry == name || [".", "_", "-"].contains(where: { entry.hasPrefix(name + $0) }) {
+            return name.count
+        }
+        return 0
+    }
+
+    /// Whether an entry in a data folder is the package's: it matches one
+    /// of the package's names, and no other installed package matches it as
+    /// closely, so com.example.tweak.addon stays with com.example.tweak.addon.
+    public static func belongs(_ entry: String, to names: [String], package: String, otherPackages: Set<String>) -> Bool {
+        guard !entry.hasPrefix(".") else { return false }
+        let own = names.map { match(entry, $0) }.max() ?? 0
+        guard own > 0 else { return false }
+        let other = otherPackages.filter { $0 != package }.map { match(entry, $0) }.max() ?? 0
+        return own > other
+    }
+
+    /// Words that name an activation, in a key or in a name.
     static let activationMarkers = ["licen", "activat", "serial", "registr", "purchas", "drm", "token", "unlock",
                                     "receipt", "udid", "entitle"]
 
-    /// Whether a domain's name says it holds an activation, as
-    /// com.example.tweak.license or com.example.serialkey do.
-    public static func nameSuggestsActivation(_ domain: String) -> Bool {
-        let lowered = domain.lowercased()
-        return activationMarkers.contains { lowered.contains($0) } || lowered.hasSuffix("key")
-            || lowered.contains("key.") || lowered.hasSuffix("code")
+    /// Whether a name says it holds an activation, as
+    /// com.example.tweak.license, NexusLicense or com.example.serialkey do.
+    public static func nameSuggestsActivation(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        var stem = lowered
+        for ext in [".plist", ".json", ".txt", ".log", ".dat"] where stem.hasSuffix(ext) {
+            stem.removeLast(ext.count)
+        }
+        return activationMarkers.contains { lowered.contains($0) } || stem.hasSuffix("key")
+            || stem.contains("key.") || stem.contains("key_") || stem.hasSuffix("code")
     }
 
     /// Whether a preferences file may hold an activation: any key, at the
@@ -143,5 +227,30 @@ public struct SettingsLeftovers: Equatable {
             return activationMarkers.contains { lowered.contains($0) } || lowered.hasSuffix("key")
                 || lowered.hasSuffix("code")
         }
+    }
+
+    /// The most of a file Codling reads to tell whether it holds an
+    /// activation.
+    public static let contentLimit = 256 * 1024
+
+    /// Whether a file may hold an activation, from its name and bytes. A
+    /// property list is judged by its keys; anything else by the words a
+    /// license or a purchase leaves in it. A file larger than Codling reads
+    /// is judged by its extension: data and text it cannot read through
+    /// stay, pictures and logs do not.
+    public static func fileMayHoldActivation(name: String, size: Int, data: Data?) -> Bool {
+        if nameSuggestsActivation(name) {
+            return true
+        }
+        let ext = name.lastIndex(of: ".").map { String(name[name.index(after: $0)...]).lowercased() } ?? ""
+        guard size <= contentLimit, let data else {
+            return ["plist", "json", "txt", "dat", "db", "sqlite", "key", "lic", "bin", ""].contains(ext)
+        }
+        if let plist = try? PropertyListSerialization.propertyList(from: data, format: nil),
+           plist is [String: Any] || plist is [Any] {
+            return mayHoldActivation(plist)
+        }
+        let text = String(decoding: data, as: UTF8.self).lowercased()
+        return ["licen", "activat", "receipt", "purchas", "drm"].contains { text.contains($0) }
     }
 }

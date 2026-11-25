@@ -206,6 +206,35 @@ so a button can sit beside the ones for other package managers.
 <a href="codling://source/https://repo.example.com/">Add to Codling</a>
 ```
 
+## What a removed package leaves behind
+
+When a user removes a package, dpkg removes the files the package brought,
+but not the settings it wrote or the files the tweak made while it ran.
+Codling's review offers to remove those too, with a switch that is off
+unless the user turns it on. It lists, before the removal:
+
+- the preference domains your settings page names (each `defaults` in your
+  preference bundle's plists), and your package identifier, when they are
+  from your vendor and not another installed package's;
+- any file or folder in the user's Preferences, Caches, Application Support,
+  Library and Documents folders, under `/var/mobile` and under the
+  jailbreak's root, whose name is one of those names, your package
+  identifier, or the name of your tweak's library or preference bundle,
+  alone or followed by `.`, `_` or `-`.
+
+It keeps anything that may hold an activation: a name with license,
+activation, serial, key, token or a similar word in it, a property list with
+such a key, or a file with such words in it. Codling never removes anything
+else, and nothing it cannot reach as the user mobile.
+
+So that a removal cleans up after your tweak:
+
+- Name every file and folder your tweak makes after your package
+  identifier, as `com.example.tweak.plist` or
+  `Caches/com.example.tweak/`.
+- Name what holds an activation so that it says so, as
+  `com.example.tweak.license`, and keep it apart from your settings.
+
 ## Sources Codling warns about
 
 Codling keeps a short list of sources that published articles describe as
