@@ -426,7 +426,7 @@ private struct WelcomeCard: View {
 }
 
 /// Codling's own pages elsewhere: its website and its account on X side by
-/// side, and below them support by email, with the address shown.
+/// side, and below them support, which writes an email.
 private struct CommunityLinksCard: View {
     static let website = URL(string: "https://nexus-jb.github.io/codling/")!
     static let account = URL(string: "https://x.com/CodlingApp")!
@@ -438,10 +438,16 @@ private struct CommunityLinksCard: View {
         Card(padding: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    link("Website", symbol: "globe", url: Self.website)
+                    link("Website", url: Self.website) {
+                        Image(systemName: "globe")
+                    }
                     Divider()
                         .frame(height: 24)
-                    link("@CodlingApp", symbol: "at", url: Self.account)
+                    // X's own mark is a double-struck X; the letter stands for it.
+                    link("@CodlingApp", url: Self.account) {
+                        Text("\u{1D54F}")
+                            .font(.body.weight(.bold))
+                    }
                 }
                 Divider()
                     .padding(.leading, 16)
@@ -459,28 +465,30 @@ private struct CommunityLinksCard: View {
                         Text("Support")
                             .font(.body.weight(.semibold))
                         Spacer(minLength: 8)
-                        Text(Self.supportAddress)
-                            .foregroundColor(.secondary)
-                            .lineLimit(growing: 1)
                         Chevron()
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                 }
                 .buttonStyle(CardRowButtonStyle())
-                .accessibilityLabel("Support, \(Self.supportAddress)")
+                .accessibilityLabel("Support")
+                .accessibilityHint("Writes an email to Codling's support")
             }
         }
     }
 
-    private func link(_ title: String, symbol: String, url: URL) -> some View {
+    private func link<Icon: View>(_ title: String, url: URL, @ViewBuilder icon: () -> Icon) -> some View {
         Button {
             openURL(url)
         } label: {
-            Label(title, systemImage: symbol)
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
+            Label {
+                Text(title)
+            } icon: {
+                icon()
+            }
+            .font(.subheadline.weight(.semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
         }
         .buttonStyle(CardRowButtonStyle())
     }
