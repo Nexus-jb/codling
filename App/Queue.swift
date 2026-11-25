@@ -70,6 +70,15 @@ final class QueueModel: ObservableObject {
     }
 
     @Published private(set) var items: [Item] = []
+    /// The settings each package the review removes would leave behind.
+    @Published private(set) var leftovers: [String: SettingsLeftovers] = [:]
+    /// The packages whose settings the user chose to remove too.
+    @Published var clearsSettings: Set<String> = []
+    /// The names of the last change's packages, which a removed package
+    /// no longer has among the installed ones.
+    @Published private(set) var appliedNames: [String: String] = [:]
+    /// What went as asked besides apt's change, such as removed settings.
+    @Published private(set) var doneNotes: [String] = []
     /// Where install results go, when the user shares them.
     weak var reports: ReportsModel?
     @Published private(set) var phase: Phase = .editing
@@ -343,10 +352,50 @@ final class QueueModel: ObservableObject {
         }
     }
 
+    /// Reads, before anything is removed, the settings the plan's removals
+    /// would leave behind. A choice for a package the plan no longer
+    /// removes is dropped.
+    func findSettings(for plan: AptPlan, statusPath: String?, installed: Set<String>) async {
+        let removed = plan.changes(.remove).map(\.package)
+        let found = await Task.detached(priority: .userInitiated) {
+            SettingsCleanup.find(packages: removed, statusPath: statusPath, installed: installed)
+        }.value
+        leftovers = found
+        clearsSettings = clearsSettings.filter { found[$0]?.removable.isEmpty == false }
+    }
+
+    /// Removes the settings the user chose, for packages the change did
+    /// remove: what was removed, and what could not be.
+    private func removeChosenSettings(stillInstalled: Set<String>,
+                                      names: [String: String]) async -> (done: [String], problems: [String]) {
+        var done: [String] = []
+        var problems: [String] = []
+        for package in clearsSettings.sorted() where !stillInstalled.contains(package) {
+            guard let settings = leftovers[package] else { continue }
+            let name = names[package] ?? package
+            var failures: [String] = []
+            for item in settings.removable {
+                if let problem = await SettingsCleanup.remove(item) {
+                    failures.append("\(item.shortName): \(problem)")
+                }
+            }
+            if failures.isEmpty {
+                done.append("Removed what \(name) left behind.")
+            } else {
+                problems.append("Some of what \(name) left behind could not be removed: \(failures.joined(separator: "; ")).")
+            }
+        }
+        clearsSettings = []
+        leftovers = [:]
+        return (done, problems)
+    }
+
     /// Backs up what the change removes or replaces, makes the reviewed
     /// change, and records it.
     func apply(_ plan: AptPlan, installed: InstalledPackagesModel, statusPath: String?, names: [String: String]) async {
         let operations = reviewed.isEmpty ? items.map(\.operation) : reviewed
+        appliedNames = names
+        doneNotes = []
         UIApplication.shared.isIdleTimerDisabled = true
         // Asks iOS for time to finish if the user leaves Codling meanwhile.
         let background = UIApplication.shared.beginBackgroundTask(withName: "Apply package changes")
@@ -474,6 +523,11 @@ final class QueueModel: ObservableObject {
         case .success(let command):
             let succeeded = command.status == 0
             let diagnoses = succeeded ? [] : AptDiagnostics.diagnose(command.output)
+            if succeeded {
+                let cleaned = await removeChosenSettings(stillInstalled: Set(after.keys), names: names)
+                doneNotes = cleaned.done
+                notes += cleaned.problems
+            }
             phase = .finished(succeeded: succeeded, plan: plan, diagnoses: diagnoses, output: command.output, notes: notes)
             reports?.sendInstallResults(plan: plan, succeeded: succeeded, diagnoses: diagnoses)
             if succeeded {
@@ -568,8 +622,13 @@ struct QueueView: View {
             progress(message)
         case .review(let plan, let warnings, let notes):
             ReviewView(plan: plan, warnings: warnings, notes: notes, undoing: queue.undoing, names: names,
+                       leftovers: queue.leftovers, clearsSettings: $queue.clearsSettings,
                        onCancel: { queue.backToEditing() }) {
                 Task { await queue.apply(plan, installed: installed, statusPath: environment.dpkgStatusPath, names: names) }
+            }
+            .task(id: plan) {
+                await queue.findSettings(for: plan, statusPath: environment.dpkgStatusPath,
+                                         installed: Set(installed.versions.keys))
             }
         case .blocked(let diagnoses, let output):
             ScrollView {
@@ -749,6 +808,12 @@ struct QueueView: View {
 
     @ViewBuilder
     private func notesAndOutput(notes: [String], output: String) -> some View {
+        ForEach(queue.doneNotes, id: \.self) { note in
+            Label(note, systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundColor(.green)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         ForEach(notes, id: \.self) { note in
             Label(note, systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
@@ -771,7 +836,7 @@ struct QueueView: View {
     /// Names for the packages a plan touches: what the queue and the
     /// installed list know.
     private var names: [String: String] {
-        var names: [String: String] = [:]
+        var names = queue.appliedNames
         if case .loaded(let packages) = installed.state {
             for package in packages {
                 names[package.identifier] = package.name
@@ -818,6 +883,9 @@ private struct ReviewView: View {
     /// The title of the change being undone, when this reviews an undo.
     let undoing: String?
     let names: [String: String]
+    /// The settings the removals would leave behind, by package.
+    let leftovers: [String: SettingsLeftovers]
+    @Binding var clearsSettings: Set<String>
     let onCancel: () -> Void
     let onConfirm: () -> Void
 
@@ -879,6 +947,10 @@ private struct ReviewView: View {
                     }
                 }
 
+                if !leftovers.isEmpty {
+                    settingsCard
+                }
+
                 if !plan.isEmpty {
                     PlanSummary(plan: plan, names: names)
                 }
@@ -888,6 +960,60 @@ private struct ReviewView: View {
             .padding(.vertical, 8)
         }
         .background(WallBackground())
+    }
+}
+
+extension ReviewView {
+    /// A switch for each removed package that leaves settings behind; off
+    /// unless the user turns it on.
+    fileprivate var settingsCard: some View {
+        Card(padding: 14) {
+            ToolHeader(symbol: "sparkles", color: .orange, title: "Settings and Files") {
+                ToolNote(text: "Removing a package keeps its settings and the files it made, so they are there if you install it again. Codling can remove them too: everything named after the package or its files. Undo does not bring them back, and anything that may hold an activation stays.")
+            }
+            ForEach(leftovers.keys.sorted(by: { (names[$0] ?? $0) < (names[$1] ?? $1) }), id: \.self) { package in
+                if let settings = leftovers[package] {
+                    settingsRow(package, settings)
+                        .padding(.top, 12)
+                }
+            }
+        }
+    }
+
+    /// The leftovers' names, one a line, up to eight, then how many more.
+    private func listed(_ items: [SettingsLeftovers.Item]) -> String {
+        let names = items.map(\.shortName)
+        let shown = names.prefix(8).joined(separator: "\n")
+        return names.count > 8 ? shown + "\nand \(names.count - 8) more" : shown
+    }
+
+    @ViewBuilder
+    private func settingsRow(_ package: String, _ settings: SettingsLeftovers) -> some View {
+        let name = names[package] ?? package
+        VStack(alignment: .leading, spacing: 6) {
+            if !settings.removable.isEmpty {
+                Toggle(isOn: Binding(get: { clearsSettings.contains(package) },
+                                     set: { on in
+                                         if on { clearsSettings.insert(package) } else { clearsSettings.remove(package) }
+                                     })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Remove what \(name) leaves behind")
+                            .font(.subheadline.weight(.semibold))
+                        Text(listed(settings.removable))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .tint(.red)
+            }
+            ForEach(settings.kept, id: \.path) { item in
+                Label("Keeps \(item.shortName): it may hold an activation.", systemImage: "key.fill")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
