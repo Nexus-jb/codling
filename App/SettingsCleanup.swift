@@ -70,21 +70,20 @@ enum SettingsCleanup {
         return found
     }
 
-    /// Removes a leftover: preferences through the preferences daemon, so
-    /// that no process writes back what it cached, then the file or folder
-    /// itself. The daemon writes the emptied preferences a moment later,
-    /// which brings the file back empty, so a preferences file is removed
-    /// again until it stays gone. Returns why it failed.
+    /// Removes a leftover file or folder. A preferences file is removed
+    /// as it is, without asking the preferences daemon to empty it (which
+    /// would make the daemon write it back, empty, a few seconds later);
+    /// then the user's preferences daemon is asked to quit, so that it
+    /// forgets what it cached and nothing writes the file back. The file is
+    /// removed again if it comes back. Returns why it failed.
     static func remove(_ item: SettingsLeftovers.Item) async -> String? {
-        guard case .preferences(let domain) = item.kind else {
+        guard case .preferences = item.kind else {
             return removeEntry(item.path)
         }
-        let name = domain as CFString
-        if let keys = CFPreferencesCopyKeyList(name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String],
-           !keys.isEmpty {
-            CFPreferencesSetMultiple(nil, keys as CFArray, name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
-            CFPreferencesSynchronize(name, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+        if let problem = removeEntry(item.path) {
+            return problem
         }
+        stopPreferencesDaemon()
         var goneFor = 0
         for _ in 0..<12 {
             if exists(item.path) {
@@ -101,6 +100,15 @@ enum SettingsCleanup {
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         return exists(item.path) ? "it came back; restart SpringBoard and remove the package's leftovers again" : nil
+    }
+
+    /// Asks the preferences daemon that serves the user mobile, as Codling
+    /// runs, to quit. SIGTERM lets it save what other apps changed first;
+    /// launchd starts it again when it is next needed.
+    private static func stopPreferencesDaemon() {
+        for process in Respring.processes(named: "cfprefsd") where process.user == getuid() {
+            kill(process.pid, SIGTERM)
+        }
     }
 
     private static func exists(_ path: String) -> Bool {

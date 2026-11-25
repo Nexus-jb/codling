@@ -20,25 +20,32 @@ enum Respring {
     /// SpringBoard's process identifier; nil when it is not running or the
     /// process list cannot be read.
     static func springBoardProcess() -> pid_t? {
+        processes(named: "SpringBoard").first?.pid
+    }
+
+    /// The running processes with a name, and the user each runs as; empty
+    /// when the process list cannot be read.
+    static func processes(named wanted: String) -> [(pid: pid_t, user: uid_t)] {
         var request: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
         var size = 0
         guard sysctl(&request, UInt32(request.count), nil, &size, nil, 0) == 0, size > 0 else {
-            return nil
+            return []
         }
         let stride = MemoryLayout<kinfo_proc>.stride
         var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 32)
         size = processes.count * stride
         guard sysctl(&request, UInt32(request.count), &processes, &size, nil, 0) == 0 else {
-            return nil
+            return []
         }
+        var found: [(pid: pid_t, user: uid_t)] = []
         for var process in processes.prefix(size / stride) {
             let name = withUnsafeBytes(of: &process.kp_proc.p_comm) { bytes in
                 String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
             }
-            if name == "SpringBoard" {
-                return process.kp_proc.p_pid
+            if name == wanted {
+                found.append((process.kp_proc.p_pid, process.kp_eproc.e_ucred.cr_uid))
             }
         }
-        return nil
+        return found
     }
 }
