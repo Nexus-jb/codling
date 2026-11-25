@@ -70,6 +70,14 @@ public struct SettingsLeftovers: Equatable {
         "/var/mobile/Documents",
     ]
 
+    /// The folders whose own folders Codling also looks in, one level
+    /// down: a tweak writes inside the folders of the processes it runs in.
+    public static let nestedDataFolders = [
+        "/var/mobile/Library/Caches",
+        "/var/mobile/Library/Application Support",
+        "/var/mobile/Documents",
+    ]
+
     public static let preferencesFolder = "/var/mobile/Library/Preferences"
 
     /// A file of the package that describes its settings page: a

@@ -22,6 +22,7 @@ enum SettingsCleanup {
         // where a rootless jailbreak keeps tweaks' preferences.
         let root = dpkg.replacingOccurrences(of: "/var/lib/dpkg", with: "")
         let folders = SettingsLeftovers.dataFolders.flatMap { root.isEmpty ? [$0] : [root + $0, $0] }
+        let nested = SettingsLeftovers.nestedDataFolders.flatMap { root.isEmpty ? [$0] : [root + $0, $0] }
 
         var found: [String: SettingsLeftovers] = [:]
         for package in packages {
@@ -35,15 +36,31 @@ enum SettingsCleanup {
             let ownedPaths = Set(owned)
 
             var items: [SettingsLeftovers.Item] = []
-            for folder in folders {
-                guard let entries = try? FileManager.default.contentsOfDirectory(atPath: folder) else { continue }
-                for entry in entries.sorted()
-                where SettingsLeftovers.belongs(entry, to: names, package: package, otherPackages: installed) {
+            func belongs(_ entry: String) -> Bool {
+                SettingsLeftovers.belongs(entry, to: names, package: package, otherPackages: installed)
+            }
+            func look(in folder: String) {
+                guard let entries = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return }
+                for entry in entries.sorted() where belongs(entry) {
                     let full = (folder as NSString).appendingPathComponent(entry)
                     // dpkg removes what the package brought itself.
                     guard !ownedPaths.contains(full), let item = item(full, entry: entry, folder: folder, domains: domains),
                           !items.contains(where: { $0.path == item.path }) else { continue }
                     items.append(item)
+                }
+            }
+            folders.forEach(look(in:))
+            // A tweak also writes inside the folders of the processes it runs
+            // in, as Caches/com.apple.itunesstored/VersionSpoof.log: one level
+            // down, only entries named after the package are taken.
+            for folder in nested {
+                guard let subfolders = try? FileManager.default.contentsOfDirectory(atPath: folder) else { continue }
+                for subfolder in subfolders.sorted() where !belongs(subfolder) {
+                    let full = (folder as NSString).appendingPathComponent(subfolder)
+                    if let type = (try? FileManager.default.attributesOfItem(atPath: full))?[.type] as? FileAttributeType,
+                       type == .typeDirectory {
+                        look(in: full)
+                    }
                 }
             }
             if !items.isEmpty {

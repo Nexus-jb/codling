@@ -220,7 +220,9 @@ unless the user turns it on. It lists, before the removal:
   Library and Documents folders, under `/var/mobile` and under the
   jailbreak's root, whose name is one of those names, your package
   identifier, or the name of your tweak's library or preference bundle,
-  alone or followed by `.`, `_` or `-`.
+  alone or followed by `.`, `_` or `-`; in Caches, Application Support and
+  Documents, also one folder down, where a tweak writes inside the folders
+  of the processes it runs in.
 
 It keeps anything that may hold an activation: a name with license,
 activation, serial, key, token or a similar word in it, a property list with
