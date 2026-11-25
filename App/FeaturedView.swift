@@ -409,6 +409,9 @@ private struct WelcomeCard: View {
                         .foregroundColor(.secondary)
                     Text("Codling")
                         .font(.largeTitle.bold())
+                    Text("by Ultra Team")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.secondary)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(.isHeader)
@@ -422,50 +425,64 @@ private struct WelcomeCard: View {
     }
 }
 
-/// Codling's own pages elsewhere. A link shows only once it has an
-/// address; until then the card does not show.
+/// Codling's own pages elsewhere: its website and its account on X side by
+/// side, and below them support by email, with the address shown.
 private struct CommunityLinksCard: View {
-    struct Entry: Identifiable {
-        let title: String
-        let symbol: String
-        let url: URL?
-
-        var id: String { title }
-    }
-
-    static let links = [
-        Entry(title: "Twitter", symbol: "at", url: nil),
-        Entry(title: "Support", symbol: "headphones", url: nil),
-        Entry(title: "Website", symbol: "globe", url: nil),
-    ]
+    static let website = URL(string: "https://nexus-jb.github.io/codling/")!
+    static let account = URL(string: "https://x.com/CodlingApp")!
+    static let supportAddress = "codlingapp@gmail.com"
 
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let shown = Self.links.filter { $0.url != nil }
-        if !shown.isEmpty {
-            Card(padding: 0) {
+        Card(padding: 0) {
+            VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    ForEach(shown) { link in
-                        if link.id != shown.first?.id {
-                            Divider()
-                                .frame(height: 24)
-                        }
-                        Button {
-                            if let url = link.url {
-                                openURL(url)
-                            }
-                        } label: {
-                            Label(link.title, systemImage: link.symbol)
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 13)
-                        }
-                        .buttonStyle(CardRowButtonStyle())
-                    }
+                    link("Website", symbol: "globe", url: Self.website)
+                    Divider()
+                        .frame(height: 24)
+                    link("@CodlingApp", symbol: "at", url: Self.account)
                 }
+                Divider()
+                    .padding(.leading, 16)
+                Button {
+                    if let url = URL(string: "mailto:\(Self.supportAddress)") {
+                        openURL(url)
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "envelope")
+                            .font(.title3)
+                            .foregroundColor(.accentColor)
+                            .frame(width: 28)
+                            .accessibilityHidden(true)
+                        Text("Support")
+                            .font(.body.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Text(Self.supportAddress)
+                            .foregroundColor(.secondary)
+                            .lineLimit(growing: 1)
+                        Chevron()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(CardRowButtonStyle())
+                .accessibilityLabel("Support, \(Self.supportAddress)")
             }
         }
+    }
+
+    private func link(_ title: String, symbol: String, url: URL) -> some View {
+        Button {
+            openURL(url)
+        } label: {
+            Label(title, systemImage: symbol)
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+        }
+        .buttonStyle(CardRowButtonStyle())
     }
 }
 
