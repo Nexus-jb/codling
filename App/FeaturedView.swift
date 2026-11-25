@@ -430,7 +430,7 @@ private struct WelcomeCard: View {
 private struct CommunityLinksCard: View {
     static let website = URL(string: "https://nexus-jb.github.io/codling/")!
     static let account = URL(string: "https://x.com/CodlingApp")!
-    static let supportAddress = "codlingapp@gmail.com"
+    static let support = URL(string: "mailto:codlingapp@gmail.com")!
 
     @Environment(\.openURL) private var openURL
 
@@ -444,34 +444,16 @@ private struct CommunityLinksCard: View {
                     Divider()
                         .frame(height: 24)
                     // X's own mark is a double-struck X; the letter stands for it.
-                    link("@CodlingApp", url: Self.account) {
+                    link("CodlingApp", url: Self.account) {
                         Text("\u{1D54F}")
                             .font(.body.weight(.bold))
                     }
                 }
                 Divider()
-                    .padding(.leading, 16)
-                Button {
-                    if let url = URL(string: "mailto:\(Self.supportAddress)") {
-                        openURL(url)
-                    }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "envelope")
-                            .font(.title3)
-                            .foregroundColor(.accentColor)
-                            .frame(width: 28)
-                            .accessibilityHidden(true)
-                        Text("Support")
-                            .font(.body.weight(.semibold))
-                        Spacer(minLength: 8)
-                        Chevron()
-                    }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                link("Support", url: Self.support) {
+                    Image(systemName: "envelope")
                 }
-                .buttonStyle(CardRowButtonStyle())
-                .accessibilityLabel("Support")
                 .accessibilityHint("Writes an email to Codling's support")
             }
         }
