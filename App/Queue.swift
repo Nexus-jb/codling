@@ -77,6 +77,8 @@ final class QueueModel: ObservableObject {
     /// The names of the last change's packages, which a removed package
     /// no longer has among the installed ones.
     @Published private(set) var appliedNames: [String: String] = [:]
+    /// What went as asked besides apt's change, such as removed settings.
+    @Published private(set) var doneNotes: [String] = []
     /// Where install results go, when the user shares them.
     weak var reports: ReportsModel?
     @Published private(set) var phase: Phase = .editing
@@ -363,9 +365,11 @@ final class QueueModel: ObservableObject {
     }
 
     /// Removes the settings the user chose, for packages the change did
-    /// remove, and says what happened.
-    private func removeChosenSettings(stillInstalled: Set<String>, names: [String: String]) -> [String] {
-        var notes: [String] = []
+    /// remove: what was removed, and what could not be.
+    private func removeChosenSettings(stillInstalled: Set<String>,
+                                      names: [String: String]) -> (done: [String], problems: [String]) {
+        var done: [String] = []
+        var problems: [String] = []
         for package in clearsSettings.sorted() where !stillInstalled.contains(package) {
             guard let settings = leftovers[package] else { continue }
             let name = names[package] ?? package
@@ -373,14 +377,14 @@ final class QueueModel: ObservableObject {
                 SettingsCleanup.remove(domain).map { "\(domain.name): \($0)" }
             }
             if failures.isEmpty {
-                notes.append("Removed the settings of \(name).")
+                done.append("Removed the settings of \(name).")
             } else {
-                notes.append("Some settings of \(name) could not be removed: \(failures.joined(separator: "; ")).")
+                problems.append("Some settings of \(name) could not be removed: \(failures.joined(separator: "; ")).")
             }
         }
         clearsSettings = []
         leftovers = [:]
-        return notes
+        return (done, problems)
     }
 
     /// Backs up what the change removes or replaces, makes the reviewed
@@ -388,6 +392,7 @@ final class QueueModel: ObservableObject {
     func apply(_ plan: AptPlan, installed: InstalledPackagesModel, statusPath: String?, names: [String: String]) async {
         let operations = reviewed.isEmpty ? items.map(\.operation) : reviewed
         appliedNames = names
+        doneNotes = []
         UIApplication.shared.isIdleTimerDisabled = true
         // Asks iOS for time to finish if the user leaves Codling meanwhile.
         let background = UIApplication.shared.beginBackgroundTask(withName: "Apply package changes")
@@ -516,7 +521,9 @@ final class QueueModel: ObservableObject {
             let succeeded = command.status == 0
             let diagnoses = succeeded ? [] : AptDiagnostics.diagnose(command.output)
             if succeeded {
-                notes += removeChosenSettings(stillInstalled: Set(after.keys), names: names)
+                let cleaned = removeChosenSettings(stillInstalled: Set(after.keys), names: names)
+                doneNotes = cleaned.done
+                notes += cleaned.problems
             }
             phase = .finished(succeeded: succeeded, plan: plan, diagnoses: diagnoses, output: command.output, notes: notes)
             reports?.sendInstallResults(plan: plan, succeeded: succeeded, diagnoses: diagnoses)
@@ -798,6 +805,12 @@ struct QueueView: View {
 
     @ViewBuilder
     private func notesAndOutput(notes: [String], output: String) -> some View {
+        ForEach(queue.doneNotes, id: \.self) { note in
+            Label(note, systemImage: "checkmark.circle.fill")
+                .font(.footnote)
+                .foregroundColor(.green)
+                .fixedSize(horizontal: false, vertical: true)
+        }
         ForEach(notes, id: \.self) { note in
             Label(note, systemImage: "exclamationmark.triangle.fill")
                 .font(.footnote)
