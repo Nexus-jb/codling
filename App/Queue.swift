@@ -74,6 +74,9 @@ final class QueueModel: ObservableObject {
     @Published private(set) var leftovers: [String: SettingsLeftovers] = [:]
     /// The packages whose settings the user chose to remove too.
     @Published var clearsSettings: Set<String> = []
+    /// The names of the last change's packages, which a removed package
+    /// no longer has among the installed ones.
+    @Published private(set) var appliedNames: [String: String] = [:]
     /// Where install results go, when the user shares them.
     weak var reports: ReportsModel?
     @Published private(set) var phase: Phase = .editing
@@ -384,6 +387,7 @@ final class QueueModel: ObservableObject {
     /// change, and records it.
     func apply(_ plan: AptPlan, installed: InstalledPackagesModel, statusPath: String?, names: [String: String]) async {
         let operations = reviewed.isEmpty ? items.map(\.operation) : reviewed
+        appliedNames = names
         UIApplication.shared.isIdleTimerDisabled = true
         // Asks iOS for time to finish if the user leaves Codling meanwhile.
         let background = UIApplication.shared.beginBackgroundTask(withName: "Apply package changes")
@@ -816,7 +820,7 @@ struct QueueView: View {
     /// Names for the packages a plan touches: what the queue and the
     /// installed list know.
     private var names: [String: String] {
-        var names: [String: String] = [:]
+        var names = queue.appliedNames
         if case .loaded(let packages) = installed.state {
             for package in packages {
                 names[package.identifier] = package.name

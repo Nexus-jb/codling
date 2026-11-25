@@ -27,8 +27,13 @@ enum SettingsCleanup {
             let domains = SettingsLeftovers.candidateDomains(package: package, settingsPlists: settings,
                                                              otherPackages: installed)
                 .compactMap { domain -> SettingsLeftovers.Domain? in
-                    let file = SettingsLeftovers.file(for: domain)
-                    guard FileManager.default.fileExists(atPath: file) else { return nil }
+                    // A rootless jailbreak's preferences daemon keeps tweaks'
+                    // preferences under the jailbreak's root.
+                    let plain = SettingsLeftovers.file(for: domain)
+                    let candidates = root.isEmpty ? [plain] : [root + plain, plain]
+                    guard let file = candidates.first(where: FileManager.default.fileExists(atPath:)) else {
+                        return nil
+                    }
                     return .init(name: domain, file: file,
                                  mayHoldActivation: SettingsLeftovers.nameSuggestsActivation(domain)
                                      || SettingsLeftovers.mayHoldActivation(readPlist(file)))

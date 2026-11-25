@@ -41,7 +41,9 @@ public struct SettingsLeftovers: Equatable {
     public var kept: [Domain] { domains.filter(\.mayHoldActivation) }
     public var isEmpty: Bool { domains.isEmpty }
 
-    /// Where the user's preferences live, for Codling and for tweaks.
+    /// Where the user's preferences live. On a rootless jailbreak, the
+    /// preferences daemon keeps those of tweaks under the jailbreak's root
+    /// instead, as /var/jb/var/mobile/Library/Preferences.
     public static let preferencesDirectory = "/var/mobile/Library/Preferences"
 
     public static func file(for domain: String) -> String {
