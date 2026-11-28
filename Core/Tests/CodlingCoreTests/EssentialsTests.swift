@@ -19,6 +19,16 @@ final class EssentialsTests: XCTestCase {
         XCTAssertEqual(missing.map(\.identifier), ["com.nexusjb.burrow", "ws.hbang.common"])
     }
 
+    func testTheNoticeNamesBurrowOnlyWhenItIsQueued() {
+        let withBurrow = Essentials.notice(for: Essentials.all)
+        XCTAssertTrue(withBurrow.contains("Burrow, for Safe Mode, and packages many tweaks need."))
+        // RootHide, where no source has Burrow yet.
+        let withoutBurrow = Essentials.notice(for: Array(Essentials.all.dropFirst()))
+        XCTAssertFalse(withoutBurrow.contains("Burrow"))
+        XCTAssertTrue(withoutBurrow.contains("first launch: packages many tweaks need."))
+        XCTAssertTrue(withoutBurrow.hasSuffix("Nothing is installed until you confirm."))
+    }
+
     func testNothingWhenAllAreInstalledOrNoSourceHasThem() {
         let all = Set(Essentials.all.map(\.identifier))
         XCTAssertTrue(Essentials.missing(installed: all.contains, offered: all.contains).isEmpty)
