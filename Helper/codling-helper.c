@@ -854,12 +854,16 @@ static int simulate(int count, char **operations) {
     arguments[used++] = "install";
     arguments[used++] = "-s";
     arguments[used++] = "-q";
-    // Set below when an operation restores a backup, which may be older.
+    // Set below when an operation restores a backup or installs a file,
+    // which may be older than the version installed, or the same.
     size_t downgrades = used++;
     arguments[downgrades] = "-q";
+    size_t reinstalls = used++;
+    arguments[reinstalls] = "-q";
     used = add_operations(root, count, operations, arguments, used, buffer, &restores);
     if (restores) {
         arguments[downgrades] = "--allow-downgrades";
+        arguments[reinstalls] = "--reinstall";
     }
     arguments[used] = NULL;
     run_and_report(root, "/usr/bin/apt-get", arguments);
@@ -898,6 +902,8 @@ static int install(int count, char **words, int download_only) {
     }
     size_t downgrades = used++;
     arguments[downgrades] = "-q";
+    size_t reinstalls = used++;
+    arguments[reinstalls] = "-q";
     // A changed configuration file is kept, and dpkg asks nothing.
     arguments[used++] = "-o";
     arguments[used++] = "Dpkg::Options::=--force-confdef";
@@ -912,6 +918,8 @@ static int install(int count, char **words, int download_only) {
     used = add_operations(root, count - first, words + first, arguments, used, buffer, &restores);
     if (restores) {
         arguments[downgrades] = "--allow-downgrades";
+        // Without it, apt leaves a file of the version installed as it is.
+        arguments[reinstalls] = "--reinstall";
     }
     arguments[used] = NULL;
     stage_purchases(root, count - first, words + first);
