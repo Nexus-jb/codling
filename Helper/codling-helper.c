@@ -806,11 +806,16 @@ static size_t add_operations(const char *root, int count, char **operations, con
             if (!valid_file_token(name)) {
                 usage_error("An opened file is not %TOKEN with a valid token.");
             }
-            if (file_copy_path(root, name, buffer[i]) != 0) {
+            char kept[backup_path_size];
+            if (file_copy_path(root, name, kept) != 0) {
                 usage_error("Codling no longer has that opened file. Open the package again.");
             }
             // A path, which apt installs as a file: the one the user chose,
             // which they may also install older than the version installed.
+            // apt opens the file itself, so it gets the path as it sees it.
+            if (codling_tool_path(root, kept, buffer[i], backup_path_size) != 0) {
+                usage_error("The opened file's path is too long.");
+            }
             arguments[used++] = buffer[i];
             *restores = 1;
             continue;
@@ -1231,7 +1236,13 @@ static int take_file(const char *token) {
 
     // What the package says it is, as dpkg-deb reads it: a file dpkg-deb
     // cannot read, or that names no valid package and version, is not kept.
-    const char *const arguments[] = { "dpkg-deb", "--field", target, NULL };
+    // dpkg-deb opens the file itself, so it gets the path as it sees it.
+    char seen[PATH_MAX];
+    if (codling_tool_path(root, target, seen, sizeof seen) != 0) {
+        unlink(target);
+        failure("The opened package's path is too long.");
+    }
+    const char *const arguments[] = { "dpkg-deb", "--field", seen, NULL };
     char *output = NULL;
     size_t length = 0;
     int status = run_collect(root, "/usr/bin/dpkg-deb", arguments, &output, &length);

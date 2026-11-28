@@ -384,6 +384,38 @@ int main(int argc, char **argv) {
     } else {
         expect(file_copy_path(root, token, kept) != 0, "a copy that is not root's is not used");
     }
+    // apt gets the kept copy's path as it sees it: real when rootless, from
+    // the hidden root when RootHide.
+    if (getuid() == 0) {
+        char operation[40];
+        snprintf(operation, sizeof operation, "%%%s", token);
+        char *operations[] = { operation };
+        const char *arguments[2];
+        char buffers[1][backup_path_size];
+        int restores = 0;
+        expect(add_operations(root, 1, operations, arguments, 0, buffers, &restores) == 1, "a rootless file operation");
+        expect_string(arguments[0], step, "rootless apt gets the real path");
+        expect(restores == 1, "an opened file may be older");
+        char hidden_root[PATH_MAX];
+        snprintf(hidden_root, sizeof hidden_root, "%s/.jbroot-0123456789ABCDEF", root);
+        const char *const parts[] = { "", "/var", "/var/lib", "/var/lib/codling", "/var/lib/codling/files" };
+        for (size_t i = 0; i < sizeof parts / sizeof *parts; i++) {
+            snprintf(kept, sizeof kept, "%s%s", hidden_root, parts[i]);
+            mkdir(kept, 0755);
+        }
+        snprintf(kept, sizeof kept, "%s/var/lib/codling/files/%s.deb", hidden_root, token);
+        FILE *hidden_copy = fopen(kept, "w");
+        expect(hidden_copy != NULL, "a kept copy is written in a RootHide root");
+        if (hidden_copy) {
+            fputs("!<arch>\n", hidden_copy);
+            fclose(hidden_copy);
+        }
+        restores = 0;
+        expect(add_operations(hidden_root, 1, operations, arguments, 0, buffers, &restores) == 1,
+               "a RootHide file operation");
+        snprintf(kept, sizeof kept, "/var/lib/codling/files/%s.deb", token);
+        expect_string(arguments[0], kept, "RootHide's apt gets the path from its root");
+    }
     expect(file_copy_path(root, "../../../../../../etc/passwd", kept) != 0, "a path is not a token");
     snprintf(kept, sizeof kept, "%s/var/lib/codling/files/%s.deb", root, "ffeeddccbbaa99887766554433221100");
     expect(symlink(step, kept) == 0, "a link to the kept copy is made");
