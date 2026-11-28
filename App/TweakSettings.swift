@@ -20,11 +20,8 @@ enum TweakSettings {
     }
 
     private static func panes(package: String, statusPath: String) -> [SettingsPane] {
-        let dpkg = (statusPath as NSString).deletingLastPathComponent
-        let info = (dpkg as NSString).appendingPathComponent("info")
-        let root = dpkg.replacingOccurrences(of: "/var/lib/dpkg", with: "")
-        let list = (info as NSString).appendingPathComponent("\(package).list")
-        let files = ((try? String(contentsOfFile: list, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        let root = (statusPath as NSString).deletingLastPathComponent.replacingOccurrences(of: "/var/lib/dpkg", with: "")
+        let files = PackageFiles.listed(package, statusPath: statusPath)
         var panes: [SettingsPane] = []
         for file in files.sorted() where SettingsPane.isEntryFile(file) {
             guard let plist = SettingsCleanup.readPlist(SettingsCleanup.path(file, root: root)),

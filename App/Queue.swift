@@ -103,6 +103,9 @@ final class QueueModel: ObservableObject {
     /// The packages the last review installs from a file the user opened,
     /// which apt names local-deb, as it does a backup.
     @Published private(set) var fromFiles: Set<String> = []
+    /// Whether the last change has a tweak, theme or library that SpringBoard
+    /// loads, so that it takes effect once SpringBoard restarts.
+    @Published private(set) var needsRespring = false
     /// Downloads bought packages; set when the app starts.
     weak var accounts: PaymentAccounts?
 
@@ -153,6 +156,12 @@ final class QueueModel: ObservableObject {
         items.append(Item(operation: operation, name: name, purchase: purchase))
         if case .finished = phase {
             phase = .editing
+        }
+        // apt's lists are brought up to date while the user goes on, so that
+        // the review does not wait for them.
+        if !lists.isFresh(now: Date(), sources: sourceAddresses) {
+            listsUpdateDue = true
+            updateListsInBackground()
         }
     }
 
@@ -498,12 +507,19 @@ final class QueueModel: ObservableObject {
             }
         }
 
+        // The files of what the change replaces or removes: dpkg forgets
+        // them once it is done.
+        let changed = plan.changes.map(\.package)
+        let filesBefore = Self.files(of: changed.filter { before[$0] != nil }, statusPath: statusPath)
+
         phase = .applying("Applying the changes. This can take a few minutes; keep Codling open.")
         let result = await Task.detached(priority: .userInitiated) {
             RootHelper.apply(operations, trustUnsigned: !plan.unauthenticated.isEmpty, allowRemovals: plan.removesPackages)
         }.value
         await installed.load(statusPath: statusPath)
         let after = installed.versions
+        needsRespring = RespringNeed.needed(files: filesBefore
+            + Self.files(of: changed.filter { after[$0] != nil }, statusPath: statusPath))
 
         // Even a change that failed half way is recorded, so that undo can
         // take back what it did.
@@ -554,6 +570,12 @@ final class QueueModel: ObservableObject {
             }
         }
         updateListsInBackground()
+    }
+
+    /// The files dpkg lists for these packages.
+    private static func files(of packages: [String], statusPath: String?) -> [String] {
+        guard let statusPath else { return [] }
+        return packages.flatMap { PackageFiles.listed($0, statusPath: statusPath) }
     }
 
     /// Undoing a change titles the undo after it; undoing an undo makes
@@ -805,7 +827,7 @@ struct QueueView: View {
                     .buttonStyle(TintedButtonStyle())
                     .padding(.top, 12)
                 }
-                if succeeded {
+                if succeeded && queue.needsRespring {
                     Card(padding: 14) {
                         ToolHeader(symbol: "arrow.triangle.2.circlepath", color: .orange, title: "Restart SpringBoard") {
                             ToolNote(text: "Tweaks that were installed, upgraded or removed take effect after SpringBoard restarts.")
