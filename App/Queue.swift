@@ -100,6 +100,9 @@ final class QueueModel: ObservableObject {
     /// The operations the last review asked apt about, with bought packages
     /// as their checked downloads; what apply makes.
     private var reviewed: [PackageOperation] = []
+    /// The packages the last review installs from a file the user opened,
+    /// which apt names local-deb, as it does a backup.
+    @Published private(set) var fromFiles: Set<String> = []
     /// Downloads bought packages; set when the app starts.
     weak var accounts: PaymentAccounts?
 
@@ -358,6 +361,10 @@ final class QueueModel: ObservableObject {
             phase = .blocked(AptDiagnostics.diagnose(result.output), output: result.output)
         case .success(let result):
             reviewed = operations
+            fromFiles = Set(operations.compactMap { operation in
+                if case .file(let package, _) = operation { return package }
+                return nil
+            })
             phase = .review(AptPlan.parse(result.output), warnings: listsWarnings, notes: notes)
         }
     }
@@ -632,7 +639,7 @@ struct QueueView: View {
             progress(message)
         case .review(let plan, let warnings, let notes):
             ReviewView(plan: plan, warnings: warnings, notes: notes, notice: queue.notice, undoing: queue.undoing, names: names,
-                       leftovers: queue.leftovers, clearsSettings: $queue.clearsSettings,
+                       fromFiles: queue.fromFiles, leftovers: queue.leftovers, clearsSettings: $queue.clearsSettings,
                        onCancel: { queue.backToEditing() }) {
                 Task { await queue.apply(plan, installed: installed, statusPath: environment.dpkgStatusPath, names: names) }
             }
@@ -810,7 +817,7 @@ struct QueueView: View {
                         .disabled(queue.restarting)
                         .padding(.top, 12)
                     }
-                    PlanSummary(plan: plan, names: names)
+                    PlanSummary(plan: plan, names: names, fromFiles: queue.fromFiles)
                 }
             }
             .toolColumn()
@@ -899,6 +906,8 @@ private struct ReviewView: View {
     /// The title of the change being undone, when this reviews an undo.
     let undoing: String?
     let names: [String: String]
+    /// The packages installed from a file the user opened.
+    let fromFiles: Set<String>
     /// The settings the removals would leave behind, by package.
     let leftovers: [String: SettingsLeftovers]
     @Binding var clearsSettings: Set<String>
@@ -972,7 +981,7 @@ private struct ReviewView: View {
                 }
 
                 if !plan.isEmpty {
-                    PlanSummary(plan: plan, names: names)
+                    PlanSummary(plan: plan, names: names, fromFiles: fromFiles)
                 }
             }
             .toolColumn()
@@ -1041,6 +1050,8 @@ extension ReviewView {
 private struct PlanSummary: View {
     let plan: AptPlan
     let names: [String: String]
+    /// The packages installed from a file the user opened.
+    let fromFiles: Set<String>
 
     var body: some View {
         group("Install", .install, symbol: "arrow.down", color: .accentColor)
@@ -1089,8 +1100,13 @@ private struct PlanSummary: View {
             parts.append(change.version)
         }
         if let origin = change.origin {
-            // apt's name for a .deb file: here, always a backup of Codling's.
-            parts.append(origin == "local-deb" ? "from backup" : origin)
+            // apt's name for a .deb file: one the user opened, or a backup of
+            // Codling's.
+            if origin == "local-deb" {
+                parts.append(fromFiles.contains(change.package) ? "from file" : "from backup")
+            } else {
+                parts.append(origin)
+            }
         }
         // The identifier, when the name shown is a different one.
         if let name = names[change.package], name != change.package {

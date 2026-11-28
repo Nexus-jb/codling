@@ -15,7 +15,9 @@
 #      and the helper reads that name from apt's real output;
 #   5. a .deb the user opened in Codling (take-file, the %TOKEN operation)
 #      is installed as a file, its dependencies come from the sources, and
-#      the helper reads its name and version from dpkg-deb's real output.
+#      the helper reads its name and version from dpkg-deb's real output;
+#   6. a file of the version installed is put in again only with
+#      --reinstall.
 #
 # Two flat repositories, one signed with a throwaway key, are served on
 # 127.0.0.1. Needs apt, dpkg-deb, gpg, python3 and a C compiler, as on
@@ -185,6 +187,26 @@ status=0
 apt-get install -s -q "$work/build/opened-broken.deb" > "$work/broken.log" 2>&1 || status=$?
 expect "$status" 100 "an opened file whose dependency no source has is refused"
 expect "$(found "no-source-has-this" "$work/broken.log")" 0 "apt names the missing dependency"
+
+# 6. A file of the version installed is put in again only with --reinstall,
+# which the helper passes with any file or backup it installs. dpkg's
+# record holds the file's own control fields, as after installing it.
+{
+    printf 'Package: paid-signed\nStatus: install ok installed\nVersion: 2:1.0-1\nArchitecture: all\n'
+    printf 'Maintainer: Test <test@example.com>\nDescription: test\n\n'
+    sed '/^Package:/a Status: install ok installed' "$work/build/opened-tweak/DEBIAN/control"
+    echo
+} >> "$root/var/lib/dpkg/status"
+status=0
+apt-get install -s -q "$work/build/opened-tweak.deb" > "$work/same.log" 2>&1 || status=$?
+expect "$status" 0 "a file of the version installed is planned"
+expect "$(found "^Inst opened-tweak" "$work/same.log")" 1 "without --reinstall apt leaves it as it is"
+status=0
+apt-get install -s -q --allow-downgrades --reinstall "$work/build/opened-tweak.deb" > "$work/reinstall.log" 2>&1 \
+    || status=$?
+expect "$status" 0 "a reinstall from the file is planned"
+expect "$(found "^Reinst opened-tweak \|^Inst opened-tweak \[1.0.3\] (1.0.3 " "$work/reinstall.log")" 0 \
+    "with --reinstall it is put in again"
 
 if [ "$failures" -ne 0 ]; then
     echo "[apt trust] $failures of $checks checks failed" >&2
