@@ -291,6 +291,8 @@ struct OpenedPackageView: View {
             switch architecture {
             case "iphoneos-arm":
                 return "This package is for rootful jailbreaks (iphoneos-arm). Codling supports rootless and RootHide jailbreaks, which use other paths, so it cannot install it."
+            case "iphoneos-arm64" where RootlessConversion.needsConversion(architecture, on: environment.architecture):
+                return "This package is for rootless jailbreaks (iphoneos-arm64). RootHide installs it only after RootHide Patcher converts it: share the file to RootHide Patcher, convert it there, then share the converted file to Codling. Not every tweak can be converted."
             case "iphoneos-arm64":
                 return "This package is for rootless jailbreaks (iphoneos-arm64), and this device uses \(environment.scheme.title) (\(environment.architecture))."
             case "iphoneos-arm64e":

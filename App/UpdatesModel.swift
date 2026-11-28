@@ -11,10 +11,14 @@ final class UpdatesModel: ObservableObject {
 
     /// Works the updates out again, as after a refresh or a change to the
     /// installed packages, and shows their number on Codling's icon.
-    func refresh(store: IndexStore?, installed: [String: String]) async {
+    /// architecture is the device's: on RootHide, a rootless build counts
+    /// as an update only as RootlessConversion.offersForUpdates says.
+    func refresh(store: IndexStore?, installed: [String: String], architecture: String) async {
         if let store, !installed.isEmpty {
             let offers = (try? await store.offers(ofAny: Array(installed.keys))) ?? []
-            updates = AvailableUpdates.find(installed: installed, offers: offers)
+            updates = AvailableUpdates.find(installed: installed,
+                                            offers: RootlessConversion.offersForUpdates(offers, installed: installed,
+                                                                                         on: architecture))
         } else {
             updates = []
         }

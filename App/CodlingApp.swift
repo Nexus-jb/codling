@@ -311,7 +311,8 @@ struct CodlingApp: App {
                 }
                 // The updates follow the index and the installed packages.
                 .task(id: "\(sources.indexGeneration) \(sources.rows.count) \(installed.versions.hashValue)") {
-                    await updates.refresh(store: sources.store, installed: installed.versions)
+                    await updates.refresh(store: sources.store, installed: installed.versions,
+                                          architecture: environment.architecture)
                 }
                 .task {
                     // Codling opens on the index it has, and refreshes the
@@ -348,7 +349,8 @@ struct CodlingApp: App {
                     }
                     // The first launch on a device queues the essentials it
                     // lacks, and opens the queue to review them.
-                    if await EssentialsOffer.queueOnce(store: sources.store, installed: installed, queue: queue),
+                    if await EssentialsOffer.queueOnce(store: sources.store, installed: installed, queue: queue,
+                                                       architecture: environment.architecture),
                        !opened.shown, !systemSheet.shown, linkedPackage == nil {
                         queueShown = true
                     }

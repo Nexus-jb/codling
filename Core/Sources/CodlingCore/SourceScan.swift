@@ -48,9 +48,12 @@ public enum SourceScan {
     /// Checks a source's packages. others holds the other sources' copies of
     /// the same packages, sourceTitles names sources by id, installed holds
     /// installed versions by package, and essential the installed packages
-    /// dpkg marks as essential.
+    /// dpkg marks as essential. convertible is the architecture whose builds
+    /// apt cannot install as they are (RootlessConversion): they never take
+    /// over the jailbreak's own packages in an upgrade.
     public static func scan(packages: [PackageSummary], others: [PackageSummary], sourceTitles: [String: String],
-                            installed: [String: String], essential: Set<String>) -> [Finding] {
+                            installed: [String: String], essential: Set<String>,
+                            convertible: String? = nil) -> [Finding] {
         let mine = newestByPackage(packages)
         var othersByPackage: [String: [PackageSummary]] = [:]
         for offer in others where !mine.isEmpty {
@@ -74,10 +77,13 @@ public enum SourceScan {
                 findings.append(Finding(kind: .crack, package: package, name: name))
             }
 
-            if systemPackages.contains(package) || essential.contains(package) || package.hasPrefix("libapt-pkg") {
+            let installable = { (offer: PackageSummary) in convertible == nil || offer.architecture != convertible }
+            if systemPackages.contains(package) || essential.contains(package) || package.hasPrefix("libapt-pkg"),
+               installable(summary) {
                 // Only the newest copy anywhere wins an upgrade, and only
                 // when another source offers it too: the jailbreak's own.
-                let newestElsewhere = elsewhere.map(\.version).max { DebianVersion($0) < DebianVersion($1) }
+                let newestElsewhere = elsewhere.filter(installable).map(\.version)
+                    .max { DebianVersion($0) < DebianVersion($1) }
                 if let newestElsewhere, DebianVersion(summary.version) > DebianVersion(newestElsewhere) {
                     findings.append(Finding(kind: .replacesSystem(version: summary.version, installed: installed[package]),
                                             package: package, name: name))

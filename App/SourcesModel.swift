@@ -56,6 +56,32 @@ final class SourcesModel: ObservableObject {
         self.environment = environment
     }
 
+    /// The device's package architecture.
+    var architecture: String { environment.architecture }
+
+    /// Downloads a file a source lists, as the sources are read: with the
+    /// headers some repositories need to send a device its files.
+    func downloadFile(_ url: URL, to destination: URL) async throws {
+        let session = refresher?.session ?? SourceRefresher.makeSession(
+            version: environment.version, model: environment.deviceModel, systemVersion: environment.systemVersion)
+        let file: URL
+        let response: URLResponse
+        do {
+            (file, response) = try await session.download(from: url)
+        } catch {
+            throw RefreshError.message(RefreshError.describe(error))
+        }
+        defer { try? FileManager.default.removeItem(at: file) }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw RefreshError.message("\(url.host ?? "The source") answered \(http.statusCode) "
+                                       + "(\(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))).")
+        }
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: file, to: destination)
+    }
+
     var refreshing: Int { rows.filter { $0.activity == .refreshing }.count }
     var finished: Int { rows.filter { $0.activity == .idle && $0.outcome != nil }.count }
 
@@ -272,9 +298,10 @@ final class SourcesModel: ObservableObject {
             return nil
         }
         let titles = Dictionary(rows.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        let convertible = RootlessConversion.convertibleArchitecture(on: environment.architecture)
         return await Task.detached(priority: .userInitiated) {
             SourceScan.scan(packages: packages, others: others, sourceTitles: titles, installed: installed,
-                            essential: essential)
+                            essential: essential, convertible: convertible)
         }.value
     }
 

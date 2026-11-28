@@ -604,6 +604,22 @@ final class PaymentAccounts: ObservableObject {
     }
 }
 
+extension PaymentAccounts {
+    /// Downloads a bought rootless package to destination, for RootHide
+    /// Patcher to convert (RootlessConversionFlow). Nothing is handed to the
+    /// helper: the converted file is installed as one the user opened.
+    func download(package: String, name: String, request: PurchaseRequest, to destination: URL) async throws {
+        guard let client else { throw PaymentProvider.Failure(message: Self.noDeviceID) }
+        guard let token = PaymentKeychain.token(for: request.endpoint) else {
+            throw PaymentProvider.Failure(message: "Sign in to \(request.providerName) to download \(name).")
+        }
+        let url = try await client.authorizeDownload(request.endpoint, package: package, token: token,
+                                                     version: request.version, repo: request.repo,
+                                                     architecture: request.architecture)
+        try await client.download(url, to: destination)
+    }
+}
+
 /// Where Codling downloads a bought package for the helper to take. It must
 /// match the inbox in Helper/codling-helper.c (mobile_home and
 /// inbox_directories), which builds the same name itself.

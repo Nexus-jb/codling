@@ -121,7 +121,7 @@ struct PackageView: View {
             }
             if model.loaded {
                 PackageActions(source: source, identifier: identifier, name: name, available: record?.version,
-                               architecture: record?.architecture, isPaid: isPaid)
+                               architecture: record?.architecture, record: record, isPaid: isPaid)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,7 +136,10 @@ struct PackageView: View {
     }
 
     private func installedText(_ version: String) -> String {
-        guard let available = record?.version, DebianVersion(available) > DebianVersion(version) else {
+        guard let available = record?.version,
+              RootlessConversion.needsConversion(record?.architecture, on: device.architecture)
+                ? RootlessConversion.isNewer(available, thanInstalled: version)
+                : DebianVersion(available) > DebianVersion(version) else {
             return "Installed: \(version)"
         }
         return "Installed: \(version). Version \(available) is available."
@@ -384,7 +387,12 @@ private struct PackageActions: View {
     let available: String?
     /// The Architecture field of that version's record.
     let architecture: String?
+    /// That version's record, which a rootless package on RootHide is
+    /// downloaded from to convert it.
+    let record: PackageRecord?
     let isPaid: Bool
+    @Environment(\.device) private var device
+    @StateObject private var conversion = RootlessConversionFlow()
     @EnvironmentObject private var installed: InstalledPackagesModel
     @EnvironmentObject private var queue: QueueModel
     @EnvironmentObject private var accounts: PaymentAccounts
@@ -413,10 +421,19 @@ private struct PackageActions: View {
         case ready(endpoint: URL, price: PaymentProvider.Price)
     }
 
+    /// Whether this is a rootless build on RootHide, which RootHide Patcher
+    /// must convert before it installs (RootlessConversion).
+    private var converting: Bool {
+        RootlessConversion.needsConversion(architecture, on: device.architecture)
+    }
+
     var body: some View {
         let installedVersion = installed.version(of: identifier)
         let upgradable = installedVersion.flatMap { current in
-            available.map { DebianVersion($0) > DebianVersion(current) }
+            available.map {
+                converting ? RootlessConversion.isNewer($0, thanInstalled: current)
+                    : DebianVersion($0) > DebianVersion(current)
+            }
         } ?? false
         VStack(alignment: .leading, spacing: 8) {
             if let queued = queue.operation(for: identifier), lit == nil {
@@ -437,22 +454,36 @@ private struct PackageActions: View {
                 HStack(spacing: 10) {
                     if installedVersion == nil {
                         if available != nil {
-                            if isPaid {
+                            if converting && !hasPatcher {
+                                patcherButton
+                            } else if isPaid {
                                 paidButton(update: false)
+                            } else if converting {
+                                convertButton(update: false, purchase: nil)
                             } else {
                                 action("GET", .install(identifier))
                             }
                         }
                     } else {
                         if upgradable {
-                            if isPaid {
+                            if converting && !hasPatcher {
+                                patcherButton
+                            } else if isPaid {
                                 paidButton(update: true)
+                            } else if converting {
+                                convertButton(update: true, purchase: nil)
                             } else {
                                 action("UPDATE", .install(identifier))
                             }
                         }
                         action("REMOVE", .remove(identifier), destructive: true)
                     }
+                }
+                if converting && available != nil && (installedVersion == nil || upgradable) {
+                    Text(conversionNote)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if isPaid, let note = paidNote(needed: available != nil && (installedVersion == nil || upgradable)) {
                     Text(note)
@@ -467,10 +498,84 @@ private struct PackageActions: View {
                 await loadOffer()
             }
         }
-        .alert("Purchase", isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) {
+        // One alert for both, as a view shows only one of several.
+        .alert(problem != nil ? "Purchase" : "Convert",
+               isPresented: Binding(get: { problem != nil || conversion.problem != nil },
+                                    set: { if !$0 { problem = nil; conversion.problem = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(problem ?? "")
+            Text(problem ?? conversion.problem ?? "")
+        }
+    }
+
+    // MARK: Rootless packages on RootHide
+
+    private var hasPatcher: Bool {
+        installed.version(of: RootlessConversion.patcherPackage) != nil
+    }
+
+    private var patcherQueued: Bool {
+        queue.operation(for: RootlessConversion.patcherPackage) != nil
+    }
+
+    private var conversionNote: String {
+        if !hasPatcher && patcherQueued {
+            return "This is a rootless build, which RootHide Patcher converts for RootHide. RootHide Patcher is in "
+                + "the queue: confirm it in the Queue tab, then come back here. Not every tweak can be converted."
+        }
+        if !hasPatcher {
+            return "This is a rootless build. RootHide installs it only after RootHide Patcher converts it, "
+                + "so get RootHide Patcher first. Not every tweak can be converted."
+        }
+        return "This is a rootless build. Codling downloads it and opens the share sheet: choose RootHide Patcher, "
+            + "convert it there, then share the converted file to Codling to install it. "
+            + "Not every tweak can be converted."
+    }
+
+    /// Queues RootHide Patcher, from whichever source has it.
+    private var patcherButton: some View {
+        Button("GET PATCHER") {
+            queue.add(.install(RootlessConversion.patcherPackage), name: "RootHide Patcher")
+            light("GET PATCHER")
+        }
+        .buttonStyle(CapsuleButtonStyle(color: Palette.text))
+        .disabled(patcherQueued)
+        .overlay {
+            if lit == "GET PATCHER" {
+                NeonEdge(shape: Capsule(), once: litSince)
+            }
+        }
+        .accessibilityLabel("Get RootHide Patcher")
+    }
+
+    /// CONVERT, or UPDATE for a newer build: downloads the package and hands
+    /// it to RootHide Patcher.
+    @ViewBuilder
+    private func convertButton(update: Bool, purchase: PurchaseRequest?) -> some View {
+        if let working = conversion.working {
+            Button {} label: {
+                ProgressView()
+            }
+            .buttonStyle(CapsuleButtonStyle())
+            .disabled(true)
+            .accessibilityLabel(working)
+        } else {
+            let title = update ? "UPDATE" : "CONVERT"
+            Button(title) {
+                guard let record else { return }
+                light(title)
+                Task {
+                    await conversion.start(record: record, source: source, name: name, purchase: purchase,
+                                           sources: sources, accounts: accounts)
+                }
+            }
+            .buttonStyle(CapsuleButtonStyle(color: Palette.text))
+            .overlay {
+                if lit == title {
+                    NeonEdge(shape: Capsule(), once: litSince)
+                }
+            }
+            .accessibilityLabel(update ? "Update" : "Convert")
         }
     }
 
@@ -553,10 +658,13 @@ private struct PackageActions: View {
             .accessibilityLabel("Sign In")
         } else if let provider, let price, let available {
             if price.purchased {
-                action(update ? "UPDATE" : "GET", .install(identifier),
-                       purchase: PurchaseRequest(endpoint: provider.endpoint, providerName: provider.name,
-                                                 repo: source.source.uri, version: available,
-                                                 architecture: architecture))
+                let request = PurchaseRequest(endpoint: provider.endpoint, providerName: provider.name,
+                                              repo: source.source.uri, version: available, architecture: architecture)
+                if converting {
+                    convertButton(update: update, purchase: request)
+                } else {
+                    action(update ? "UPDATE" : "GET", .install(identifier), purchase: request)
+                }
             } else if price.available {
                 Button(price.price ?? "BUY") {
                     if accounts.isSignedIn(provider) {

@@ -28,6 +28,9 @@ struct RefreshOutcome {
 struct SourceRefresher {
     let jailbreakRoot: String
     let architecture: String
+    /// The architecture whose packages are kept too, for converting
+    /// (RootlessConversion): rootless ones on RootHide, none elsewhere.
+    var convertible: String? { RootlessConversion.convertibleArchitecture(on: architecture) }
     let store: IndexStore
     let signatures: SignatureCheck
     /// Where the downloaded files are kept, under apt's names.
@@ -132,10 +135,14 @@ struct SourceRefresher {
         // The package indexes, in the forms the Release file lists.
         let indexPaths = source.packageIndexPaths(architecture: architecture)
         let listed = indexPaths.map { release?.preferredFile(for: $0) }
-        let digestLines = zip(indexPaths, listed).compactMap { path, file -> String? in
+        var digestLines = zip(indexPaths, listed).compactMap { path, file -> String? in
             guard let file, let digest = file.entry.digests["SHA256"] ?? file.entry.digests.values.first else { return nil }
             return "\(path) \(digest)"
         }.joined(separator: "\n")
+        // An index read before rootless packages were kept is read again.
+        if let convertible, !digestLines.isEmpty {
+            digestLines += "\nconvertible \(convertible)"
+        }
         stateToSave.indexDigests = digestLines
 
         if !force, let stored, stored.packageCount > 0, release != nil, digestLines.count > 0,
@@ -181,7 +188,7 @@ struct SourceRefresher {
                 }
             }
             indexes.append((path, text))
-            records += PackageIndex.parse(text, architecture: architecture)
+            records += PackageIndex.parse(text, architecture: architecture, convertible: convertible)
         }
 
         stateToSave.warnings = warnings.joined(separator: "\n")

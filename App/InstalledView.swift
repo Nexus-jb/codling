@@ -69,8 +69,13 @@ struct InstalledView: View {
 
     /// The updates Upgrade All queues: every free one, and the paid ones
     /// of a provider the user is signed in to, which download as bought.
+    /// One that must be converted first (RootlessConversion) is updated
+    /// from its page.
     private var upgradable: [(PackageSummary, PurchaseRequest?)] {
         updates.updates.compactMap { package in
+            guard !RootlessConversion.needsConversion(package.architecture, on: environment.architecture) else {
+                return nil
+            }
             guard package.isPaid else { return (package, nil) }
             guard let provider = accounts.provider(forSource: package.source), accounts.isSignedIn(provider),
                   let info = sources.info(for: package.source) else { return nil }

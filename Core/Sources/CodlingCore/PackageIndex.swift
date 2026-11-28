@@ -33,7 +33,19 @@ public enum PackageIndex {
     /// The packages in a Packages index, for one architecture and "all".
     /// Stanzas without Package or Version are skipped. Reads bytes rather than
     /// a String: indexes run to tens of megabytes.
-    public static func parse(_ data: Data, architecture: String) -> [PackageRecord] {
+    ///
+    /// convertible is a second architecture whose packages are kept too, for
+    /// a package the index has no build of for architecture or "all": on
+    /// RootHide, rootless packages, which RootHide Patcher can convert
+    /// (RootlessConversion).
+    public static func parse(_ data: Data, architecture: String, convertible: String? = nil) -> [PackageRecord] {
+        let records = parseRecords(data, architecture: architecture, convertible: convertible)
+        guard let convertible else { return records }
+        let native = Set(records.lazy.filter { $0.architecture != convertible }.map(\.package))
+        return records.filter { $0.architecture != convertible || !native.contains($0.package) }
+    }
+
+    private static func parseRecords(_ data: Data, architecture: String, convertible: String?) -> [PackageRecord] {
         var records: [PackageRecord] = []
         records.reserveCapacity(data.count / 1200)
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
@@ -53,7 +65,8 @@ public enum PackageIndex {
             func finishRecord() {
                 finishField()
                 if started, !record.package.isEmpty, !record.version.isEmpty,
-                   record.architecture.isEmpty || record.architecture == architecture || record.architecture == "all" {
+                   record.architecture.isEmpty || record.architecture == architecture || record.architecture == "all"
+                    || (convertible != nil && record.architecture == convertible) {
                     records.append(record)
                 }
                 record = PackageRecord()
