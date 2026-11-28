@@ -10,8 +10,6 @@ import Foundation
 enum EssentialsOffer {
     private static let offeredKey = "OfferedEssentials"
 
-    static let notice = "Codling offers these essentials once, on its first launch: Burrow, for Safe Mode, and packages many tweaks need. Take off any you do not want. Nothing is installed until you confirm."
-
     /// Queues the essentials that are not installed and that a source
     /// offers for this device, once per device. Returns whether any were
     /// queued. Without an index or the installed packages yet, it does
@@ -38,7 +36,7 @@ enum EssentialsOffer {
             let name = offers.first { $0.package == essential.identifier }?.name ?? essential.name
             queue.addForReview(.install(essential.identifier), name: name)
         }
-        queue.notice = notice
+        queue.notice = Essentials.notice(for: missing)
         return true
         #endif
     }

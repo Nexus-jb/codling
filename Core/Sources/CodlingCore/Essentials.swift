@@ -40,4 +40,14 @@ public enum Essentials {
     public static func missing(installed: (String) -> Bool, offered: (String) -> Bool) -> [Essential] {
         all.filter { !installed($0.identifier) && offered($0.identifier) }
     }
+
+    /// The note over the queued essentials. It names Burrow only when Burrow
+    /// is among them: no source may have it for this jailbreak yet.
+    public static func notice(for queued: [Essential]) -> String {
+        let what = queued.contains { $0.identifier == all[0].identifier }
+            ? "Burrow, for Safe Mode, and packages many tweaks need"
+            : "packages many tweaks need"
+        return "Codling offers these essentials once, on its first launch: \(what). "
+            + "Take off any you do not want. Nothing is installed until you confirm."
+    }
 }
