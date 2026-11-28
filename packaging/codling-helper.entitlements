@@ -8,5 +8,18 @@
 	<!-- The helper works on the package database, outside any sandbox. -->
 	<key>com.apple.private.security.no-container</key>
 	<true/>
+	<!-- Outside any sandbox, as RootHide signs its own tools. -->
+	<key>com.apple.private.security.no-sandbox</key>
+	<true/>
+	<!-- RootHide keeps its root under /var/containers/Bundle/Application,
+	     with /var moved into a shared app group container. iOS lets a
+	     process write there only with these, as RootHide's own tools are
+	     signed; without them the helper's own writes, such as
+	     codling.sources, fail with "Operation not permitted" while apt's
+	     succeed. They change nothing on rootless. -->
+	<key>com.apple.private.security.storage.AppBundles</key>
+	<true/>
+	<key>com.apple.private.security.storage.AppDataContainers</key>
+	<true/>
 </dict>
 </plist>

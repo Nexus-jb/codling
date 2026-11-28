@@ -202,6 +202,46 @@ int main(int argc, char **argv) {
     expect(symlink(copy, link_path) == 0, "a link is made");
     expect(purchase_path(root, "com.example.linked", "1.0", path) != 0, "a link is not a copy");
 
+    // Paths as the jailbreak's programs see them (tool-path.h).
+    const char *hidden = "/private/var/containers/Bundle/Application/.jbroot-0123456789ABCDEF";
+    const char *preboot = "/private/preboot/ABCDEF/jb-XYZ/procursus";
+    char seen[PATH_MAX];
+    expect(codling_is_roothide_root(hidden), "a .jbroot- directory is a RootHide root");
+    expect(!codling_is_roothide_root(preboot), "a rootless root is not");
+    expect(!codling_is_roothide_root("/var/jb"), "nor is /var/jb");
+    expect(!codling_is_roothide_root("/private/var/containers/Bundle/Application/.jbroot-"), "a bare prefix is not");
+    expect(!codling_is_roothide_root(NULL), "no root is not");
+    expect(codling_tool_path(preboot, "/private/preboot/ABCDEF/jb-XYZ/procursus/var/lib/x.deb", seen, sizeof seen) == 0,
+           "a rootless path converts");
+    expect_string(seen, "/private/preboot/ABCDEF/jb-XYZ/procursus/var/lib/x.deb", "rootless paths stay real");
+    expect(codling_tool_path(hidden, "/private/var/containers/Bundle/Application/.jbroot-0123456789ABCDEF/var/lib/x.deb",
+                             seen, sizeof seen) == 0,
+           "a RootHide path converts");
+    expect_string(seen, "/var/lib/x.deb", "a path in the hidden root loses the root");
+    expect(codling_tool_path(hidden, hidden, seen, sizeof seen) == 0, "the root itself converts");
+    expect_string(seen, "/", "the hidden root is /");
+    expect(codling_tool_path(hidden, "/private/var/mobile/Library/Caches/x", seen, sizeof seen) == 0,
+           "a system path converts");
+    expect_string(seen, "/rootfs/private/var/mobile/Library/Caches/x", "a system path gains /rootfs");
+    expect(codling_tool_path(hidden, "/private/var/containers/Bundle/Application/.jbroot-0123456789ABCDEF0/x", seen,
+                             sizeof seen) == 0,
+           "a longer sibling converts");
+    expect_string(seen, "/rootfs/private/var/containers/Bundle/Application/.jbroot-0123456789ABCDEF0/x",
+                  "a directory that only starts like the root is not in it");
+    expect(codling_tool_path(NULL, "/var/jb/x", seen, sizeof seen) == 0, "no root converts");
+    expect_string(seen, "/var/jb/x", "no root changes nothing");
+    expect(codling_tool_path(hidden, "/private/var/mobile/x", seen, 10) != 0, "a result that does not fit fails");
+    char search[8 * PATH_MAX];
+    tool_search_path(hidden, search, sizeof search);
+    expect_string(search, "PATH=/usr/sbin:/usr/bin:/sbin:/bin:/rootfs/usr/sbin:/rootfs/usr/bin:/rootfs/sbin:/rootfs/bin",
+                  "RootHide's search path");
+    tool_search_path(preboot, search, sizeof search);
+    expect_string(search,
+                  "PATH=/private/preboot/ABCDEF/jb-XYZ/procursus/usr/sbin:/private/preboot/ABCDEF/jb-XYZ/procursus/usr/bin:"
+                  "/private/preboot/ABCDEF/jb-XYZ/procursus/sbin:/private/preboot/ABCDEF/jb-XYZ/procursus/bin:"
+                  "/usr/sbin:/usr/bin:/sbin:/bin",
+                  "the rootless search path is as before");
+
     // What apt-get install --print-uris prints, as apt 2.8 does: the
     // purchase, a dependency, and a version with an epoch.
     const char *uris =
@@ -343,6 +383,38 @@ int main(int argc, char **argv) {
         expect_string(kept, step, "the kept copy's path");
     } else {
         expect(file_copy_path(root, token, kept) != 0, "a copy that is not root's is not used");
+    }
+    // apt gets the kept copy's path as it sees it: real when rootless, from
+    // the hidden root when RootHide.
+    if (getuid() == 0) {
+        char operation[40];
+        snprintf(operation, sizeof operation, "%%%s", token);
+        char *operations[] = { operation };
+        const char *arguments[2];
+        char buffers[1][backup_path_size];
+        int restores = 0;
+        expect(add_operations(root, 1, operations, arguments, 0, buffers, &restores) == 1, "a rootless file operation");
+        expect_string(arguments[0], step, "rootless apt gets the real path");
+        expect(restores == 1, "an opened file may be older");
+        char hidden_root[PATH_MAX];
+        snprintf(hidden_root, sizeof hidden_root, "%s/.jbroot-0123456789ABCDEF", root);
+        const char *const parts[] = { "", "/var", "/var/lib", "/var/lib/codling", "/var/lib/codling/files" };
+        for (size_t i = 0; i < sizeof parts / sizeof *parts; i++) {
+            snprintf(kept, sizeof kept, "%s%s", hidden_root, parts[i]);
+            mkdir(kept, 0755);
+        }
+        snprintf(kept, sizeof kept, "%s/var/lib/codling/files/%s.deb", hidden_root, token);
+        FILE *hidden_copy = fopen(kept, "w");
+        expect(hidden_copy != NULL, "a kept copy is written in a RootHide root");
+        if (hidden_copy) {
+            fputs("!<arch>\n", hidden_copy);
+            fclose(hidden_copy);
+        }
+        restores = 0;
+        expect(add_operations(hidden_root, 1, operations, arguments, 0, buffers, &restores) == 1,
+               "a RootHide file operation");
+        snprintf(kept, sizeof kept, "/var/lib/codling/files/%s.deb", token);
+        expect_string(arguments[0], kept, "RootHide's apt gets the path from its root");
     }
     expect(file_copy_path(root, "../../../../../../etc/passwd", kept) != 0, "a path is not a token");
     snprintf(kept, sizeof kept, "%s/var/lib/codling/files/%s.deb", root, "ffeeddccbbaa99887766554433221100");

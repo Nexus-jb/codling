@@ -23,6 +23,9 @@ struct codling_repack_paths {
     // The dpkg-deb program, and the PATH it runs with.
     const char *dpkg_deb;
     const char *path_variable;
+    // The jailbreak root, so that dpkg-deb gets paths as it sees them
+    // (tool-path.h); NULL leaves them as they are.
+    const char *tool_root;
 };
 
 // Rebuilds package into paths->output as name_version_architecture.deb, with
