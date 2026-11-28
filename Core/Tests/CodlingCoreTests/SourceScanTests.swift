@@ -64,6 +64,27 @@ final class SourceScanTests: XCTestCase {
         XCTAssertEqual(findings, [])
     }
 
+    func testRootlessBuildsOnRootHideNeverTakeOverTheJailbreak() {
+        var rootless = summary("ellekit-space", "ellekit", "1.3")
+        rootless.architecture = "iphoneos-arm64"
+        var roothide = summary("roothide", "ellekit", "1.2-3")
+        roothide.architecture = "iphoneos-arm64e"
+        // A rootless ellekit apt on RootHide cannot install is no threat.
+        var findings = SourceScan.scan(packages: [rootless], others: [roothide], sourceTitles: [:],
+                                       installed: ["ellekit": "1.2-3"], essential: [], convertible: "iphoneos-arm64")
+        XCTAssertEqual(findings, [])
+        // Nor does it hide a newer RootHide build that is one.
+        var newer = summary("new", "ellekit", "1.2-4")
+        newer.architecture = "iphoneos-arm64e"
+        findings = SourceScan.scan(packages: [newer], others: [roothide, rootless], sourceTitles: [:],
+                                   installed: ["ellekit": "1.2-3"], essential: [], convertible: "iphoneos-arm64")
+        XCTAssertEqual(findings.map(\.kind), [.replacesSystem(version: "1.2-4", installed: "1.2-3")])
+        // Rootless devices check every build, as before.
+        findings = SourceScan.scan(packages: [rootless], others: [roothide], sourceTitles: [:],
+                                   installed: ["ellekit": "1.2-3"], essential: [])
+        XCTAssertEqual(findings.map(\.kind), [.replacesSystem(version: "1.3", installed: "1.2-3")])
+    }
+
     func testCleanSource() {
         let findings = SourceScan.scan(packages: [summary("opa", "com.opa334.choicy", name: "Choicy")],
                                        others: [summary("havoc", "com.other.tweak", tag: "cydia::commercial")],

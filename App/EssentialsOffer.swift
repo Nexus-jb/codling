@@ -13,8 +13,10 @@ enum EssentialsOffer {
     /// Queues the essentials that are not installed and that a source
     /// offers for this device, once per device. Returns whether any were
     /// queued. Without an index or the installed packages yet, it does
-    /// nothing, and the next launch tries again.
-    static func queueOnce(store: IndexStore?, installed: InstalledPackagesModel, queue: QueueModel) async -> Bool {
+    /// nothing, and the next launch tries again. A build that would have
+    /// to be converted first (RootlessConversion) does not count.
+    static func queueOnce(store: IndexStore?, installed: InstalledPackagesModel, queue: QueueModel,
+                          architecture: String) async -> Bool {
         #if targetEnvironment(simulator)
         // Nothing installs in the simulator, which only takes screenshots.
         return false
@@ -25,9 +27,10 @@ enum EssentialsOffer {
             return false
         }
         guard let count = try? await store.packageCount(), count > 0,
-              let offers = try? await store.offers(ofAny: Essentials.all.map(\.identifier)) else {
+              let everyOffer = try? await store.offers(ofAny: Essentials.all.map(\.identifier)) else {
             return false
         }
+        let offers = everyOffer.filter { !RootlessConversion.needsConversion($0.architecture, on: architecture) }
         let offered = Set(offers.map(\.package))
         let missing = Essentials.missing(installed: { installed.version(of: $0) != nil }, offered: offered.contains)
         defaults.set(true, forKey: offeredKey)

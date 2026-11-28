@@ -262,8 +262,8 @@ actor IndexStore {
             let package = summary(statement)
             guard shown.insert("\(package.source) \(package.package)").inserted else { continue }
             found.append(Arrival(package: package,
-                                 date: Date(timeIntervalSince1970: sqlite3_column_double(statement, 11)),
-                                 updated: sqlite3_column_int64(statement, 12) != 0))
+                                 date: Date(timeIntervalSince1970: sqlite3_column_double(statement, 12)),
+                                 updated: sqlite3_column_int64(statement, 13) != 0))
         }
         return found
     }
@@ -341,13 +341,15 @@ actor IndexStore {
 
     // MARK: Browsing
 
-    private static let summaryColumns = "source, package, version, name, section, author, maintainer, summary, icon, tag, depends"
+    private static let summaryColumns =
+        "source, package, version, name, section, author, maintainer, summary, icon, tag, depends, architecture"
 
     private func summary(_ statement: OpaquePointer?) -> PackageSummary {
         PackageSummary(source: column(statement, 0) ?? "", package: column(statement, 1) ?? "",
                        version: column(statement, 2) ?? "", name: column(statement, 3), section: column(statement, 4),
                        author: column(statement, 5), maintainer: column(statement, 6), summary: column(statement, 7),
-                       icon: column(statement, 8), tag: column(statement, 9), depends: column(statement, 10))
+                       icon: column(statement, 8), tag: column(statement, 9), depends: column(statement, 10),
+                       architecture: column(statement, 11))
     }
 
     /// The newest version of each package of a source, sorted by name.

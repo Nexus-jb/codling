@@ -15,10 +15,12 @@ public struct PackageSummary: Equatable, Identifiable {
     public var icon: String?
     public var tag: String?
     public var depends: String?
+    /// The record's Architecture field, when the list knows it.
+    public var architecture: String?
 
     public init(source: String, package: String, version: String, name: String? = nil, section: String? = nil,
                 author: String? = nil, maintainer: String? = nil, summary: String? = nil, icon: String? = nil,
-                tag: String? = nil, depends: String? = nil) {
+                tag: String? = nil, depends: String? = nil, architecture: String? = nil) {
         self.source = source
         self.package = package
         self.version = version
@@ -30,6 +32,7 @@ public struct PackageSummary: Equatable, Identifiable {
         self.icon = icon
         self.tag = tag
         self.depends = depends
+        self.architecture = architecture
     }
 
     /// What the package says about the device's iOS version.

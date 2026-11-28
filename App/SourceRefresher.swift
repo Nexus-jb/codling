@@ -28,11 +28,20 @@ struct RefreshOutcome {
 struct SourceRefresher {
     let jailbreakRoot: String
     let architecture: String
+    /// The architecture whose packages are kept too, for converting
+    /// (RootlessConversion): rootless ones on RootHide, none elsewhere.
+    var convertible: String? { RootlessConversion.convertibleArchitecture(on: architecture) }
     let store: IndexStore
     let signatures: SignatureCheck
     /// Where the downloaded files are kept, under apt's names.
     let listsDirectory: URL
     let session: URLSession
+
+    /// The line that marks stored index digests as read with rootless
+    /// packages kept.
+    static func convertibleMark(_ architecture: String) -> String {
+        "convertible \(architecture)"
+    }
 
     /// The most a package index may grow to once decompressed.
     static let indexLimit = 512 << 20
@@ -73,7 +82,10 @@ struct SourceRefresher {
             throw RefreshError.message("The address \(source.uri) is not a valid URL.")
         }
         let stored = try await store.source(id: source.id)
-        let validators = force ? nil : stored
+        // An index read before rootless packages were kept on RootHide is
+        // read again, even when the server says nothing changed.
+        let reread = convertible.map { !(stored?.indexDigests ?? "").contains(Self.convertibleMark($0)) } ?? false
+        let validators = force || reread ? nil : stored
         var warnings: [String] = []
 
         // The Release file: InRelease, or Release with Release.gpg.
@@ -132,13 +144,17 @@ struct SourceRefresher {
         // The package indexes, in the forms the Release file lists.
         let indexPaths = source.packageIndexPaths(architecture: architecture)
         let listed = indexPaths.map { release?.preferredFile(for: $0) }
-        let digestLines = zip(indexPaths, listed).compactMap { path, file -> String? in
+        let indexDigests = zip(indexPaths, listed).compactMap { path, file -> String? in
             guard let file, let digest = file.entry.digests["SHA256"] ?? file.entry.digests.values.first else { return nil }
             return "\(path) \(digest)"
         }.joined(separator: "\n")
+        // Marked when rootless packages were kept, so that an index read
+        // without them is read again (reread above).
+        let digestLines = convertible.map { [indexDigests, Self.convertibleMark($0)].filter { !$0.isEmpty }
+            .joined(separator: "\n") } ?? indexDigests
         stateToSave.indexDigests = digestLines
 
-        if !force, let stored, stored.packageCount > 0, release != nil, digestLines.count > 0,
+        if !force, let stored, stored.packageCount > 0, release != nil, !indexDigests.isEmpty,
            stored.indexDigests == digestLines {
             // The Release file changed, but not the indexes it lists.
             stateToSave.warnings = (warnings + (stored.warnings ?? "").split(separator: "\n").map(String.init)
@@ -181,7 +197,7 @@ struct SourceRefresher {
                 }
             }
             indexes.append((path, text))
-            records += PackageIndex.parse(text, architecture: architecture)
+            records += PackageIndex.parse(text, architecture: architecture, convertible: convertible)
         }
 
         stateToSave.warnings = warnings.joined(separator: "\n")

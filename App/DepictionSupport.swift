@@ -163,6 +163,12 @@ struct DeviceFacts {
     let systemVersion: String
     let scheme: JailbreakScheme
 
+    /// The package architecture this device's jailbreak installs, as
+    /// RuntimeEnvironment.architecture.
+    var architecture: String {
+        scheme == .roothide ? RootlessConversion.roothideArchitecture : RootlessConversion.rootlessArchitecture
+    }
+
     /// The kind of package this device's jailbreak installs.
     var jailbreak: JailbreakKind {
         switch scheme {
@@ -193,8 +199,9 @@ struct CompatibilityCard: View {
             Rectangle()
                 .fill(Palette.divider.opacity(0.45))
                 .frame(height: 1)
-            line(symbol: jailbreakFits ? "checkmark.seal.fill" : "xmark.octagon.fill",
-                 color: jailbreakFits ? Palette.green : .red, title: "Jailbreak",
+            line(symbol: jailbreakFits ? "checkmark.seal.fill"
+                     : convertible ? "arrow.triangle.2.circlepath" : "xmark.octagon.fill",
+                 color: jailbreakFits ? Palette.green : convertible ? .orange : .red, title: "Jailbreak",
                  value: kind == .any ? "Any" : kind.title.capitalizedFirst, detail: jailbreakDetail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -239,7 +246,14 @@ struct CompatibilityCard: View {
     }
 
     private var jailbreakDetail: String {
-        jailbreakFits ? "Matches this device" : "This device is \(device.jailbreak.title)"
+        if jailbreakFits { return "Matches this device" }
+        if convertible { return "RootHide Patcher can convert it for this device" }
+        return "This device is \(device.jailbreak.title)"
+    }
+
+    /// A rootless build on RootHide, which RootHide Patcher can convert.
+    private var convertible: Bool {
+        RootlessConversion.needsConversion(architecture, on: device.architecture)
     }
 
     private var iosSymbol: String {
