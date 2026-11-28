@@ -56,6 +56,22 @@ struct SignatureCheck {
         return keyrings
     }
 
+    /// The keys a source's signature is checked against, as one mark. A
+    /// source refreshed under other keys is checked again even when the
+    /// server says its Release file did not change, so that a key installed
+    /// or removed shows at the next refresh.
+    func trustMark(for source: Source) -> String {
+        var data = Data()
+        for keyring in keyrings(for: source) {
+            data.append(Data(keyring.utf8))
+            // Signed-By names a keyring as apt reads it, which on RootHide is
+            // from the hidden root.
+            let onDisk = FileManager.default.fileExists(atPath: keyring) ? keyring : jailbreakRoot + keyring
+            data.append(FileManager.default.contents(atPath: onDisk) ?? Data())
+        }
+        return "keys " + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Checks an InRelease file and returns the text it signs.
     func verifyClearsigned(_ data: Data, source: Source) throws -> (text: String, signature: Signature) {
         let input = workDirectory.appendingPathComponent(UUID().uuidString + ".InRelease")
