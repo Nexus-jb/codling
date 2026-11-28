@@ -25,6 +25,8 @@ struct PackageView: View {
     @State private var webLoad: WebLoadState = .loading
     @State private var webReload = 0
     @State private var savedDiagnostics = false
+    /// The installed package's pages in Settings.
+    @State private var settingsPanes: [SettingsPane] = []
 
     var body: some View {
         ScrollView {
@@ -114,6 +116,9 @@ struct PackageView: View {
                     .font(.subheadline)
                     .foregroundColor(Palette.green)
             }
+            if !settingsPanes.isEmpty {
+                TweakSettingsButtons(panes: settingsPanes)
+            }
             if let record {
                 CompatibilityCard(report: Compatibility.check(depends: record.depends, tag: record.tag, name: record.name,
                                                               summary: record.summary, systemVersion: device.systemVersion),
@@ -127,6 +132,10 @@ struct PackageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .glassSurface(cornerRadius: 22)
+        .task(id: installed.version(of: identifier)) {
+            settingsPanes = await TweakSettings.panes(package: identifier, installed: installed.version(of: identifier),
+                                                      statusPath: device.dpkgStatusPath)
+        }
     }
 
     private var author: String? {

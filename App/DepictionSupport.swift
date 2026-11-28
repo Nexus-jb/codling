@@ -158,10 +158,25 @@ private struct DeviceKey: EnvironmentKey {
     static let defaultValue = DeviceFacts(systemVersion: "", scheme: .unknown)
 }
 
-/// What compatibility badges compare packages with.
+/// What compatibility badges compare packages with, and where package
+/// pages find what dpkg installed.
 struct DeviceFacts {
     let systemVersion: String
     let scheme: JailbreakScheme
+    /// dpkg's status file; its info directory beside it lists each
+    /// package's files.
+    var dpkgStatusPath: String?
+
+    init(systemVersion: String, scheme: JailbreakScheme, dpkgStatusPath: String? = nil) {
+        self.systemVersion = systemVersion
+        self.scheme = scheme
+        self.dpkgStatusPath = dpkgStatusPath
+    }
+
+    init(_ environment: RuntimeEnvironment) {
+        self.init(systemVersion: environment.systemVersion, scheme: environment.scheme,
+                  dpkgStatusPath: environment.dpkgStatusPath)
+    }
 
     /// The package architecture this device's jailbreak installs, as
     /// RuntimeEnvironment.architecture.

@@ -55,5 +55,9 @@
 	     the helper needs no setuid bit. -->
 	<key>com.apple.private.persona-mgmt</key>
 	<true/>
+	<!-- Lets Codling open a tweak's page in Settings (a prefs: address),
+	     which LaunchServices opens only for apps with it. -->
+	<key>com.apple.springboard.opensensitiveurl</key>
+	<true/>
 </dict>
 </plist>

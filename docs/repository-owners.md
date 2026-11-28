@@ -206,6 +206,16 @@ so a button can sit beside the ones for other package managers.
 <a href="codling://source/https://repo.example.com/">Add to Codling</a>
 ```
 
+## Settings pages
+
+An installed tweak's page in Codling has a Settings button for each page its
+package adds to the Settings app: each plist it installs in
+`/Library/PreferenceLoader/Preferences` whose `entry` has a `label`, unless
+the plist's filter leaves it out on the device. The button opens
+`prefs:root=<id>`, or `prefs:root=General&path=<id>` from iOS 18, where
+PreferenceLoader adds tweaks' pages at the end of General; `<id>` is the
+entry's `id`, or else its `label`.
+
 ## What a removed package leaves behind
 
 When a user removes a package, dpkg removes the files the package brought,
