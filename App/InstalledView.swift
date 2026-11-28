@@ -243,6 +243,9 @@ private struct InstalledIcon: View {
 private struct PackageDetailView: View {
     let package: InstalledPackage
     @EnvironmentObject private var queue: QueueModel
+    @Environment(\.device) private var device
+    /// The package's pages in Settings.
+    @State private var settingsPanes: [SettingsPane] = []
 
     /// The fields shown in the summary, in this order; the rest follow.
     private static let summaryFields = ["Version", "Section", "Author", "Maintainer", "Architecture", "Installed-Size"]
@@ -272,6 +275,10 @@ private struct PackageDetailView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 12)
+                    }
+                    if !settingsPanes.isEmpty {
+                        TweakSettingsButtons(panes: settingsPanes)
                             .padding(.top, 12)
                     }
                 }
@@ -315,6 +322,10 @@ private struct PackageDetailView: View {
         .background(WallBackground())
         .navigationTitle(package.name)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: package.version) {
+            settingsPanes = await TweakSettings.panes(package: package.identifier, installed: package.version,
+                                                      statusPath: device.dpkgStatusPath)
+        }
     }
 
     private struct Field: Identifiable {

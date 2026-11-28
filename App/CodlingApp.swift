@@ -207,7 +207,7 @@ struct CodlingApp: App {
                         .environmentObject(installed)
                         .environmentObject(queue)
                         .environmentObject(updates)
-                        .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                        .environment(\.device, DeviceFacts(environment))
                         .tint(Palette.text)
                         .accentColor(Palette.text)
                 }
@@ -245,7 +245,7 @@ struct CodlingApp: App {
                     .environmentObject(installed)
                     .environmentObject(queue)
                     .environmentObject(updates)
-                    .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                    .environment(\.device, DeviceFacts(environment))
                     .tint(Palette.text)
                     .accentColor(Palette.text)
                 }
@@ -298,7 +298,7 @@ struct CodlingApp: App {
                 .environmentObject(updates)
                 .environmentObject(adder)
                 .environmentObject(reports)
-                .environment(\.device, DeviceFacts(systemVersion: environment.systemVersion, scheme: environment.scheme))
+                .environment(\.device, DeviceFacts(environment))
                 // The design draws buttons, links and the selected tab in
                 // the text color.
                 .tint(Palette.text)

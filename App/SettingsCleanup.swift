@@ -185,14 +185,14 @@ enum SettingsCleanup {
 
     /// A file dpkg lists: as it is, or under the jailbreak's root when the
     /// list names it from there.
-    private static func path(_ listed: String, root: String) -> String {
+    static func path(_ listed: String, root: String) -> String {
         if root.isEmpty || FileManager.default.fileExists(atPath: listed) {
             return listed
         }
         return root + listed
     }
 
-    private static func readPlist(_ path: String) -> Any? {
+    static func readPlist(_ path: String) -> Any? {
         guard let data = FileManager.default.contents(atPath: path) else { return nil }
         return try? PropertyListSerialization.propertyList(from: data, format: nil)
     }
