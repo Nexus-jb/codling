@@ -41,6 +41,10 @@ works on real devices.
 - Sources refresh in parallel and incrementally, into a local index.
 - Errors are explained in plain language, with a **Fix** button where one
   exists, instead of raw APT output.
+- **Essentials on the first launch.** Codling queues the packages a new
+  jailbreak usually needs and the device lacks: Burrow, PreferenceLoader,
+  AltList, Cephei and libSandy. You review them and take off any you do not
+  want before anything is installed.
 - **Crash reports, only with your consent.** The Burrow screen lists the
   crashes Burrow blames on a tweak. Send to Developer shows exactly what
   goes to the tweak's source before it is sent, and only sources that take
@@ -59,9 +63,11 @@ works on real devices.
 
 ## Neutral by design
 
-Codling comes with the [Nexus](https://nexusjb.com) repository as a default
-source, and you can remove it. Every source is treated the same way: no hidden
-ads, no tracking and no paid placement. Purchases use the payment provider API
+Codling comes with three default sources, [Nexus](https://nexusjb.com),
+[Havoc](https://havoc.app) and [Chariz](https://chariz.com), and you can
+remove any of them. It keeps only the jailbreak's own source, as apt needs it
+to update and repair the jailbreak. Every source is treated the same way: no
+hidden ads, no tracking and no paid placement. Purchases use the payment provider API
 that other package managers already support, so paid repositories work in
 Codling without extra setup.
 

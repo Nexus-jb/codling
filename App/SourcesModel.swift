@@ -63,7 +63,8 @@ final class SourcesModel: ObservableObject {
     /// refreshes them when a refresh is due (refreshIsDue), once per launch.
     func start() async {
         await load()
-        if !refreshedThisLaunch, refreshIsDue {
+        // A default source added just now has nothing in the index yet.
+        if !refreshedThisLaunch, refreshIsDue || addedSourcesThisLaunch {
             refreshedThisLaunch = true
             await refresh(force: false)
         }
@@ -76,7 +77,7 @@ final class SourcesModel: ObservableObject {
             prepare()
         }
         guard let store else { return }
-        await addDefaultSourceOnce()
+        await addDefaultSourcesOnce()
         for index in rows.indices {
             rows[index].stored = try? await store.source(id: rows[index].id)
         }
@@ -106,25 +107,38 @@ final class SourcesModel: ObservableObject {
         return age < 0 || age >= Self.refreshInterval
     }
 
-    /// Nexus, the source Codling comes with.
-    static let defaultSource = "https://repo.nexusjb.com/"
-    private static let addedDefaultSourceKey = "AddedDefaultSource"
+    /// The sources Codling comes with: Nexus, Havoc and Chariz. The
+    /// jailbreak brings its own source, which Codling does not add.
+    static let defaultSources = ["https://repo.nexusjb.com/", "https://havoc.app/", "https://repo.chariz.com/"]
+    /// Whether a default source was added on this launch.
+    private var addedSourcesThisLaunch = false
 
-    /// Adds the default source once. After it is in apt's lists, Codling
+    /// The key that records that a default source was added. Nexus keeps
+    /// the key it had when it was the only one.
+    private static func addedKey(for uri: String) -> String {
+        uri == defaultSources[0] ? "AddedDefaultSource" : "AddedDefaultSource " + uri
+    }
+
+    /// Adds each default source once. After one is in apt's lists, Codling
     /// remembers that and never adds it again, so it stays gone when the
-    /// person removes it. When the helper cannot add it, the next launch
-    /// tries again.
-    private func addDefaultSourceOnce() async {
+    /// person removes it, as with any source but the jailbreak's own. When
+    /// the helper cannot add it, the next launch tries again.
+    private func addDefaultSourcesOnce() async {
         let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: Self.addedDefaultSourceKey) else { return }
-        if existing(uri: Self.defaultSource) != nil {
-            defaults.set(true, forKey: Self.addedDefaultSourceKey)
-            return
+        var added = false
+        for uri in Self.defaultSources where !defaults.bool(forKey: Self.addedKey(for: uri)) {
+            if existing(uri: uri) != nil {
+                defaults.set(true, forKey: Self.addedKey(for: uri))
+                continue
+            }
+            let result = await Task.detached(priority: .userInitiated) { RootHelper.addSource(uri) }.value
+            if case .success = result {
+                defaults.set(true, forKey: Self.addedKey(for: uri))
+                added = true
+            }
         }
-        let uri = Self.defaultSource
-        let result = await Task.detached(priority: .userInitiated) { RootHelper.addSource(uri) }.value
-        if case .success = result {
-            defaults.set(true, forKey: Self.addedDefaultSourceKey)
+        if added {
+            addedSourcesThisLaunch = true
             reloadSources()
         }
     }
@@ -265,7 +279,8 @@ final class SourcesModel: ObservableObject {
     }
 
     /// Whether a source is the one the jailbreak installs and updates its
-    /// own packages from, which needs a clearer warning before it goes.
+    /// own packages from. Codling does not remove it: without it, apt
+    /// cannot update or repair the jailbreak's packages.
     func isJailbreakSource(_ source: Source) -> Bool {
         source.host == "procurs.us" || source.host.hasSuffix(".procurs.us")
             || source.file.hasSuffix("/procursus.sources")
@@ -274,6 +289,7 @@ final class SourcesModel: ObservableObject {
     /// Removes a source from whichever sources file lists it, through the
     /// root helper. Returns the reason when it fails.
     func remove(_ source: Source) async -> String? {
+        guard !isJailbreakSource(source) else { return Self.jailbreakSourceNote }
         let result = await Task.detached(priority: .userInitiated) { RootHelper.removeSource(source.uri) }.value
         switch result {
         case .failure(let failure):
@@ -320,12 +336,12 @@ final class SourcesModel: ObservableObject {
     }
 
     /// What removing a source does, for its confirmation.
-    static func removalNote(for source: Source, jailbreak: Bool) -> String {
-        if jailbreak {
-            return "This is the jailbreak's own source. Without it, apt cannot update or repair the jailbreak's packages, and other packages that need them may not install. Its packages stay installed."
-        }
-        return "Its packages stay installed. Codling stops showing its packages and their updates."
+    static func removalNote(for source: Source) -> String {
+        "Its packages stay installed. Codling stops showing its packages and their updates."
     }
+
+    /// Why the jailbreak's own source has no Remove button.
+    static let jailbreakSourceNote = "This is the jailbreak's own source, so Codling keeps it: without it, apt cannot update or repair the jailbreak's packages, and packages that need them may not install."
 
     /// What package pages need to know about a source.
     func info(for id: String) -> SourceInfo? {
