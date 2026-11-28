@@ -569,8 +569,11 @@ final class AddSourceFlow: ObservableObject {
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         alert.addAction(UIAlertAction(title: "Add", style: .default) { [weak alert] _ in
+            // The text is read now: by the time a task runs, the alert may
+            // be gone, and with it what the user typed.
+            let typed = alert?.textFields?.first?.text ?? ""
             Task { @MainActor in
-                await self.addTyped(alert?.textFields?.first?.text ?? "")
+                await self.addTyped(typed)
             }
         })
         Task { await present(alert) }
