@@ -37,6 +37,20 @@ struct SourceRefresher {
     let listsDirectory: URL
     let session: URLSession
 
+    /// The warnings about a source's signature.
+    static let unsignedWarning =
+        "This source is not signed, so Codling cannot tell whether its files were changed on the way."
+    static let untrustedKeyWarning = "This source is signed with a key this device does not trust"
+
+    static func isSignatureWarning(_ warning: String) -> Bool {
+        warning == unsignedWarning || warning.hasPrefix(untrustedKeyWarning)
+    }
+
+    /// Stored index digests without the mark of the keys (trustMark).
+    static func withoutKeys(_ digests: String?) -> String {
+        (digests ?? "").split(separator: "\n").filter { !$0.hasPrefix("keys ") }.joined(separator: "\n")
+    }
+
     /// The line that marks stored index digests as read with rootless
     /// packages kept.
     static func convertibleMark(_ architecture: String) -> String {
@@ -82,10 +96,13 @@ struct SourceRefresher {
             throw RefreshError.message("The address \(source.uri) is not a valid URL.")
         }
         let stored = try await store.source(id: source.id)
+        let storedMarks = stored?.indexDigests ?? ""
+        let keys = signatures.trustMark(for: source)
         // An index read before rootless packages were kept on RootHide is
-        // read again, even when the server says nothing changed.
-        let reread = convertible.map { !(stored?.indexDigests ?? "").contains(Self.convertibleMark($0)) } ?? false
-        let validators = force || reread ? nil : stored
+        // read again, and a Release file checked under other keys is checked
+        // again, even when the server says nothing changed.
+        let reread = convertible.map { !storedMarks.contains(Self.convertibleMark($0)) } ?? false
+        let validators = force || reread || !storedMarks.contains(keys) ? nil : stored
         var warnings: [String] = []
 
         // The Release file: InRelease, or Release with Release.gpg.
@@ -127,9 +144,9 @@ struct SourceRefresher {
         }
         switch signature {
         case .unsigned where releaseText != nil:
-            warnings.append("This source is not signed, so Codling cannot tell whether its files were changed on the way.")
+            warnings.append(Self.unsignedWarning)
         case .untrustedKey(let key):
-            warnings.append("This source is signed with a key this device does not trust (\(key)), so the signature proves nothing.")
+            warnings.append(Self.untrustedKeyWarning + " (\(key)), so the signature proves nothing.")
         default:
             break
         }
@@ -149,16 +166,19 @@ struct SourceRefresher {
             return "\(path) \(digest)"
         }.joined(separator: "\n")
         // Marked when rootless packages were kept, so that an index read
-        // without them is read again (reread above).
-        let digestLines = convertible.map { [indexDigests, Self.convertibleMark($0)].filter { !$0.isEmpty }
-            .joined(separator: "\n") } ?? indexDigests
+        // without them is read again, and with the keys the Release file was
+        // checked under (reread above).
+        let marks = [convertible.map(Self.convertibleMark), keys].compactMap { $0 }
+        let digestLines = ([indexDigests] + marks).filter { !$0.isEmpty }.joined(separator: "\n")
         stateToSave.indexDigests = digestLines
 
         if !force, let stored, stored.packageCount > 0, release != nil, !indexDigests.isEmpty,
-           stored.indexDigests == digestLines {
-            // The Release file changed, but not the indexes it lists.
+           Self.withoutKeys(stored.indexDigests) == Self.withoutKeys(digestLines) {
+            // The Release file changed, or the keys it was checked under, but
+            // not the indexes it lists. The warnings about the index stay;
+            // those about the signature are this check's.
             stateToSave.warnings = (warnings + (stored.warnings ?? "").split(separator: "\n").map(String.init)
-                .filter { !warnings.contains($0) }).joined(separator: "\n")
+                .filter { !warnings.contains($0) && !Self.isSignatureWarning($0) }).joined(separator: "\n")
             try await store.save(stateToSave, packages: nil)
             try saveLists(source: source, releaseFiles: releaseFiles, indexes: [])
             return RefreshOutcome(state: .unchanged, label: stateToSave.label, signature: signature,
